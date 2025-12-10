@@ -3,14 +3,15 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useCallback } from 'react';
 import { Button, Card, Select, Textarea, Modal, Input } from '@/components/ui';
-import { Lead, LeadStatus, deadReasonOptions, leadStatusOptions, ShowcaseVehicle, MAX_SHOWCASE_VEHICLES } from '@/lib/validation';
-import { formatDate, formatMonthYear } from '@/lib/utils';
+import { Lead, LeadStatus, deadReasonOptions, leadStatusOptions, ShowcaseVehicle } from '@/lib/validation';
+import { formatDate } from '@/lib/utils';
 
 interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-// Updated status config to match the 5 requested statuses
+type TabType = 'dashboard' | 'leads' | 'templates' | 'showcase';
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   'new': { label: 'New Lead', color: 'text-slate-700', bg: 'bg-slate-100 border-slate-300' },
   'working': { label: 'Working', color: 'text-amber-700', bg: 'bg-amber-50 border-amber-300' },
@@ -19,31 +20,28 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   'dead': { label: 'Dead Lead', color: 'text-red-700', bg: 'bg-red-50 border-red-300' },
 };
 
-type TabType = 'leads' | 'showcase' | 'settings';
+interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+}
 
 export function AdminDashboard({ onLogout }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('leads');
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all');
-  const [editingNotes, setEditingNotes] = useState<string | null>(null);
-  const [notesValue, setNotesValue] = useState('');
-  const [licenseModal, setLicenseModal] = useState<{ url: string; name: string } | null>(null);
-  const [expandedLead, setExpandedLead] = useState<string | null>(null);
-  
-  // Showcase
+  const [starredLeads, setStarredLeads] = useState<Set<string>>(new Set());
+  const [licenseUrls, setLicenseUrls] = useState<Record<string, string>>({});
+  const [enlargedImage, setEnlargedImage] = useState<{ url: string; name: string } | null>(null);
+  const [emailModal, setEmailModal] = useState<{ lead: Lead } | null>(null);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [showcaseVehicles, setShowcaseVehicles] = useState<ShowcaseVehicle[]>([]);
-  const [showcaseLoading, setShowcaseLoading] = useState(false);
-  const [showAddVehicle, setShowAddVehicle] = useState(false);
-  const [newVehicle, setNewVehicle] = useState({ year: '', make: '', model: '', trim: '', price: '', mileage: '' });
-  const [vehicleImage, setVehicleImage] = useState<File | null>(null);
-  
-  // Settings
-  const [emailSettings, setEmailSettings] = useState({ recipientEmail: '', fromName: 'My Next Ride Ontario', enabled: true });
-  const [settingsSaving, setSettingsSaving] = useState(false);
-  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
 
   const fetchLeads = useCallback(async () => {
     setIsLoading(true);
@@ -51,7 +49,31 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
       const response = await fetch(`/api/admin/leads?year=${selectedYear}&month=${selectedMonth}`);
       if (response.ok) {
         const data = await response.json();
-        setLeads(data.leads || []);
+        const fetchedLeads = data.leads || [];
+        setLeads(fetchedLeads);
+        
+        // Fetch ALL license URLs upfront
+        const urlPromises = fetchedLeads
+          .filter((lead: Lead) => lead.driversLicenseKey)
+          .map(async (lead: Lead) => {
+            try {
+              const res = await fetch(`/api/admin/leads/${lead.id}/license-url?key=${encodeURIComponent(lead.driversLicenseKey!)}`);
+              if (res.ok) {
+                const { url } = await res.json();
+                return { leadId: lead.id, url };
+              }
+            } catch (err) {
+              console.error(`Failed license URL for ${lead.id}:`, err);
+            }
+            return null;
+          });
+
+        const urlResults = await Promise.all(urlPromises);
+        const urlMap: Record<string, string> = {};
+        urlResults.forEach(result => {
+          if (result) urlMap[result.leadId] = result.url;
+        });
+        setLicenseUrls(urlMap);
       }
     } catch (error) {
       console.error('Error fetching leads:', error);
@@ -60,57 +82,11 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     }
   }, [selectedYear, selectedMonth]);
 
-  const fetchShowcase = useCallback(async () => {
-    setShowcaseLoading(true);
-    try {
-      const response = await fetch('/api/admin/showcase');
-      if (response.ok) {
-        const data = await response.json();
-        setShowcaseVehicles(data.vehicles || []);
-      }
-    } catch (error) {
-      console.error('Error fetching showcase:', error);
-    } finally {
-      setShowcaseLoading(false);
-    }
-  }, []);
-
-  const fetchSettings = useCallback(async () => {
-    try {
-      const response = await fetch('/api/admin/settings');
-      if (response.ok) {
-        const data = await response.json();
-        if (data.settings) setEmailSettings(data.settings);
-      }
-    } catch (error) {
-      console.error('Error fetching settings:', error);
-    }
-  }, []);
-
   useEffect(() => {
     fetchLeads();
-    fetchShowcase();
-    fetchSettings();
-  }, [fetchLeads, fetchShowcase, fetchSettings]);
+  }, [fetchLeads]);
 
-  const saveSettings = async () => {
-    setSettingsSaving(true);
-    try {
-      const response = await fetch('/api/admin/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(emailSettings),
-      });
-      setSettingsMessage(response.ok ? 'Settings saved successfully!' : 'Failed to save');
-      setTimeout(() => setSettingsMessage(null), 3000);
-    } catch {
-      setSettingsMessage('Error saving settings');
-    } finally {
-      setSettingsSaving(false);
-    }
-  };
-
-  const updateLeadStatus = async (leadId: string, status: LeadStatus) => {
+  const updateStatus = async (leadId: string, status: LeadStatus) => {
     try {
       await fetch('/api/admin/leads', {
         method: 'PATCH',
@@ -119,128 +95,56 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
       });
       setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status } : l));
     } catch (error) {
-      console.error('Error updating status:', error);
-    }
-  };
-
-  const updateDeadReason = async (leadId: string, deadReason: string) => {
-    try {
-      await fetch('/api/admin/leads', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leadId, year: selectedYear, month: selectedMonth, deadReason }),
-      });
-      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, deadReason: deadReason as Lead['deadReason'] } : l));
-    } catch (error) {
       console.error('Error:', error);
     }
   };
 
-  const saveNotes = async (leadId: string) => {
-    try {
-      await fetch('/api/admin/leads', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leadId, year: selectedYear, month: selectedMonth, notes: notesValue }),
-      });
-      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, notes: notesValue } : l));
-      setEditingNotes(null);
-    } catch (error) {
-      console.error('Error:', error);
-    }
+  const toggleStar = (leadId: string) => {
+    setStarredLeads(prev => {
+      const newSet = new Set(prev);
+      newSet.has(leadId) ? newSet.delete(leadId) : newSet.add(leadId);
+      return newSet;
+    });
   };
 
-  const viewLicense = async (lead: Lead) => {
-    if (!lead.driversLicenseKey) return;
-    try {
-      const response = await fetch(`/api/admin/leads/${lead.id}/license-url?year=${selectedYear}&month=${selectedMonth}&key=${encodeURIComponent(lead.driversLicenseKey)}`);
-      if (response.ok) {
-        const data = await response.json();
-        setLicenseModal({ url: data.url, name: lead.formData.fullName });
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    }
+  const openEmailModal = (lead: Lead) => {
+    setEmailSubject(`Following up on your ${lead.formData.vehicleType} inquiry`);
+    setEmailBody(`Hi ${lead.formData.fullName},\n\nThank you for submitting your vehicle application with us. I wanted to follow up on your interest in a ${lead.formData.vehicleType}...\n\nBest regards,\nMy Next Ride Ontario Team`);
+    setEmailModal({ lead });
   };
 
-  const seedShowcase = async () => {
-    try {
-      const response = await fetch('/api/admin/showcase', { method: 'PUT' });
-      if (response.ok) {
-        const data = await response.json();
-        setShowcaseVehicles(data.vehicles || []);
-      }
-    } catch (error) {
-      console.error('Error seeding showcase:', error);
-    }
-  };
-
-  const addVehicle = async () => {
-    if (!newVehicle.year || !newVehicle.make || !newVehicle.model) return;
-    
-    const formData = new FormData();
-    formData.append('data', JSON.stringify({ ...newVehicle, featured: false }));
-    if (vehicleImage) formData.append('image', vehicleImage);
-    
-    try {
-      const response = await fetch('/api/admin/showcase', { method: 'POST', body: formData });
-      if (response.ok) {
-        fetchShowcase();
-        setShowAddVehicle(false);
-        setNewVehicle({ year: '', make: '', model: '', trim: '', price: '', mileage: '' });
-        setVehicleImage(null);
-      }
-    } catch (error) {
-      console.error('Error adding vehicle:', error);
-    }
-  };
-
-  const deleteVehicle = async (id: string) => {
-    try {
-      await fetch(`/api/admin/showcase?id=${id}`, { method: 'DELETE' });
-      setShowcaseVehicles(prev => prev.filter(v => v.id !== id));
-    } catch (error) {
-      console.error('Error deleting vehicle:', error);
-    }
+  const sendEmail = () => {
+    if (!emailModal) return;
+    window.location.href = `mailto:${emailModal.lead.formData.email}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+    setEmailModal(null);
   };
 
   const filteredLeads = leads
     .filter(l => statusFilter === 'all' || l.status === statusFilter)
     .sort((a, b) => {
-      // Dead leads go to bottom
+      if (starredLeads.has(a.id) && !starredLeads.has(b.id)) return -1;
+      if (!starredLeads.has(a.id) && starredLeads.has(b.id)) return 1;
       if (a.status === 'dead' && b.status !== 'dead') return 1;
       if (a.status !== 'dead' && b.status === 'dead') return -1;
-      // Otherwise sort by date (newest first)
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
-  const stats = {
-    total: leads.length,
-    new: leads.filter(l => l.status === 'new').length,
-    working: leads.filter(l => l.status === 'working').length,
-    circleBack: leads.filter(l => l.status === 'circle-back').length,
-    approval: leads.filter(l => l.status === 'approval').length,
-    dead: leads.filter(l => l.status === 'dead').length,
-  };
-
-  const monthOptions = Array.from({ length: 12 }, (_, i) => ({
-    value: String(i + 1),
-    label: new Date(2000, i, 1).toLocaleString('en-CA', { month: 'long' }),
-  }));
-
-  const currentYear = new Date().getFullYear();
-  const yearOptions = [
-    { value: String(currentYear), label: String(currentYear) },
-    { value: String(currentYear - 1), label: String(currentYear - 1) },
-  ];
+  // Calculate metrics for emotional animations
+  const totalLeads = leads.length;
+  const approvedLeads = leads.filter(l => l.status === 'approval').length;
+  const deadLeads = leads.filter(l => l.status === 'dead').length;
+  const approvalRate = totalLeads > 0 ? (approvedLeads / totalLeads) * 100 : 0;
+  
+  // Determine mood: great (>50% approval), good (20-50%), poor (<20%)
+  const mood = approvalRate > 50 ? 'great' : approvalRate > 20 ? 'good' : 'poor';
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Fixed Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200 shadow-sm">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {/* Header */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm">
         <div className="flex items-center justify-between px-6 py-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shadow-lg shadow-primary-500/20">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shadow-lg">
               <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>
               </svg>
@@ -251,16 +155,13 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             </div>
           </div>
 
-          {/* Tabs */}
           <nav className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-            {(['leads', 'showcase', 'settings'] as TabType[]).map(tab => (
+            {(['dashboard', 'leads', 'templates', 'showcase'] as TabType[]).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-5 py-2 text-sm font-medium rounded-lg transition-all capitalize ${
-                  activeTab === tab 
-                    ? 'bg-white text-slate-900 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700'
+                className={`px-5 py-2 text-sm font-semibold rounded-lg capitalize ${
+                  activeTab === tab ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
                 }`}
               >
                 {tab}
@@ -268,532 +169,430 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             ))}
           </nav>
 
-          <button onClick={onLogout} className="text-sm text-slate-500 hover:text-slate-700 font-medium flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
+          <button onClick={onLogout} className="text-sm text-slate-500 hover:text-slate-700 font-medium">
             Sign Out
           </button>
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="pt-16 flex">
-        {/* Sidebar for Leads */}
-        {activeTab === 'leads' && (
-          <aside className="fixed left-0 top-16 bottom-0 w-64 bg-white border-r border-slate-200 p-5 overflow-y-auto">
-            <div className="space-y-6">
-              {/* Time Period Filter */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Time Period</label>
-                <div className="space-y-2">
-                  <Select options={monthOptions} value={String(selectedMonth)} onChange={(e) => setSelectedMonth(parseInt(e.target.value))} />
-                  <Select options={yearOptions} value={String(selectedYear)} onChange={(e) => setSelectedYear(parseInt(e.target.value))} />
-                </div>
-              </div>
+      <div className="pt-20 px-6 pb-6">
+        <AnimatePresence mode="wait">
+          {activeTab === 'dashboard' && (
+            <DashboardOverview 
+              leads={leads} 
+              mood={mood} 
+              totalLeads={totalLeads} 
+              approvalRate={approvalRate}
+              onNavigateToLeads={() => setActiveTab('leads')}
+            />
+          )}
 
-              {/* Status Filter */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Status</label>
-                <div className="space-y-1">
-                  <button 
-                    onClick={() => setStatusFilter('all')} 
-                    className={`w-full text-left px-3 py-2.5 text-sm rounded-lg flex items-center justify-between transition-colors ${
-                      statusFilter === 'all' 
-                        ? 'bg-primary-50 text-primary-700 font-semibold' 
-                        : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span>All Applications</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${statusFilter === 'all' ? 'bg-primary-100' : 'bg-slate-100'}`}>{stats.total}</span>
-                  </button>
-                  {leadStatusOptions.map(opt => (
-                    <button 
-                      key={opt.value} 
-                      onClick={() => setStatusFilter(opt.value)} 
-                      className={`w-full text-left px-3 py-2.5 text-sm rounded-lg flex items-center justify-between transition-colors ${
-                        statusFilter === opt.value 
-                          ? `${STATUS_CONFIG[opt.value].bg} ${STATUS_CONFIG[opt.value].color} font-semibold border` 
-                          : 'text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span>{opt.label}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${statusFilter === opt.value ? 'bg-white/50' : 'bg-slate-100'}`}>
-                        {leads.filter(l => l.status === opt.value).length}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+          {activeTab === 'leads' && (
+            <LeadsView
+              leads={filteredLeads}
+              isLoading={isLoading}
+              selectedMonth={selectedMonth}
+              selectedYear={selectedYear}
+              statusFilter={statusFilter}
+              licenseUrls={licenseUrls}
+              starredLeads={starredLeads}
+              onMonthChange={setSelectedMonth}
+              onYearChange={setSelectedYear}
+              onStatusFilterChange={setStatusFilter}
+              onToggleStar={toggleStar}
+              onStatusChange={updateStatus}
+              onViewLicense={(url, name) => setEnlargedImage({ url, name })}
+              onEmail={openEmailModal}
+            />
+          )}
 
-              {/* Quick Stats */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Quick Stats</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-slate-50 rounded-xl p-3 text-center">
-                    <div className="text-2xl font-bold text-slate-800">{stats.new}</div>
-                    <div className="text-xs text-slate-500">New</div>
-                  </div>
-                  <div className="bg-amber-50 rounded-xl p-3 text-center">
-                    <div className="text-2xl font-bold text-amber-700">{stats.working}</div>
-                    <div className="text-xs text-amber-600">Working</div>
-                  </div>
-                  <div className="bg-green-50 rounded-xl p-3 text-center">
-                    <div className="text-2xl font-bold text-green-700">{stats.approval}</div>
-                    <div className="text-xs text-green-600">Approval</div>
-                  </div>
-                  <div className="bg-red-50 rounded-xl p-3 text-center">
-                    <div className="text-2xl font-bold text-red-700">{stats.dead}</div>
-                    <div className="text-xs text-red-600">Dead</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Refresh Button */}
-              <button 
-                onClick={fetchLeads} 
-                className="w-full py-2.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center justify-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Refresh
-              </button>
-            </div>
-          </aside>
-        )}
-
-        {/* Main Content Area */}
-        <main className={`flex-1 ${activeTab === 'leads' ? 'ml-64' : ''} p-6`}>
-          <AnimatePresence mode="wait">
-            {/* Leads Tab */}
-            {activeTab === 'leads' && (
-              <motion.div key="leads" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h2 className="text-2xl font-bold text-slate-900">
-                      Leads for {new Date(selectedYear, selectedMonth - 1, 1).toLocaleString('en-CA', { month: 'long', year: 'numeric' })}
-                    </h2>
-                    <p className="text-sm text-slate-500">{filteredLeads.length} application{filteredLeads.length !== 1 ? 's' : ''} {statusFilter !== 'all' && `(${STATUS_CONFIG[statusFilter]?.label})`}</p>
-                  </div>
-                </div>
-
-                {isLoading ? (
-                  <div className="flex items-center justify-center py-20">
-                    <div className="w-10 h-10 border-3 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
-                  </div>
-                ) : filteredLeads.length === 0 ? (
-                  <div className="text-center py-20 bg-white rounded-2xl border border-slate-200">
-                    <svg className="w-16 h-16 mx-auto text-slate-200 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                    </svg>
-                    <h3 className="text-xl font-semibold text-slate-700 mb-2">No leads found</h3>
-                    <p className="text-slate-500">New applications will appear here</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {filteredLeads.map((lead) => (
-                      <LeadCard 
-                        key={lead.id} 
-                        lead={lead} 
-                        isExpanded={expandedLead === lead.id} 
-                        onToggle={() => setExpandedLead(expandedLead === lead.id ? null : lead.id)} 
-                        onStatusChange={updateLeadStatus} 
-                        onDeadReasonChange={updateDeadReason} 
-                        onViewLicense={() => viewLicense(lead)} 
-                        editingNotes={editingNotes} 
-                        notesValue={notesValue} 
-                        onStartEditNotes={(id, notes) => { setEditingNotes(id); setNotesValue(notes); }} 
-                        onNotesChange={setNotesValue} 
-                        onSaveNotes={saveNotes} 
-                        onCancelNotes={() => setEditingNotes(null)} 
-                      />
-                    ))}
-                  </div>
-                )}
-              </motion.div>
-            )}
-
-            {/* Showcase Tab */}
-            {activeTab === 'showcase' && (
-              <motion.div key="showcase" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h2 className="text-2xl font-bold text-slate-900">Showcase Vehicles</h2>
-                    <p className="text-sm text-slate-500">{showcaseVehicles.length} of {MAX_SHOWCASE_VEHICLES} vehicles</p>
-                  </div>
-                  <div className="flex gap-3">
-                    {showcaseVehicles.length === 0 && (
-                      <Button variant="ghost" onClick={seedShowcase}>Load Sample Data</Button>
-                    )}
-                    <Button variant="primary" onClick={() => setShowAddVehicle(true)} disabled={showcaseVehicles.length >= MAX_SHOWCASE_VEHICLES}>
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                      Add Vehicle
-                    </Button>
-                  </div>
-                </div>
-
-                {showcaseLoading ? (
-                  <div className="flex items-center justify-center py-20">
-                    <div className="w-10 h-10 border-3 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
-                  </div>
-                ) : showcaseVehicles.length === 0 ? (
-                  <div className="text-center py-20 bg-white rounded-2xl border border-slate-200">
-                    <svg className="w-16 h-16 mx-auto text-slate-200 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                    </svg>
-                    <h3 className="text-xl font-semibold text-slate-700 mb-2">No showcase vehicles</h3>
-                    <p className="text-slate-500 mb-6">Add vehicles to display on the homepage carousel</p>
-                    <Button variant="secondary" onClick={seedShowcase}>Load Sample Data</Button>
-                  </div>
-                ) : (
-                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {showcaseVehicles.map(vehicle => (
-                      <div key={vehicle.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-lg transition-shadow">
-                        <div className="aspect-video bg-slate-100 relative">
-                          {vehicle.imageUrl ? (
-                            <img src={vehicle.imageUrl} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <svg className="w-12 h-12 text-slate-300" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>
-                              </svg>
-                            </div>
-                          )}
-                          {vehicle.featured && (
-                            <div className="absolute top-3 left-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-2 py-1 rounded-full text-xs font-semibold">
-                              Featured
-                            </div>
-                          )}
-                        </div>
-                        <div className="p-5">
-                          <h3 className="font-bold text-lg text-slate-900">{vehicle.year} {vehicle.make} {vehicle.model}</h3>
-                          {vehicle.trim && <p className="text-sm text-slate-500">{vehicle.trim}</p>}
-                          <div className="flex items-center justify-between mt-4">
-                            <div>
-                              {vehicle.price && <span className="text-xl font-bold text-primary-600">{vehicle.price}</span>}
-                              {vehicle.mileage && <span className="text-sm text-slate-500 ml-2">{vehicle.mileage}</span>}
-                            </div>
-                            <button onClick={() => deleteVehicle(vehicle.id)} className="text-sm text-red-600 hover:text-red-700 font-medium">Remove</button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </motion.div>
-            )}
-
-            {/* Settings Tab */}
-            {activeTab === 'settings' && (
-              <motion.div key="settings" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="max-w-xl mx-auto">
-                <h2 className="text-2xl font-bold text-slate-900 mb-6">Settings</h2>
-                
-                <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-6">
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900 mb-4">Email Notifications</h3>
-                    
-                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl mb-4">
-                      <div>
-                        <p className="font-medium text-slate-800">Enable Notifications</p>
-                        <p className="text-sm text-slate-500">Receive email when new leads come in</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input 
-                          type="checkbox" 
-                          checked={emailSettings.enabled} 
-                          onChange={(e) => setEmailSettings({ ...emailSettings, enabled: e.target.checked })} 
-                          className="sr-only peer" 
-                        />
-                        <div className="w-11 h-6 bg-slate-200 peer-focus:ring-2 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600 shadow-inner"></div>
-                      </label>
-                    </div>
-
-                    <div className="space-y-4">
-                      <Input 
-                        label="Notification Email" 
-                        type="email" 
-                        value={emailSettings.recipientEmail} 
-                        onChange={(e) => setEmailSettings({ ...emailSettings, recipientEmail: e.target.value })} 
-                        placeholder="your@email.com" 
-                      />
-                      <Input 
-                        label="From Name" 
-                        value={emailSettings.fromName} 
-                        onChange={(e) => setEmailSettings({ ...emailSettings, fromName: e.target.value })} 
-                        placeholder="My Next Ride Ontario" 
-                      />
-                    </div>
-                  </div>
-
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                    <p className="text-sm text-amber-800">
-                      <strong>Note:</strong> To send emails to addresses other than your Resend account email, 
-                      you must verify a custom domain at <a href="https://resend.com/domains" target="_blank" rel="noopener noreferrer" className="underline">resend.com/domains</a>.
-                    </p>
-                  </div>
-
-                  {settingsMessage && (
-                    <p className={`text-sm font-medium ${settingsMessage.includes('success') ? 'text-green-600' : 'text-red-600'}`}>
-                      {settingsMessage}
-                    </p>
-                  )}
-
-                  <Button variant="primary" onClick={saveSettings} isLoading={settingsSaving} className="w-full">
-                    Save Settings
-                  </Button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </main>
+          {activeTab === 'templates' && (
+            <EmailTemplatesTab templates={templates} onSave={(t) => setTemplates(prev => [...prev.filter(x => x.id !== t.id), t])} onDelete={(id) => setTemplates(prev => prev.filter(t => t.id !== id))} />
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* License Modal */}
-      <Modal isOpen={!!licenseModal} onClose={() => setLicenseModal(null)} title={`Driver's License - ${licenseModal?.name}`} size="lg">
-        {licenseModal && (
+      {/* Modals */}
+      <Modal isOpen={!!emailModal} onClose={() => setEmailModal(null)} title={`Email ${emailModal?.lead.formData.fullName}`} size="lg">
+        {emailModal && (
           <div className="space-y-4">
-            <img src={licenseModal.url} alt="Driver's License" className="w-full rounded-xl" />
+            <Input label="Subject" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
+            <Textarea label="Message" value={emailBody} onChange={(e) => setEmailBody(e.target.value)} rows={10} />
             <div className="flex gap-3">
-              <a href={licenseModal.url} target="_blank" rel="noopener noreferrer" className="flex-1">
-                <Button variant="primary" className="w-full">Open Full Size</Button>
-              </a>
-              <a href={licenseModal.url} download className="flex-1">
+              <Button variant="ghost" onClick={() => setEmailModal(null)} className="flex-1">Cancel</Button>
+              <Button variant="primary" onClick={sendEmail} className="flex-1">Open in Email Client</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal isOpen={!!enlargedImage} onClose={() => setEnlargedImage(null)} title={`Driver's License - ${enlargedImage?.name}`} size="xl">
+        {enlargedImage && (
+          <div className="space-y-4">
+            <img src={enlargedImage.url} alt="License" className="w-full rounded-xl shadow-lg" />
+            <div className="flex gap-3">
+              <Button variant="primary" onClick={() => navigator.clipboard.writeText(enlargedImage.url)} className="flex-1">
+                Copy URL
+              </Button>
+              <a href={enlargedImage.url} download className="flex-1">
                 <Button variant="secondary" className="w-full">Download</Button>
               </a>
             </div>
           </div>
         )}
       </Modal>
-
-      {/* Add Vehicle Modal */}
-      <Modal isOpen={showAddVehicle} onClose={() => setShowAddVehicle(false)} title="Add Showcase Vehicle" size="lg">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Year *" value={newVehicle.year} onChange={(e) => setNewVehicle({ ...newVehicle, year: e.target.value })} placeholder="2024" required />
-            <Input label="Make *" value={newVehicle.make} onChange={(e) => setNewVehicle({ ...newVehicle, make: e.target.value })} placeholder="BMW" required />
-            <Input label="Model *" value={newVehicle.model} onChange={(e) => setNewVehicle({ ...newVehicle, model: e.target.value })} placeholder="M440i" required />
-            <Input label="Trim" value={newVehicle.trim} onChange={(e) => setNewVehicle({ ...newVehicle, trim: e.target.value })} placeholder="xDrive Convertible" />
-            <Input label="Price" value={newVehicle.price} onChange={(e) => setNewVehicle({ ...newVehicle, price: e.target.value })} placeholder="$65,000" />
-            <Input label="Mileage" value={newVehicle.mileage} onChange={(e) => setNewVehicle({ ...newVehicle, mileage: e.target.value })} placeholder="12,000 km" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">Vehicle Image</label>
-            <input 
-              type="file" 
-              accept="image/*" 
-              onChange={(e) => setVehicleImage(e.target.files?.[0] || null)} 
-              className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100" 
-            />
-          </div>
-          <div className="flex gap-3 pt-4">
-            <Button variant="ghost" onClick={() => setShowAddVehicle(false)} className="flex-1">Cancel</Button>
-            <Button variant="primary" onClick={addVehicle} className="flex-1">Add Vehicle</Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }
 
-// Lead Card Component
-function LeadCard({ lead, isExpanded, onToggle, onStatusChange, onDeadReasonChange, onViewLicense, editingNotes, notesValue, onStartEditNotes, onNotesChange, onSaveNotes, onCancelNotes }: {
-  lead: Lead;
-  isExpanded: boolean;
-  onToggle: () => void;
-  onStatusChange: (id: string, status: LeadStatus) => void;
-  onDeadReasonChange: (id: string, reason: string) => void;
-  onViewLicense: () => void;
-  editingNotes: string | null;
-  notesValue: string;
-  onStartEditNotes: (id: string, notes: string) => void;
-  onNotesChange: (notes: string) => void;
-  onSaveNotes: (id: string) => void;
-  onCancelNotes: () => void;
+// Dashboard Overview with Emotional Animations
+function DashboardOverview({ leads, mood, totalLeads, approvalRate, onNavigateToLeads }: {
+  leads: Lead[];
+  mood: 'great' | 'good' | 'poor';
+  totalLeads: number;
+  approvalRate: number;
+  onNavigateToLeads: () => void;
 }) {
-  const { formData } = lead;
-  const config = STATUS_CONFIG[lead.status] || STATUS_CONFIG['new'];
-  
-  const getBudget = () => {
-    if (formData.paymentType === 'finance') {
-      const map: Record<string, string> = { '400-or-less': '≤$400/mo', '400-500': '$400-500/mo', '500-600': '$500-600/mo', '600-plus': '$600+/mo' };
-      return map[formData.financeBudget || ''] || 'N/A';
-    }
-    const map: Record<string, string> = { '15k-or-less': '≤$15k', '20-30k': '$20-30k', '30-45k': '$30-45k', '50k-plus': '$50k+' };
-    return map[formData.cashBudget || ''] || 'N/A';
-  };
-
-  const vehicleTypes: Record<string, string> = {
-    sedan: 'Sedan', suv: 'SUV', hatchback: 'Hatchback',
-    'coupe-convertible': 'Coupe/Convertible', truck: 'Truck', minivan: 'Minivan'
+  const stats = {
+    new: leads.filter(l => l.status === 'new').length,
+    working: leads.filter(l => l.status === 'working').length,
+    approval: leads.filter(l => l.status === 'approval').length,
+    dead: leads.filter(l => l.status === 'dead').length,
   };
 
   return (
-    <div className={`bg-white rounded-2xl border overflow-hidden transition-all ${lead.status === 'dead' ? 'border-red-200 bg-red-50/30' : 'border-slate-200'}`}>
-      {/* Header Row */}
-      <div className="flex items-center gap-4 p-5 cursor-pointer hover:bg-slate-50/50" onClick={onToggle}>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 mb-1">
-            <h3 className="font-bold text-lg text-slate-900 truncate">{formData.fullName}</h3>
-            <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${config.bg} ${config.color}`}>
-              {config.label}
-            </span>
-            {lead.driversLicenseKey && (
-              <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                License
-              </span>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="max-w-7xl mx-auto">
+      {/* Emotional Weather Animation */}
+      <div className="relative h-64 mb-8 rounded-3xl overflow-hidden">
+        {mood === 'great' && <SunshineBackground />}
+        {mood === 'good' && <CloudyBackground />}
+        {mood === 'poor' && <RainyBackground />}
+        
+        <div className="relative z-10 h-full flex flex-col items-center justify-center text-white">
+          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}>
+            <h2 className="text-5xl font-bold mb-2">{totalLeads === 0 ? 'Let\'s Get Started' : `${totalLeads} Total Leads`}</h2>
+            {totalLeads > 0 && (
+              <p className="text-xl text-white/90">{approvalRate.toFixed(0)}% Approval Rate</p>
             )}
-          </div>
-          <div className="flex items-center gap-3 text-sm text-slate-500">
-            <span className="font-medium">{formData.phone}</span>
-            <span className="text-slate-300">|</span>
-            <span>{vehicleTypes[formData.vehicleType]} • {getBudget()}</span>
-            <span className="text-slate-300">|</span>
-            <span>{formatDate(lead.createdAt)}</span>
-          </div>
+          </motion.div>
         </div>
-        <svg className={`w-5 h-5 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
       </div>
 
-      {/* Expanded Details */}
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-            <div className="border-t border-slate-100 p-5 bg-slate-50/50">
-              {/* Status Buttons */}
-              <div className="mb-5">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Update Status</p>
-                <div className="flex flex-wrap gap-2">
-                  {leadStatusOptions.map(opt => (
-                    <button
-                      key={opt.value}
-                      onClick={(e) => { e.stopPropagation(); onStatusChange(lead.id, opt.value); }}
-                      className={`px-4 py-2 text-sm font-medium rounded-lg border transition-all ${
-                        lead.status === opt.value
-                          ? `${STATUS_CONFIG[opt.value].bg} ${STATUS_CONFIG[opt.value].color} border-current`
-                          : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <StatCard title="New Leads" value={stats.new} color="slate" icon={<svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>} />
+        <StatCard title="Working" value={stats.working} color="amber" icon={<svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>} />
+        <StatCard title="Approved" value={stats.approval} color="green" icon={<svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} />
+        <StatCard title="Dead" value={stats.dead} color="red" icon={<svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>} />
+      </div>
+
+      {/* Quick Actions */}
+      <div className="grid md:grid-cols-3 gap-6">
+        <QuickActionCard 
+          title="View All Leads" 
+          description="Manage your lead pipeline" 
+          icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>}
+          onClick={onNavigateToLeads}
+        />
+        <QuickActionCard 
+          title="Email Templates" 
+          description="Manage mail merge templates" 
+          icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>}
+          onClick={() => {}}
+        />
+        <QuickActionCard 
+          title="Showcase Vehicles" 
+          description="Manage featured inventory" 
+          icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
+          onClick={() => {}}
+        />
+      </div>
+    </motion.div>
+  );
+}
+
+// Emotional Weather Backgrounds
+function SunshineBackground() {
+  return (
+    <div className="absolute inset-0 bg-gradient-to-br from-amber-400 via-orange-400 to-amber-500">
+      {[...Array(12)].map((_, i) => (
+        <motion.div
+          key={i}
+          className="absolute w-2 h-2 bg-yellow-200 rounded-full"
+          style={{
+            top: `${20 + Math.random() * 60}%`,
+            left: `${10 + Math.random() * 80}%`,
+          }}
+          animate={{
+            y: [0, -20, 0],
+            opacity: [0.3, 0.8, 0.3],
+            scale: [1, 1.3, 1],
+          }}
+          transition={{
+            duration: 3 + Math.random() * 2,
+            repeat: Infinity,
+            delay: Math.random() * 2,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CloudyBackground() {
+  return (
+    <div className="absolute inset-0 bg-gradient-to-br from-slate-400 via-slate-500 to-slate-600">
+      {[...Array(6)].map((_, i) => (
+        <motion.div
+          key={i}
+          className="absolute bg-white/20 rounded-full blur-xl"
+          style={{
+            width: `${100 + Math.random() * 100}px`,
+            height: `${40 + Math.random() * 40}px`,
+            top: `${20 + Math.random() * 40}%`,
+            left: `${i * 20}%`,
+          }}
+          animate={{
+            x: [0, 50, 0],
+          }}
+          transition={{
+            duration: 15 + Math.random() * 10,
+            repeat: Infinity,
+            ease: 'linear',
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function RainyBackground() {
+  return (
+    <div className="absolute inset-0 bg-gradient-to-br from-slate-600 via-slate-700 to-slate-800">
+      {[...Array(30)].map((_, i) => (
+        <motion.div
+          key={i}
+          className="absolute w-0.5 bg-blue-200/40"
+          style={{
+            left: `${Math.random() * 100}%`,
+            height: `${20 + Math.random() * 30}px`,
+          }}
+          animate={{
+            y: ['0vh', '100vh'],
+            opacity: [0, 1, 0],
+          }}
+          transition={{
+            duration: 1 + Math.random() * 0.5,
+            repeat: Infinity,
+            delay: Math.random() * 2,
+            ease: 'linear',
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// Stat Card
+function StatCard({ title, value, color, icon }: { title: string; value: number; color: string; icon: React.ReactNode }) {
+  return (
+    <motion.div whileHover={{ scale: 1.02 }} className={`bg-white rounded-2xl p-6 border-2 border-${color}-100 shadow-lg`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className={`w-14 h-14 rounded-xl bg-${color}-50 text-${color}-600 flex items-center justify-center`}>
+          {icon}
+        </div>
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: 'spring', delay: 0.2 }}
+          className="text-4xl font-bold text-slate-900"
+        >
+          {value}
+        </motion.div>
+      </div>
+      <h3 className="text-sm font-semibold text-slate-600">{title}</h3>
+    </motion.div>
+  );
+}
+
+// Quick Action Card
+function QuickActionCard({ title, description, icon, onClick }: any) {
+  return (
+    <motion.button
+      whileHover={{ scale: 1.03, y: -4 }}
+      onClick={onClick}
+      className="bg-white rounded-2xl p-6 border border-slate-200 shadow-lg text-left hover:shadow-xl transition-shadow"
+    >
+      <div className="w-12 h-12 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center mb-4">
+        {icon}
+      </div>
+      <h3 className="font-bold text-lg mb-1 text-slate-900">{title}</h3>
+      <p className="text-sm text-slate-500">{description}</p>
+    </motion.button>
+  );
+}
+
+// Leads View (Card Grid)
+function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter, licenseUrls, starredLeads, onMonthChange, onYearChange, onStatusFilterChange, onToggleStar, onStatusChange, onViewLicense, onEmail }: any) {
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <div className="flex items-center gap-4 mb-6">
+        <Select options={Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: new Date(2000, i).toLocaleString('en', { month: 'long' }) }))} value={String(selectedMonth)} onChange={(e) => onMonthChange(parseInt(e.target.value))} className="w-40" />
+        <Select options={[{ value: String(new Date().getFullYear()), label: String(new Date().getFullYear()) }]} value={String(selectedYear)} onChange={(e) => onYearChange(parseInt(e.target.value))} className="w-28" />
+        <Select options={[{ value: 'all', label: 'All Statuses' }, ...leadStatusOptions.map(s => ({ value: s.value, label: s.label }))]} value={statusFilter} onChange={(e) => onStatusFilterChange(e.target.value)} className="w-48" />
+        <div className="flex-1" />
+        <span className="text-sm text-slate-500">{leads.length} leads</span>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-20">
+          <div className="w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+        </div>
+      ) : leads.length === 0 ? (
+        <div className="text-center py-20 bg-white rounded-2xl">
+          <p className="text-slate-400">No leads found</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+          {leads.map((lead: Lead) => (
+            <LeadCardCompact 
+              key={lead.id} 
+              lead={lead} 
+              licenseUrl={licenseUrls[lead.id]}
+              isStarred={starredLeads.has(lead.id)}
+              onToggleStar={() => onToggleStar(lead.id)}
+              onStatusChange={(s) => onStatusChange(lead.id, s)}
+              onViewLicense={() => licenseUrls[lead.id] && onViewLicense(licenseUrls[lead.id], lead.formData.fullName)}
+              onEmail={() => onEmail(lead)}
+            />
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// Compact Lead Card with License Image
+function LeadCardCompact({ lead, licenseUrl, isStarred, onToggleStar, onStatusChange, onViewLicense, onEmail }: any) {
+  const [expanded, setExpanded] = useState(false);
+  const { formData } = lead;
+  const config = STATUS_CONFIG[lead.status];
+
+  return (
+    <motion.div layout className={`bg-white rounded-2xl border-2 shadow-xl overflow-hidden ${isStarred ? 'border-amber-400 ring-4 ring-amber-100' : 'border-slate-200'}`}>
+      {/* License Image */}
+      {licenseUrl && (
+        <div className="relative h-44 bg-gradient-to-br from-slate-100 to-slate-200 cursor-pointer group" onClick={onViewLicense}>
+          <img src={licenseUrl} alt="License" className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+            <div className="opacity-0 group-hover:opacity-100 bg-white px-4 py-2 rounded-lg font-bold text-sm shadow-xl">
+              🔍 Click to Enlarge
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="p-5">
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <h3 className="font-bold text-lg text-slate-900">{formData.fullName}</h3>
+            <span className={`inline-block px-2.5 py-1 text-xs font-bold rounded-full ${config.bg} ${config.color} mt-1`}>
+              {config.label}
+            </span>
+          </div>
+          <button onClick={onToggleStar} className="text-3xl leading-none">
+            {isStarred ? '⭐' : '☆'}
+          </button>
+        </div>
+
+        <div className="space-y-2 mb-4 text-sm text-slate-600">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+            {formData.phone}
+          </div>
+          <div className="truncate">{formData.email}</div>
+        </div>
+
+        <div className="bg-slate-50 rounded-xl p-3 mb-4 text-xs space-y-1">
+          <div><strong>Vehicle:</strong> {formData.vehicleType}</div>
+          <div><strong>Budget:</strong> {formData.paymentType === 'finance' ? formData.financeBudget : formData.cashBudget}</div>
+          <div><strong>Credit:</strong> {formData.creditRating || 'Cash'}</div>
+        </div>
+
+        <Button size="sm" variant="primary" onClick={onEmail} className="w-full mb-2">
+          📧 Send Email
+        </Button>
+
+        <div className="flex flex-wrap gap-1.5">
+          {leadStatusOptions.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => onStatusChange(opt.value)}
+              className={`px-2 py-1 text-xs font-semibold rounded-md ${lead.status === opt.value ? `${STATUS_CONFIG[opt.value].bg}` : 'bg-slate-100 text-slate-500'}`}
+            >
+              {opt.label.split(' ')[0]}
+            </button>
+          ))}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// Email Templates Tab
+function EmailTemplatesTab({ templates, onSave, onDelete }: {
+  templates: EmailTemplate[];
+  onSave: (template: EmailTemplate) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState<EmailTemplate | null>(null);
+  const [name, setName] = useState('');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-2xl font-bold">Email Templates</h2>
+          <p className="text-slate-500">Mail merge with {{name}}, {{vehicle}}, {{budget}}</p>
+        </div>
+        <Button variant="primary" onClick={() => setEditing({ id: `tpl-${Date.now()}`, name: '', subject: '', body: '' })}>
+          + New Template
+        </Button>
+      </div>
+
+      {editing && (
+        <Card className="p-6 mb-6 border-2 border-primary-300">
+          <Input label="Template Name" value={name} onChange={(e) => setName(e.target.value)} className="mb-4" />
+          <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} className="mb-4" placeholder="Use {{name}}, {{vehicle}}" />
+          <Textarea label="Body" value={body} onChange={(e) => setBody(e.target.value)} rows={8} placeholder="Hi {{name}},\n\nThank you for your inquiry about a {{vehicle}}..." />
+          <div className="flex gap-3 mt-4">
+            <Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+            <Button variant="primary" onClick={() => { onSave({ ...editing, name, subject, body }); setEditing(null); }}>
+              Save Template
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      <div className="space-y-4">
+        {templates.map(t => (
+          <Card key={t.id} className="p-5">
+            <div className="flex justify-between">
+              <div>
+                <h4 className="font-bold text-lg">{t.name}</h4>
+                <p className="text-sm text-slate-600">Subject: {t.subject}</p>
+                <p className="text-sm text-slate-500 mt-2">{t.body.substring(0, 100)}...</p>
               </div>
-
-              {/* Dead Reason Dropdown */}
-              {lead.status === 'dead' && (
-                <div className="mb-5">
-                  <Select
-                    label="Reason for Closing"
-                    options={deadReasonOptions.map(o => ({ value: o.value, label: o.label }))}
-                    value={lead.deadReason || ''}
-                    onChange={(e) => onDeadReasonChange(lead.id, e.target.value)}
-                  />
-                </div>
-              )}
-
-              {/* Lead Details Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-                <div className="bg-white rounded-lg p-3 border border-slate-100">
-                  <p className="text-xs text-slate-500 mb-1">Email</p>
-                  <a href={`mailto:${formData.email}`} className="text-sm text-primary-600 hover:underline font-medium truncate block">{formData.email}</a>
-                </div>
-                <div className="bg-white rounded-lg p-3 border border-slate-100">
-                  <p className="text-xs text-slate-500 mb-1">Credit Rating</p>
-                  <p className="text-sm text-slate-800 font-medium">
-                    {formData.paymentType === 'finance' ? (formData.creditRating || 'N/A').charAt(0).toUpperCase() + (formData.creditRating || '').slice(1) : 'Cash Buyer'}
-                  </p>
-                </div>
-                <div className="bg-white rounded-lg p-3 border border-slate-100">
-                  <p className="text-xs text-slate-500 mb-1">Trade-In</p>
-                  <p className="text-sm text-slate-800 font-medium">
-                    {formData.tradeIn === 'yes' ? `${formData.tradeInYear} ${formData.tradeInMake}` : formData.tradeIn === 'unsure' ? 'Maybe' : 'No'}
-                  </p>
-                </div>
-                <div className="bg-white rounded-lg p-3 border border-slate-100">
-                  <p className="text-xs text-slate-500 mb-1">Best Time</p>
-                  <p className="text-sm text-slate-800 font-medium capitalize">{formData.bestTimeToReach}</p>
-                </div>
-              </div>
-
-              {/* Driver's License Section - Prominent when available */}
-              {lead.driversLicenseKey && (
-                <div className="mb-5 p-4 bg-green-50 border-2 border-green-200 rounded-xl">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                        <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-green-800">Driver&apos;s License Uploaded</p>
-                        <p className="text-sm text-green-600">Click to view or download</p>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); onViewLicense(); }} 
-                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
-                      View License
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Quick Actions */}
-              <div className="flex items-center gap-3 mb-5">
-                <a href={`tel:${formData.phone}`} className="flex items-center gap-2 px-4 py-2 bg-primary-50 text-primary-700 font-medium rounded-lg hover:bg-primary-100 transition-colors">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                  Call
-                </a>
-                <a href={`mailto:${formData.email}`} className="flex items-center gap-2 px-4 py-2 bg-primary-50 text-primary-700 font-medium rounded-lg hover:bg-primary-100 transition-colors">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                  Email
-                </a>
-              </div>
-
-              {/* Notes Section */}
-              <div className="border-t border-slate-200 pt-4">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Notes</p>
-                {editingNotes === lead.id ? (
-                  <div className="space-y-3">
-                    <Textarea value={notesValue} onChange={(e) => onNotesChange(e.target.value)} rows={3} placeholder="Add notes about this lead..." />
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="primary" onClick={() => onSaveNotes(lead.id)}>Save</Button>
-                      <Button size="sm" variant="ghost" onClick={onCancelNotes}>Cancel</Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div 
-                    onClick={(e) => { e.stopPropagation(); onStartEditNotes(lead.id, lead.notes); }} 
-                    className="p-4 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-slate-300 transition-colors"
-                  >
-                    <p className="text-sm text-slate-700 whitespace-pre-wrap">
-                      {lead.notes || <span className="text-slate-400 italic">Click to add notes...</span>}
-                    </p>
-                  </div>
-                )}
+              <div className="flex gap-2">
+                <Button size="sm" variant="ghost" onClick={() => { setEditing(t); setName(t.name); setSubject(t.subject); setBody(t.body); }}>Edit</Button>
+                <Button size="sm" variant="ghost" onClick={() => onDelete(t.id)} className="text-red-600">Delete</Button>
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }

@@ -9,6 +9,7 @@ export async function GET(
   try {
     const isAuthenticated = await verifyAdminSession();
     if (!isAuthenticated) {
+      console.log('❌ Unauthorized license URL request');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -16,14 +17,26 @@ export async function GET(
     const key = searchParams.get('key');
     
     if (!key) {
+      console.log('❌ No license key provided in request');
       return NextResponse.json({ error: 'License key required' }, { status: 400 });
     }
 
-    const url = await getDriversLicenseSignedUrl(key);
+    console.log('🔐 Generating signed URL for license:', key);
     
-    return NextResponse.json({ url });
+    try {
+      const url = await getDriversLicenseSignedUrl(key);
+      console.log('✅ Signed URL generated successfully');
+      
+      return NextResponse.json({ url });
+    } catch (s3Error) {
+      console.error('❌ S3 error generating signed URL:', s3Error);
+      return NextResponse.json(
+        { error: 'License file not found in S3' },
+        { status: 404 }
+      );
+    }
   } catch (error) {
-    console.error('Error generating license URL:', error);
+    console.error('❌ Error in license-url route:', error);
     return NextResponse.json(
       { error: 'Failed to generate URL' },
       { status: 500 }

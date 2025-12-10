@@ -220,9 +220,34 @@ export default function HomePage() {
         {/* Showcase Section */}
         <ShowcaseSection />
 
-        {/* Credit Profiles Section */}
-        <section className="py-24 px-6 bg-gradient-to-b from-white to-slate-50">
-          <div className="container mx-auto max-w-6xl">
+        {/* Credit Profiles Section - Dynamic */}
+        <section className="py-24 px-6 bg-gradient-to-b from-white to-slate-50 relative overflow-hidden">
+          {/* Subtle animated background elements */}
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            {[...Array(5)].map((_, i) => (
+              <motion.div
+                key={i}
+                className="absolute w-64 h-64 rounded-full blur-3xl"
+                style={{
+                  background: `radial-gradient(circle, ${['rgba(34,197,94,0.08)', 'rgba(59,130,246,0.08)', 'rgba(251,191,36,0.08)', 'rgba(99,102,241,0.08)'][i % 4]}, transparent)`,
+                  top: `${20 + i * 15}%`,
+                  left: `${10 + i * 20}%`,
+                }}
+                animate={{
+                  x: [0, 30, 0],
+                  y: [0, -20, 0],
+                  scale: [1, 1.1, 1],
+                }}
+                transition={{
+                  duration: 10 + i * 2,
+                  repeat: Infinity,
+                  ease: 'easeInOut',
+                }}
+              />
+            ))}
+          </div>
+
+          <div className="container mx-auto max-w-6xl relative z-10">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -241,24 +266,33 @@ export default function HomePage() {
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
-                { title: 'Excellent', subtitle: 'Prime', description: 'Best rates and terms available', gradient: 'from-emerald-500 to-green-600', bg: 'bg-emerald-50 border-emerald-200' },
-                { title: 'Good', subtitle: 'Prime', description: 'Great options with competitive rates', gradient: 'from-blue-500 to-cyan-600', bg: 'bg-blue-50 border-blue-200' },
-                { title: 'Fair', subtitle: 'Near-Prime', description: 'Many options available', gradient: 'from-amber-500 to-orange-600', bg: 'bg-amber-50 border-amber-200' },
-                { title: 'Poor', subtitle: 'Non-Prime', description: 'We can still help you get approved', gradient: 'from-primary-500 to-primary-700', bg: 'bg-primary-50 border-primary-200' },
+                { title: 'Excellent', subtitle: 'Prime', description: 'Best rates and terms available', gradient: 'from-emerald-500 to-green-600', iconColor: 'text-emerald-600', icon: '🌟' },
+                { title: 'Good', subtitle: 'Prime', description: 'Great options with competitive rates', gradient: 'from-blue-500 to-cyan-600', iconColor: 'text-blue-600', icon: '✨' },
+                { title: 'Fair', subtitle: 'Near-Prime', description: 'Many options available', gradient: 'from-amber-500 to-orange-600', iconColor: 'text-amber-600', icon: '💫' },
+                { title: 'Poor', subtitle: 'Non-Prime', description: 'We can still help you get approved', gradient: 'from-primary-500 to-primary-700', iconColor: 'text-primary-600', icon: '🚀' },
               ].map((item, index) => (
                 <motion.div
                   key={item.title}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
+                  initial={{ opacity: 0, y: 30 }}
+                  whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ duration: 0.5, delay: index * 0.1 }}
+                  whileHover={{ y: -8, scale: 1.02 }}
                 >
-                  <div className={`h-full text-center p-6 rounded-2xl ${item.bg} border shadow-lg`}>
-                    <div className={`inline-block px-4 py-1.5 rounded-full bg-gradient-to-r ${item.gradient} text-white text-xs font-bold mb-4 shadow-lg`}>
-                      {item.subtitle}
+                  <div className="relative h-full bg-white rounded-3xl p-6 border-2 border-slate-100 shadow-xl hover:shadow-2xl transition-all overflow-hidden group">
+                    {/* Animated gradient on hover */}
+                    <motion.div 
+                      className={`absolute inset-0 bg-gradient-to-br ${item.gradient} opacity-0 group-hover:opacity-5 transition-opacity`}
+                    />
+                    
+                    <div className="relative z-10">
+                      <div className="text-4xl mb-3">{item.icon}</div>
+                      <div className={`inline-block px-4 py-1.5 rounded-full bg-gradient-to-r ${item.gradient} text-white text-xs font-bold mb-4 shadow-lg`}>
+                        {item.subtitle}
+                      </div>
+                      <h3 className="text-2xl font-bold text-slate-900 mb-2">{item.title}</h3>
+                      <p className="text-slate-600 text-sm leading-relaxed">{item.description}</p>
                     </div>
-                    <h3 className="text-2xl font-bold text-slate-900 mb-2">{item.title}</h3>
-                    <p className="text-slate-600 text-sm">{item.description}</p>
                   </div>
                 </motion.div>
               ))}
@@ -271,13 +305,16 @@ export default function HomePage() {
               transition={{ duration: 0.6, delay: 0.4 }}
               className="text-center mt-12"
             >
-              <div className="inline-flex items-center gap-4 bg-white px-8 py-4 rounded-2xl border border-slate-200 shadow-xl">
+              <motion.div 
+                whileHover={{ scale: 1.05 }}
+                className="inline-flex items-center gap-4 bg-white px-8 py-4 rounded-2xl border border-slate-200 shadow-xl"
+              >
                 <span className="font-bold text-slate-900 text-lg">17 Lenders</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
                 <span className="text-slate-600">High Approval Rates</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
                 <span className="text-slate-600">Quick Decisions</span>
-              </div>
+              </motion.div>
             </motion.div>
           </div>
         </section>

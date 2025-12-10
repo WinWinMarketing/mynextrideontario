@@ -77,15 +77,24 @@ export async function saveLead(
   
   // Upload driver's license if provided
   if (licenseFile) {
+    console.log('📤 Uploading driver license to S3...');
     const ext = licenseFile.filename.split('.').pop() || 'jpg';
     driversLicenseKey = `drivers-licenses/${id}.${ext}`;
     
-    await s3.send(new PutObjectCommand({
-      Bucket: bucket,
-      Key: driversLicenseKey,
-      Body: licenseFile.buffer,
-      ContentType: licenseFile.contentType,
-    }));
+    try {
+      await s3.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: driversLicenseKey,
+        Body: licenseFile.buffer,
+        ContentType: licenseFile.contentType,
+      }));
+      console.log('✅ License uploaded successfully to:', driversLicenseKey);
+    } catch (err) {
+      console.error('❌ Failed to upload license to S3:', err);
+      throw err;
+    }
+  } else {
+    console.log('ℹ️ No license file to upload for this lead');
   }
   
   // Create lead object
@@ -99,15 +108,27 @@ export async function saveLead(
     formData,
   };
   
+  console.log('💾 Saving lead JSON:', {
+    id: lead.id,
+    hasLicense: !!lead.driversLicenseKey,
+    licenseKey: lead.driversLicenseKey,
+  });
+  
   // Save lead JSON
   const leadKey = `leads/${year}/${month}/${now.getTime()}-${id}.json`;
   
-  await s3.send(new PutObjectCommand({
-    Bucket: bucket,
-    Key: leadKey,
-    Body: JSON.stringify(lead, null, 2),
-    ContentType: 'application/json',
-  }));
+  try {
+    await s3.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: leadKey,
+      Body: JSON.stringify(lead, null, 2),
+      ContentType: 'application/json',
+    }));
+    console.log('✅ Lead JSON saved successfully to:', leadKey);
+  } catch (err) {
+    console.error('❌ Failed to save lead JSON:', err);
+    throw err;
+  }
   
   return lead;
 }
