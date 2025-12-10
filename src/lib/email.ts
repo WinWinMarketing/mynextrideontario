@@ -1,7 +1,6 @@
 import { Resend } from 'resend';
 import { Lead } from './validation';
 import { getEmailSettings } from './s3';
-import { config } from './config';
 
 // Initialize Resend client
 function getResendClient(): Resend | null {
@@ -156,7 +155,6 @@ export async function sendLeadNotificationEmail(lead: Lead): Promise<boolean> {
       return false;
     }
 
-    const recipientEmail = settings.recipientEmail || config.email.defaultRecipient;
     const { formData } = lead;
     
     const vehicleTypeLabel = {
@@ -175,8 +173,20 @@ export async function sendLeadNotificationEmail(lead: Lead): Promise<boolean> {
     
     if (resend) {
       try {
+        // IMPORTANT: Resend requires either:
+        // 1. A verified domain (e.g., noreply@yourdomain.com) 
+        // 2. OR sending to the same email as the account owner when using onboarding@resend.dev
+        //
+        // The account email is: winwinmarketingcanada@gmail.com
+        // To send to other emails, verify a domain at https://resend.com/domains
+        
+        // Use the account email for testing, or the configured recipient if they've set up a verified domain
+        const recipientEmail = settings.recipientEmail || 'winwinmarketingcanada@gmail.com';
+        const fromAddress = settings.fromAddress || 'onboarding@resend.dev';
+        const fromName = settings.fromName || 'My Next Ride Ontario';
+        
         const { data, error } = await resend.emails.send({
-          from: 'My Next Ride Ontario <onboarding@resend.dev>',
+          from: `${fromName} <${fromAddress}>`,
           to: [recipientEmail],
           subject: subject,
           html: htmlContent,
@@ -184,6 +194,10 @@ export async function sendLeadNotificationEmail(lead: Lead): Promise<boolean> {
         
         if (error) {
           console.error('Resend API error:', error);
+          // Log helpful message for domain verification
+          if (error.message?.includes('verify a domain')) {
+            console.log('💡 TIP: To send to emails other than your account email, verify a domain at https://resend.com/domains');
+          }
           return false;
         }
         

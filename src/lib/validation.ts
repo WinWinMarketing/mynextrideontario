@@ -205,28 +205,26 @@ export const leadApplicationSchema = z.object({
 
 export type LeadApplicationData = z.infer<typeof leadApplicationSchema>;
 
-// Lead status options for admin
+// Lead status options for admin (only the 5 requested statuses)
+// 1. New Lead, 2. Working, 4. Circle Back, 5. Approval, 8. Dead Lead
 export const leadStatusOptions = [
-  'new',
-  'working',
-  'hot',
-  'circle-back',
-  'approved',
-  'no-contact',
-  'dead',
+  { value: 'new', label: 'New Lead', color: 'bg-slate-100 text-slate-700 border-slate-300' },
+  { value: 'working', label: 'Working', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+  { value: 'circle-back', label: 'Circle Back', color: 'bg-cyan-100 text-cyan-800 border-cyan-300' },
+  { value: 'approval', label: 'Approval', color: 'bg-green-100 text-green-800 border-green-300' },
+  { value: 'dead', label: 'Dead Lead', color: 'bg-red-100 text-red-800 border-red-300' },
 ] as const;
 
-export type LeadStatus = typeof leadStatusOptions[number];
+export type LeadStatus = typeof leadStatusOptions[number]['value'];
 
+// Dead lead reason options (all except Cash Buyer and Not Ready to Buy, with "No longer interested")
 export const deadReasonOptions = [
   { value: 'declined', label: 'Declined' },
-  { value: 'cash-buyer', label: 'Cash Buyer' },
   { value: 'negative-equity', label: 'Negative Equity' },
-  { value: 'no-longer-interested', label: 'No Longer Interested' },
+  { value: 'no-longer-interested', label: 'No longer interested' },
   { value: 'already-purchased', label: 'Already Purchased' },
   { value: 'no-vehicle-of-interest', label: 'No Vehicle of Interest' },
   { value: 'cannot-afford-payment', label: 'Cannot Afford Payment' },
-  { value: 'not-ready-to-buy', label: 'Not Ready to Buy' },
   { value: 'too-far-to-visit', label: 'Too Far to Visit' },
 ] as const;
 
@@ -260,4 +258,3 @@ export interface Lead {
   driversLicenseKey?: string;
   formData: LeadApplicationData;
 }
-
