@@ -266,10 +266,34 @@ export default function HomePage() {
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
-                { title: 'Excellent', subtitle: 'Prime', description: 'Best rates and terms available', gradient: 'from-emerald-500 to-green-600', iconColor: 'text-emerald-600', icon: '🌟' },
-                { title: 'Good', subtitle: 'Prime', description: 'Great options with competitive rates', gradient: 'from-blue-500 to-cyan-600', iconColor: 'text-blue-600', icon: '✨' },
-                { title: 'Fair', subtitle: 'Near-Prime', description: 'Many options available', gradient: 'from-amber-500 to-orange-600', iconColor: 'text-amber-600', icon: '💫' },
-                { title: 'Poor', subtitle: 'Non-Prime', description: 'We can still help you get approved', gradient: 'from-primary-500 to-primary-700', iconColor: 'text-primary-600', icon: '🚀' },
+                { 
+                  title: 'Excellent', 
+                  subtitle: 'Prime', 
+                  description: 'Best rates and terms available', 
+                  gradient: 'from-emerald-500 to-green-600',
+                  icon: <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                },
+                { 
+                  title: 'Good', 
+                  subtitle: 'Prime', 
+                  description: 'Great options with competitive rates', 
+                  gradient: 'from-blue-500 to-cyan-600',
+                  icon: <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                },
+                { 
+                  title: 'Fair', 
+                  subtitle: 'Near-Prime', 
+                  description: 'Many options available', 
+                  gradient: 'from-amber-500 to-orange-600',
+                  icon: <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                },
+                { 
+                  title: 'Poor', 
+                  subtitle: 'Non-Prime', 
+                  description: 'We can still help you get approved', 
+                  gradient: 'from-primary-500 to-primary-700',
+                  icon: <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg>
+                },
               ].map((item, index) => (
                 <motion.div
                   key={item.title}
@@ -277,17 +301,19 @@ export default function HomePage() {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ duration: 0.5, delay: index * 0.1 }}
-                  whileHover={{ y: -8, scale: 1.02 }}
+                  whileHover={{ y: -12, scale: 1.03 }}
+                  className="relative"
                 >
-                  <div className="relative h-full bg-white rounded-3xl p-6 border-2 border-slate-100 shadow-xl hover:shadow-2xl transition-all overflow-hidden group">
-                    {/* Animated gradient on hover */}
+                  <div className="h-full bg-white rounded-3xl p-7 border-2 border-slate-100 shadow-xl hover:shadow-2xl transition-all overflow-hidden group">
                     <motion.div 
-                      className={`absolute inset-0 bg-gradient-to-br ${item.gradient} opacity-0 group-hover:opacity-5 transition-opacity`}
+                      className={`absolute inset-0 bg-gradient-to-br ${item.gradient} opacity-0 group-hover:opacity-8 transition-opacity duration-500`}
                     />
                     
-                    <div className="relative z-10">
-                      <div className="text-4xl mb-3">{item.icon}</div>
-                      <div className={`inline-block px-4 py-1.5 rounded-full bg-gradient-to-r ${item.gradient} text-white text-xs font-bold mb-4 shadow-lg`}>
+                    <div className="relative z-10 text-center">
+                      <div className={`w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br ${item.gradient} text-white flex items-center justify-center mb-4 shadow-lg`}>
+                        {item.icon}
+                      </div>
+                      <div className={`inline-block px-4 py-1.5 rounded-full bg-gradient-to-r ${item.gradient} text-white text-xs font-bold mb-4 shadow-md`}>
                         {item.subtitle}
                       </div>
                       <h3 className="text-2xl font-bold text-slate-900 mb-2">{item.title}</h3>
