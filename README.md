@@ -1,92 +1,70 @@
 # My Next Ride Ontario
 
-A modern lead generation application for vehicle financing in Ontario. Built with Next.js 15, TypeScript, and Tailwind CSS.
+A modern lead generation application for vehicle financing in Ontario. Built with Next.js 14, TypeScript, and Tailwind CSS.
 
 ## Features
 
-- **Public Landing Page**: Modern, animated landing page with value proposition, how-it-works section, credit profiles info, and Google Maps service area
-- **Application Form**: Multi-step form with validation for vehicle preferences, personal info, trade-in details, and driver's license upload
-- **Admin Dashboard**: Secure dashboard for managing leads with status tracking, notes, and driver's license viewing
+- **Public Landing Page**: Dark blue hero with animated loading screen, how-it-works section, credit profiles, and Google Maps service area
+- **Application Form**: 4-step form with dropdowns for all selections, validation, and driver's license upload
+- **Admin Dashboard**: Professional dashboard with 5 status types, notes, and prominent license viewing
 - **AWS S3 Integration**: Secure storage for lead data and driver's license images
-- **Email Notifications**: Automated email alerts for new applications via Resend
+- **Email Notifications**: Automated email alerts via Mailgun
 
 ## Tech Stack
 
-- **Framework**: Next.js 15 (App Router)
+- **Framework**: Next.js 14 (App Router)
 - **Language**: TypeScript
-- **Styling**: Tailwind CSS 4
+- **Styling**: Tailwind CSS 3
 - **Animation**: Framer Motion
 - **Form Handling**: React Hook Form + Zod
 - **Storage**: AWS S3 (SDK v3)
-- **Email**: Resend
+- **Email**: Mailgun
 - **Auth**: JWT with jose
 
 ## Environment Variables
 
-Configure these in your Vercel dashboard:
+Configure these in your Vercel dashboard under Settings → Environment Variables:
 
-### Backend Only (Server-side)
-
-| Variable | Description |
-|----------|-------------|
-| `AWS_ACCESS_KEY_ID` | AWS access key for S3 |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key for S3 |
-| `AWS_REGION` | AWS region (default: us-east-1) |
-| `LEADS_BUCKET_NAME` | S3 bucket name for leads |
-| `EMAIL_PROVIDER_API_KEY` | Resend API key |
-| `EMAIL_FROM_NAME` | Sender name for emails |
-| `EMAIL_FROM_ADDRESS` | Sender email address |
-| `EMAIL_TO_ADDRESS` | Where lead notifications are sent |
-| `ADMIN_PASSWORD` | Password for admin login |
-| `SESSION_SECRET` | Secret for signing session tokens (32+ chars) |
-
-### Public (Client-side)
-
-| Variable | Description |
-|----------|-------------|
-| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Google Maps API key |
-
-## Project Structure
+### Required (Server-side)
 
 ```
-src/
-├── app/
-│   ├── page.tsx                 # Landing page
-│   ├── apply/
-│   │   └── page.tsx            # Application form
-│   ├── admin/
-│   │   ├── page.tsx            # Admin login/dashboard
-│   │   └── AdminDashboard.tsx  # Dashboard component
-│   └── api/
-│       ├── submit-lead/        # Lead submission endpoint
-│       └── admin/
-│           ├── login/          # Admin authentication
-│           ├── logout/         # Admin logout
-│           └── leads/          # Lead CRUD operations
-├── components/
-│   ├── ui/                     # Reusable UI components
-│   ├── LoadingScreen.tsx       # Initial loading animation
-│   └── GoogleMap.tsx           # Service area map
-└── lib/
-    ├── auth.ts                 # Authentication utilities
-    ├── email.ts                # Email sending
-    ├── s3.ts                   # AWS S3 operations
-    ├── utils.ts                # Helper functions
-    └── validation.ts           # Zod schemas & types
+AWS_ACCESS_KEY_ID=your_aws_access_key
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+AWS_REGION=us-east-1
+LEADS_BUCKET_NAME=martin-leads
+MAILGUN_API_KEY=your_mailgun_api_key
+MAILGUN_DOMAIN=your-domain.mailgun.org
 ```
 
-## Lead Storage Model
+### Required (Client-side)
 
-Leads are stored in S3 as JSON files:
-- Path: `leads/YYYY/MM/timestamp-id.json`
-- Driver's licenses: `drivers-licenses/id.ext`
+```
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_google_maps_api_key
+```
 
-## Admin Authentication
+## Admin Credentials
 
-- Single password-based authentication
-- JWT session stored in HTTP-only cookie
-- 24-hour session expiration
-- All admin routes protected server-side
+- **Password**: `WINWIN04` (hardcoded in `src/lib/config.ts`)
+- **Email Recipient**: `winwinmarketingcanada@gmail.com` (hardcoded in `src/lib/email.ts`)
+
+## Lead Status Options
+
+The admin dashboard uses 5 statuses (matching your requirements):
+
+1. **New Lead** - Fresh applications
+2. **Working** - Being processed
+3. **Circle Back** - Follow up later
+4. **Approval** - Approved for financing
+5. **Dead Lead** - Closed (with reason dropdown)
+
+Dead lead reasons include: Declined, Negative Equity, No longer interested, Already Purchased, No Vehicle of Interest, Cannot Afford Payment, Too Far to Visit
+
+## Map Service Area
+
+The map uses Google Places API to precisely locate and highlight cities:
+- **Green circles**: Included cities (Oshawa, Toronto, Markham, Vaughan, etc.)
+- **Red circle**: Excluded city (Brampton)
+- Click any marker to see if the city is served
 
 ## Local Development
 
@@ -95,20 +73,61 @@ Leads are stored in S3 as JSON files:
 npm install
 
 # Set up environment variables
-cp .env.example .env.local
-# Edit .env.local with your values
+# Create .env.local with the variables above
 
 # Run development server
 npm run dev
+
+# Open http://localhost:3000
 ```
 
 ## Deployment
 
-The app auto-deploys to Vercel on push to `main`. Ensure all environment variables are configured in your Vercel project settings.
+The app auto-deploys to Vercel on push to `main`. 
 
-## Security Notes
+**Important**: Make sure to add all environment variables in Vercel's dashboard before deploying.
 
-- All secrets are server-side only (except Google Maps API key)
-- S3 bucket should have Block Public Access enabled
-- Driver's license images are accessed via short-lived signed URLs
-- Admin sessions use secure, HTTP-only cookies
+## Project Structure
+
+```
+src/
+├── app/
+│   ├── page.tsx                 # Landing page
+│   ├── apply/page.tsx           # 4-step application form
+│   ├── admin/
+│   │   ├── page.tsx             # Admin login
+│   │   └── AdminDashboard.tsx   # Dashboard with leads/showcase/settings
+│   └── api/
+│       ├── submit-lead/         # Form submission
+│       ├── showcase/            # Public showcase vehicles
+│       └── admin/               # Admin endpoints (leads, settings, showcase)
+├── components/
+│   ├── ui/                      # Reusable UI components
+│   ├── LoadingScreen.tsx        # Animated intro
+│   ├── GoogleMap.tsx            # Service area map
+│   └── ShowcaseSection.tsx      # Vehicle carousel
+└── lib/
+    ├── auth.ts                  # JWT authentication
+    ├── email.ts                 # Mailgun integration
+    ├── s3.ts                    # AWS S3 operations
+    ├── config.ts                # Configuration
+    ├── utils.ts                 # Helper functions
+    └── validation.ts            # Zod schemas
+```
+
+## Lead Storage
+
+- **Leads**: `leads/YYYY/MM/timestamp-id.json`
+- **Driver's Licenses**: `drivers-licenses/id.ext`
+- **Showcase Images**: `showcase-images/id.ext`
+- **Settings**: `settings/email-settings.json`
+
+All files use signed URLs for secure access.
+
+## Security
+
+- All secrets are server-side only
+- S3 bucket has Block Public Access enabled
+- Driver's license images use 5-minute signed URLs
+- Admin sessions use secure HTTP-only cookies
+- No secrets in client bundles
