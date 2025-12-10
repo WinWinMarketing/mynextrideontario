@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminSession } from '@/lib/auth';
-import { getShowcaseVehicles, addShowcaseVehicle, deleteShowcaseVehicle, saveShowcaseVehicles } from '@/lib/s3';
+import { getShowcaseVehiclesWithUrls, addShowcaseVehicle, deleteShowcaseVehicle, saveShowcaseVehicles } from '@/lib/s3';
 import { MAX_SHOWCASE_VEHICLES } from '@/lib/validation';
 
 export async function GET() {
@@ -10,7 +10,8 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const vehicles = await getShowcaseVehicles();
+    // Get vehicles with fresh signed URLs
+    const vehicles = await getShowcaseVehiclesWithUrls();
     return NextResponse.json({ vehicles, maxVehicles: MAX_SHOWCASE_VEHICLES });
   } catch (error) {
     console.error('Error fetching showcase:', error);

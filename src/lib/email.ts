@@ -1,19 +1,9 @@
-import { Resend } from 'resend';
 import { Lead } from './validation';
 
-// IMPORTANT: Resend free tier only allows sending to the account owner's email
-// This is hardcoded to ensure emails actually get delivered
-const RESEND_ACCOUNT_EMAIL = 'winwinmarketingcanada@gmail.com';
-
-// Initialize Resend client
-function getResendClient(): Resend | null {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    console.log('RESEND_API_KEY not configured');
-    return null;
-  }
-  return new Resend(apiKey);
-}
+// Mailgun configuration
+const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY || '';
+const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || 'sandboxb8d5e3c8f5a94f3e9c1a2b3c4d5e6f7g.mailgun.org';
+const RECIPIENT_EMAIL = 'winwinmarketingcanada@gmail.com';
 
 // Format budget display
 function formatBudget(formData: Lead['formData']): string {
@@ -148,6 +138,43 @@ function buildEmailHtml(lead: Lead): string {
   `;
 }
 
+// Send email using Mailgun API
+async function sendWithMailgun(to: string, subject: string, html: string): Promise<boolean> {
+  if (!MAILGUN_API_KEY) {
+    console.log('Mailgun API key not configured');
+    return false;
+  }
+
+  try {
+    const formData = new FormData();
+    formData.append('from', `My Next Ride Ontario <mailgun@${MAILGUN_DOMAIN}>`);
+    formData.append('to', to);
+    formData.append('subject', subject);
+    formData.append('html', html);
+
+    const response = await fetch(`https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64')}`,
+      },
+      body: formData,
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('✅ Email sent via Mailgun:', data.id);
+      return true;
+    } else {
+      const error = await response.text();
+      console.error('Mailgun error:', error);
+      return false;
+    }
+  } catch (error) {
+    console.error('Mailgun request failed:', error);
+    return false;
+  }
+}
+
 // Send notification email for new lead
 export async function sendLeadNotificationEmail(lead: Lead): Promise<boolean> {
   try {
@@ -165,33 +192,14 @@ export async function sendLeadNotificationEmail(lead: Lead): Promise<boolean> {
     const htmlContent = buildEmailHtml(lead);
     const subject = `New Application: ${formData.fullName} - ${vehicleTypeLabel}`;
     
-    const resend = getResendClient();
+    // Send via Mailgun
+    const sent = await sendWithMailgun(RECIPIENT_EMAIL, subject, htmlContent);
     
-    if (resend) {
-      try {
-        // ALWAYS send to the Resend account email - this is the ONLY way it works on free tier
-        const { data, error } = await resend.emails.send({
-          from: 'My Next Ride Ontario <onboarding@resend.dev>',
-          to: [RESEND_ACCOUNT_EMAIL], // HARDCODED to work with free tier
-          subject: subject,
-          html: htmlContent,
-        });
-        
-        if (error) {
-          console.error('Resend API error:', error);
-          return false;
-        }
-        
-        console.log(`✅ Email sent successfully to ${RESEND_ACCOUNT_EMAIL}! ID: ${data?.id}`);
-        return true;
-      } catch (emailError) {
-        console.error('Email sending failed:', emailError);
-        return false;
-      }
-    } else {
-      console.log('📧 Resend not configured. Lead saved to dashboard only.');
-      return false;
+    if (!sent) {
+      console.log('📧 Email not sent. Lead saved to dashboard.');
     }
+    
+    return sent;
   } catch (error) {
     console.error('Error in email notification:', error);
     return false;

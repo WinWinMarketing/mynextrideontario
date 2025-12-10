@@ -2,49 +2,47 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-// Service area - covers GTA but stays on land
-const SERVICE_AREA_COORDS = [
-  { lat: 44.10, lng: -79.60 },
-  { lat: 44.10, lng: -79.00 },
-  { lat: 43.95, lng: -78.80 },
-  { lat: 43.85, lng: -78.85 },
-  { lat: 43.80, lng: -78.95 },
-  { lat: 43.70, lng: -79.10 },
-  { lat: 43.65, lng: -79.25 },
-  { lat: 43.63, lng: -79.40 },
-  { lat: 43.62, lng: -79.50 },
-  { lat: 43.58, lng: -79.58 },
-  { lat: 43.52, lng: -79.65 },
-  { lat: 43.45, lng: -79.70 },
-  { lat: 43.55, lng: -79.75 },
-  { lat: 43.65, lng: -79.72 },
-  { lat: 43.75, lng: -79.68 },
-  { lat: 43.85, lng: -79.65 },
-  { lat: 43.95, lng: -79.62 },
-  { lat: 44.05, lng: -79.60 },
+// Main GTA Service Area - follows actual boundaries along the lake
+const SERVICE_AREA_POLYGON = [
+  // Start North, go clockwise
+  { lat: 44.08, lng: -79.55 },  // North Newmarket
+  { lat: 44.05, lng: -79.35 },  // East Gwillimbury
+  { lat: 44.00, lng: -79.15 },  // Georgina/Uxbridge
+  { lat: 43.95, lng: -78.85 },  // North Oshawa
+  { lat: 43.90, lng: -78.80 },  // Oshawa
+  { lat: 43.85, lng: -78.82 },  // South Oshawa
+  // Follow lakeshore (staying on land)
+  { lat: 43.82, lng: -78.90 },  // Whitby
+  { lat: 43.80, lng: -79.00 },  // Ajax
+  { lat: 43.77, lng: -79.08 },  // Pickering
+  { lat: 43.72, lng: -79.18 },  // Scarborough East
+  { lat: 43.68, lng: -79.28 },  // Scarborough
+  { lat: 43.65, lng: -79.38 },  // Toronto East
+  { lat: 43.635, lng: -79.42 }, // Downtown Toronto
+  { lat: 43.62, lng: -79.48 },  // Toronto West
+  { lat: 43.59, lng: -79.54 },  // Etobicoke
+  { lat: 43.56, lng: -79.60 },  // Mississauga East
+  { lat: 43.52, lng: -79.64 },  // Port Credit
+  { lat: 43.48, lng: -79.68 },  // South Mississauga
+  { lat: 43.45, lng: -79.70 },  // Oakville border
+  // West boundary - STOPS before Brampton
+  { lat: 43.52, lng: -79.72 },
+  { lat: 43.60, lng: -79.70 },
+  { lat: 43.68, lng: -79.68 },  // West boundary line
+  // North through Vaughan (avoiding Brampton)
+  { lat: 43.78, lng: -79.62 },  // Woodbridge
+  { lat: 43.85, lng: -79.58 },  // Vaughan
+  { lat: 43.92, lng: -79.55 },  // King City
+  { lat: 44.00, lng: -79.52 },  // Aurora West
+  { lat: 44.08, lng: -79.55 },  // Back to start
 ];
 
-// Brampton exclusion zone (RED)
-const BRAMPTON_COORDS = [
-  { lat: 43.82, lng: -79.95 },
-  { lat: 43.82, lng: -79.68 },
-  { lat: 43.65, lng: -79.68 },
-  { lat: 43.65, lng: -79.95 },
-];
-
-// Cities with their status
-const CITIES = [
-  { name: 'Oshawa', lat: 43.8971, lng: -78.8658, included: true },
-  { name: 'Toronto', lat: 43.6532, lng: -79.3832, included: true },
-  { name: 'Markham', lat: 43.8561, lng: -79.3370, included: true },
-  { name: 'Vaughan', lat: 43.8361, lng: -79.4983, included: true },
-  { name: 'Richmond Hill', lat: 43.8828, lng: -79.4403, included: true },
-  { name: 'Newmarket', lat: 44.0592, lng: -79.4613, included: true },
-  { name: 'Mississauga', lat: 43.5890, lng: -79.6000, included: true },
-  { name: 'Pickering', lat: 43.8384, lng: -79.0868, included: true },
-  { name: 'Ajax', lat: 43.8509, lng: -79.0204, included: true },
-  { name: 'Scarborough', lat: 43.7731, lng: -79.2578, included: true },
-  { name: 'Brampton', lat: 43.7315, lng: -79.7624, included: false },
+// Brampton - excluded area (red)
+const BRAMPTON_POLYGON = [
+  { lat: 43.82, lng: -79.95 },  // NW
+  { lat: 43.82, lng: -79.68 },  // NE
+  { lat: 43.60, lng: -79.68 },  // SE
+  { lat: 43.60, lng: -79.95 },  // SW
 ];
 
 export function GoogleMap() {
@@ -55,41 +53,39 @@ export function GoogleMap() {
   useEffect(() => {
     if (!mapRef.current || isLoaded) return;
 
-    // Get API key from environment variable directly (client-side)
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-    
     if (!apiKey) {
       setError('Google Maps API key not configured');
       return;
     }
 
-    // Prevent duplicate script loading
+    // Prevent duplicate loading
     if (document.querySelector('script[src*="maps.googleapis.com"]')) {
       return;
     }
 
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initServiceAreaMap`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initServiceMap`;
     script.async = true;
     script.defer = true;
 
-    (window as any).initServiceAreaMap = () => {
+    (window as any).initServiceMap = () => {
       if (!mapRef.current) return;
 
       try {
         const map = new google.maps.Map(mapRef.current, {
-          center: { lat: 43.75, lng: -79.40 },
+          center: { lat: 43.72, lng: -79.40 },
           zoom: 9,
           mapTypeId: 'roadmap',
           styles: [
             { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-            { featureType: 'transit', stylers: [{ visibility: 'simplified' }] },
-            { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#b3d1e6' }] },
-            { featureType: 'landscape', elementType: 'geometry.fill', stylers: [{ color: '#f0f4f8' }] },
+            { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+            { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#a8c8dc' }] },
+            { featureType: 'landscape', elementType: 'geometry.fill', stylers: [{ color: '#f5f7fa' }] },
             { featureType: 'road.highway', elementType: 'geometry.fill', stylers: [{ color: '#ffffff' }] },
-            { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#d1d5db' }] },
+            { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#e0e4e8' }] },
             { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#ffffff' }] },
-            { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#374151' }] },
+            { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#1e293b' }, { weight: 0.5 }] },
           ],
           disableDefaultUI: true,
           zoomControl: true,
@@ -98,73 +94,56 @@ export function GoogleMap() {
           gestureHandling: 'cooperative',
         });
 
-        // Service area polygon (green)
+        // Draw INCLUDED service area (green)
         new google.maps.Polygon({
-          paths: SERVICE_AREA_COORDS,
-          strokeColor: '#1948b3',
+          paths: SERVICE_AREA_POLYGON,
+          strokeColor: '#16a34a',
           strokeOpacity: 1,
           strokeWeight: 3,
           fillColor: '#22c55e',
-          fillOpacity: 0.15,
+          fillOpacity: 0.20,
           map,
         });
 
-        // Brampton exclusion (red)
+        // Draw EXCLUDED Brampton area (red)
         new google.maps.Polygon({
-          paths: BRAMPTON_COORDS,
+          paths: BRAMPTON_POLYGON,
           strokeColor: '#dc2626',
           strokeOpacity: 1,
           strokeWeight: 3,
           fillColor: '#ef4444',
-          fillOpacity: 0.25,
+          fillOpacity: 0.30,
           map,
         });
 
-        // City markers
-        CITIES.forEach((city) => {
-          const marker = new google.maps.Marker({
-            position: { lat: city.lat, lng: city.lng },
-            map,
-            icon: {
-              path: google.maps.SymbolPath.CIRCLE,
-              scale: 10,
-              fillColor: city.included ? '#22c55e' : '#ef4444',
-              fillOpacity: 1,
-              strokeColor: '#ffffff',
-              strokeWeight: 3,
-            },
-            title: city.name,
-          });
-
-          const infoWindow = new google.maps.InfoWindow({
-            content: `
-              <div style="padding: 12px 16px; font-family: system-ui, -apple-system, sans-serif; min-width: 150px;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                  <span style="width: 12px; height: 12px; border-radius: 50%; background: ${city.included ? '#22c55e' : '#ef4444'};"></span>
-                  <strong style="font-size: 16px; color: #1e293b;">${city.name}</strong>
-                </div>
-                <p style="margin: 0; font-size: 13px; color: ${city.included ? '#16a34a' : '#dc2626'};">
-                  ${city.included ? '✓ Within Service Area' : '✗ Outside Service Area'}
-                </p>
-              </div>
-            `,
-          });
-
-          marker.addListener('click', () => infoWindow.open(map, marker));
+        // Add "Brampton" label
+        new google.maps.Marker({
+          position: { lat: 43.71, lng: -79.82 },
+          map,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 0,
+          },
+          label: {
+            text: 'BRAMPTON',
+            color: '#dc2626',
+            fontSize: '11px',
+            fontWeight: 'bold',
+          },
         });
 
         // Legend
         const legend = document.createElement('div');
         legend.innerHTML = `
-          <div style="background: white; padding: 16px 20px; margin: 12px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); font-family: system-ui, -apple-system, sans-serif; font-size: 14px;">
-            <div style="font-weight: 700; margin-bottom: 12px; color: #0f172a; font-size: 15px;">Service Area</div>
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-              <span style="width: 14px; height: 14px; background: #22c55e; border-radius: 50%; flex-shrink: 0;"></span>
-              <span style="color: #16a34a; font-weight: 500;">Included Areas</span>
+          <div style="background: white; padding: 14px 18px; margin: 12px; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.12); font-family: system-ui, sans-serif; font-size: 13px;">
+            <div style="font-weight: 700; margin-bottom: 10px; color: #0f172a;">Service Area</div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+              <span style="width: 20px; height: 12px; background: rgba(34,197,94,0.3); border: 2px solid #16a34a; border-radius: 2px;"></span>
+              <span style="color: #16a34a; font-weight: 500;">We Serve This Area</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span style="width: 14px; height: 14px; background: #ef4444; border-radius: 50%; flex-shrink: 0;"></span>
-              <span style="color: #dc2626; font-weight: 500;">Excluded (Brampton)</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="width: 20px; height: 12px; background: rgba(239,68,68,0.35); border: 2px solid #dc2626; border-radius: 2px;"></span>
+              <span style="color: #dc2626; font-weight: 500;">Not Served (Brampton)</span>
             </div>
           </div>
         `;
@@ -173,7 +152,7 @@ export function GoogleMap() {
         setIsLoaded(true);
       } catch (err) {
         console.error('Map error:', err);
-        setError('Failed to initialize map');
+        setError('Failed to load map');
       }
     };
 
@@ -181,19 +160,19 @@ export function GoogleMap() {
     document.head.appendChild(script);
 
     return () => {
-      delete (window as any).initServiceAreaMap;
+      delete (window as any).initServiceMap;
     };
   }, [isLoaded]);
 
   if (error) {
     return (
-      <div className="w-full h-[500px] bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+      <div className="w-full h-[500px] bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center rounded-xl">
         <div className="text-center p-8">
           <svg className="w-16 h-16 mx-auto text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
           </svg>
-          <p className="text-slate-500 font-medium">{error}</p>
-          <p className="text-slate-400 text-sm mt-2">Please configure NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</p>
+          <p className="text-slate-600 font-medium">{error}</p>
+          <p className="text-slate-400 text-sm mt-2">Add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to Vercel</p>
         </div>
       </div>
     );
@@ -201,9 +180,9 @@ export function GoogleMap() {
 
   return (
     <div className="relative">
-      <div ref={mapRef} className="w-full h-[500px]" />
+      <div ref={mapRef} className="w-full h-[500px] rounded-xl" />
       {!isLoaded && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200">
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 rounded-xl">
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
             <p className="text-slate-500 font-medium">Loading map...</p>

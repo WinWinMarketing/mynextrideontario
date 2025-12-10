@@ -298,7 +298,6 @@ export async function addShowcaseVehicle(
   const id = generateId();
   
   let imageKey: string | undefined;
-  let imageUrl: string | undefined;
   
   // Upload image if provided
   if (imageFile) {
@@ -311,16 +310,12 @@ export async function addShowcaseVehicle(
       Body: imageFile.buffer,
       ContentType: imageFile.contentType,
     }));
-    
-    // Generate a long-lived URL (public showcase images)
-    imageUrl = `https://${bucket}.s3.${config.aws.region}.amazonaws.com/${imageKey}`;
   }
   
   const newVehicle: ShowcaseVehicle = {
     ...vehicle,
     id,
     imageKey,
-    imageUrl,
     createdAt: new Date().toISOString(),
   };
   
@@ -328,6 +323,31 @@ export async function addShowcaseVehicle(
   await saveShowcaseVehicles(vehicles);
   
   return newVehicle;
+}
+
+// Get showcase vehicles with fresh signed URLs
+export async function getShowcaseVehiclesWithUrls(): Promise<ShowcaseVehicle[]> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  const vehicles = await getShowcaseVehicles();
+  
+  // Generate fresh signed URLs for each vehicle's image
+  const vehiclesWithUrls = await Promise.all(
+    vehicles.map(async (vehicle) => {
+      if (vehicle.imageKey) {
+        const command = new GetObjectCommand({
+          Bucket: bucket,
+          Key: vehicle.imageKey,
+        });
+        // 1 hour expiry for public showcase
+        const signedUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
+        return { ...vehicle, imageUrl: signedUrl };
+      }
+      return vehicle;
+    })
+  );
+  
+  return vehiclesWithUrls;
 }
 
 // Delete a showcase vehicle
