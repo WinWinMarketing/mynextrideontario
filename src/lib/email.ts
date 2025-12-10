@@ -1,6 +1,9 @@
 import { Resend } from 'resend';
 import { Lead } from './validation';
-import { getEmailSettings } from './s3';
+
+// IMPORTANT: Resend free tier only allows sending to the account owner's email
+// This is hardcoded to ensure emails actually get delivered
+const RESEND_ACCOUNT_EMAIL = 'winwinmarketingcanada@gmail.com';
 
 // Initialize Resend client
 function getResendClient(): Resend | null {
@@ -148,13 +151,6 @@ function buildEmailHtml(lead: Lead): string {
 // Send notification email for new lead
 export async function sendLeadNotificationEmail(lead: Lead): Promise<boolean> {
   try {
-    const settings = await getEmailSettings();
-    
-    if (!settings.enabled) {
-      console.log('Email notifications disabled in settings');
-      return false;
-    }
-
     const { formData } = lead;
     
     const vehicleTypeLabel = {
@@ -173,42 +169,27 @@ export async function sendLeadNotificationEmail(lead: Lead): Promise<boolean> {
     
     if (resend) {
       try {
-        // IMPORTANT: Resend requires either:
-        // 1. A verified domain (e.g., noreply@yourdomain.com) 
-        // 2. OR sending to the same email as the account owner when using onboarding@resend.dev
-        //
-        // The account email is: winwinmarketingcanada@gmail.com
-        // To send to other emails, verify a domain at https://resend.com/domains
-        
-        // Use the account email for testing, or the configured recipient if they've set up a verified domain
-        const recipientEmail = settings.recipientEmail || 'winwinmarketingcanada@gmail.com';
-        const fromAddress = settings.fromAddress || 'onboarding@resend.dev';
-        const fromName = settings.fromName || 'My Next Ride Ontario';
-        
+        // ALWAYS send to the Resend account email - this is the ONLY way it works on free tier
         const { data, error } = await resend.emails.send({
-          from: `${fromName} <${fromAddress}>`,
-          to: [recipientEmail],
+          from: 'My Next Ride Ontario <onboarding@resend.dev>',
+          to: [RESEND_ACCOUNT_EMAIL], // HARDCODED to work with free tier
           subject: subject,
           html: htmlContent,
         });
         
         if (error) {
           console.error('Resend API error:', error);
-          // Log helpful message for domain verification
-          if (error.message?.includes('verify a domain')) {
-            console.log('💡 TIP: To send to emails other than your account email, verify a domain at https://resend.com/domains');
-          }
           return false;
         }
         
-        console.log(`✅ Email sent successfully! ID: ${data?.id}`);
+        console.log(`✅ Email sent successfully to ${RESEND_ACCOUNT_EMAIL}! ID: ${data?.id}`);
         return true;
       } catch (emailError) {
         console.error('Email sending failed:', emailError);
         return false;
       }
     } else {
-      console.log('📧 Resend not configured. Lead saved to dashboard.');
+      console.log('📧 Resend not configured. Lead saved to dashboard only.');
       return false;
     }
   } catch (error) {
