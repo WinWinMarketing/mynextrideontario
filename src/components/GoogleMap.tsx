@@ -1,35 +1,27 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { config } from '@/lib/config';
 
 // Service area - covers GTA but stays on land
 const SERVICE_AREA_COORDS = [
-  // North boundary
-  { lat: 44.10, lng: -79.60 },  // North West
-  { lat: 44.10, lng: -79.00 },  // North East
-  
-  // East boundary - includes Oshawa
-  { lat: 43.95, lng: -78.80 },  // Oshawa area
-  { lat: 43.85, lng: -78.85 },  // South Oshawa
-  
-  // Southeast - follow shoreline
+  { lat: 44.10, lng: -79.60 },
+  { lat: 44.10, lng: -79.00 },
+  { lat: 43.95, lng: -78.80 },
+  { lat: 43.85, lng: -78.85 },
   { lat: 43.80, lng: -78.95 },
-  { lat: 43.70, lng: -79.10 },  // Ajax/Pickering
-  { lat: 43.65, lng: -79.25 },  // Scarborough
-  { lat: 43.63, lng: -79.40 },  // Toronto East
-  { lat: 43.62, lng: -79.50 },  // Downtown Toronto shore
-  { lat: 43.58, lng: -79.58 },  // West Toronto shore
-  { lat: 43.52, lng: -79.65 },  // Mississauga shore
-  { lat: 43.45, lng: -79.70 },  // South Mississauga
-  
-  // West boundary - cut to EXCLUDE Brampton
-  { lat: 43.55, lng: -79.75 },  // Oakville north
-  { lat: 43.65, lng: -79.72 },  // West boundary (before Brampton)
-  { lat: 43.75, lng: -79.68 },  // North of Mississauga
-  { lat: 43.85, lng: -79.65 },  // King/Vaughan border
-  { lat: 43.95, lng: -79.62 },  // North Vaughan
-  { lat: 44.05, lng: -79.60 },  // Close to start
+  { lat: 43.70, lng: -79.10 },
+  { lat: 43.65, lng: -79.25 },
+  { lat: 43.63, lng: -79.40 },
+  { lat: 43.62, lng: -79.50 },
+  { lat: 43.58, lng: -79.58 },
+  { lat: 43.52, lng: -79.65 },
+  { lat: 43.45, lng: -79.70 },
+  { lat: 43.55, lng: -79.75 },
+  { lat: 43.65, lng: -79.72 },
+  { lat: 43.75, lng: -79.68 },
+  { lat: 43.85, lng: -79.65 },
+  { lat: 43.95, lng: -79.62 },
+  { lat: 44.05, lng: -79.60 },
 ];
 
 // Brampton exclusion zone (RED)
@@ -42,7 +34,6 @@ const BRAMPTON_COORDS = [
 
 // Cities with their status
 const CITIES = [
-  // INCLUDED (green)
   { name: 'Oshawa', lat: 43.8971, lng: -78.8658, included: true },
   { name: 'Toronto', lat: 43.6532, lng: -79.3832, included: true },
   { name: 'Markham', lat: 43.8561, lng: -79.3370, included: true },
@@ -53,7 +44,6 @@ const CITIES = [
   { name: 'Pickering', lat: 43.8384, lng: -79.0868, included: true },
   { name: 'Ajax', lat: 43.8509, lng: -79.0204, included: true },
   { name: 'Scarborough', lat: 43.7731, lng: -79.2578, included: true },
-  // EXCLUDED (red)
   { name: 'Brampton', lat: 43.7315, lng: -79.7624, included: false },
 ];
 
@@ -65,13 +55,19 @@ export function GoogleMap() {
   useEffect(() => {
     if (!mapRef.current || isLoaded) return;
 
-    const apiKey = config.googleMaps.apiKey;
+    // Get API key from environment variable directly (client-side)
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    
     if (!apiKey) {
       setError('Google Maps API key not configured');
       return;
     }
 
-    // Load Google Maps
+    // Prevent duplicate script loading
+    if (document.querySelector('script[src*="maps.googleapis.com"]')) {
+      return;
+    }
+
     const script = document.createElement('script');
     script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initServiceAreaMap`;
     script.async = true;
@@ -81,7 +77,6 @@ export function GoogleMap() {
       if (!mapRef.current) return;
 
       try {
-        // Create map
         const map = new google.maps.Map(mapRef.current, {
           center: { lat: 43.75, lng: -79.40 },
           zoom: 9,
@@ -103,7 +98,7 @@ export function GoogleMap() {
           gestureHandling: 'cooperative',
         });
 
-        // Draw SERVICE AREA polygon (blue/green)
+        // Service area polygon (green)
         new google.maps.Polygon({
           paths: SERVICE_AREA_COORDS,
           strokeColor: '#1948b3',
@@ -114,7 +109,7 @@ export function GoogleMap() {
           map,
         });
 
-        // Draw BRAMPTON exclusion zone (red)
+        // Brampton exclusion (red)
         new google.maps.Polygon({
           paths: BRAMPTON_COORDS,
           strokeColor: '#dc2626',
@@ -125,7 +120,7 @@ export function GoogleMap() {
           map,
         });
 
-        // Add city markers
+        // City markers
         CITIES.forEach((city) => {
           const marker = new google.maps.Marker({
             position: { lat: city.lat, lng: city.lng },
@@ -155,23 +150,13 @@ export function GoogleMap() {
             `,
           });
 
-          marker.addListener('click', () => {
-            infoWindow.open(map, marker);
-          });
+          marker.addListener('click', () => infoWindow.open(map, marker));
         });
 
-        // Add legend
+        // Legend
         const legend = document.createElement('div');
         legend.innerHTML = `
-          <div style="
-            background: white;
-            padding: 16px 20px;
-            margin: 12px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.12);
-            font-family: system-ui, -apple-system, sans-serif;
-            font-size: 14px;
-          ">
+          <div style="background: white; padding: 16px 20px; margin: 12px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); font-family: system-ui, -apple-system, sans-serif; font-size: 14px;">
             <div style="font-weight: 700; margin-bottom: 12px; color: #0f172a; font-size: 15px;">Service Area</div>
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
               <span style="width: 14px; height: 14px; background: #22c55e; border-radius: 50%; flex-shrink: 0;"></span>
@@ -179,7 +164,7 @@ export function GoogleMap() {
             </div>
             <div style="display: flex; align-items: center; gap: 10px;">
               <span style="width: 14px; height: 14px; background: #ef4444; border-radius: 50%; flex-shrink: 0;"></span>
-              <span style="color: #dc2626; font-weight: 500;">Excluded (e.g., Brampton)</span>
+              <span style="color: #dc2626; font-weight: 500;">Excluded (Brampton)</span>
             </div>
           </div>
         `;
@@ -187,7 +172,7 @@ export function GoogleMap() {
 
         setIsLoaded(true);
       } catch (err) {
-        console.error('Map initialization error:', err);
+        console.error('Map error:', err);
         setError('Failed to initialize map');
       }
     };
@@ -202,12 +187,13 @@ export function GoogleMap() {
 
   if (error) {
     return (
-      <div className="w-full h-[500px] bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center rounded-xl">
+      <div className="w-full h-[500px] bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
         <div className="text-center p-8">
           <svg className="w-16 h-16 mx-auto text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
           </svg>
           <p className="text-slate-500 font-medium">{error}</p>
+          <p className="text-slate-400 text-sm mt-2">Please configure NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</p>
         </div>
       </div>
     );

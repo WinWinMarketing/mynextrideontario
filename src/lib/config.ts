@@ -1,16 +1,15 @@
-// Configuration - uses environment variables for sensitive AWS credentials
-// Non-sensitive config can be baked in
+// Configuration - uses environment variables for sensitive credentials
 
 export const config = {
-  // Admin credentials (server-side only, safe to bake in)
+  // Admin credentials (server-side only)
   admin: {
     password: 'WINWIN04',
     sessionSecret: 'mynextrideontario-session-secret-2024-secure-key',
   },
   
-  // Default email settings (can be changed in admin dashboard)
+  // Default email settings
   email: {
-    defaultRecipient: 'SanjayNitesh2004@gmail.com',
+    defaultRecipient: 'winwinmarketingcanada@gmail.com',
     fromName: 'My Next Ride Ontario',
   },
   
@@ -22,9 +21,11 @@ export const config = {
     get bucketName() { return process.env.LEADS_BUCKET_NAME || 'martin-leads'; },
   },
   
-  // Google Maps - uses environment variable (public key, restricted by domain)
-  get googleMapsApiKey() { 
-    return process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''; 
+  // Google Maps - client-side accessible
+  googleMaps: {
+    get apiKey() { 
+      return process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''; 
+    },
   },
 };
 
