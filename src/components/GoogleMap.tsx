@@ -12,33 +12,32 @@ export function GoogleMap() {
 
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!apiKey) {
-      setError('Google Maps API key not configured');
+      setError('Map unavailable');
       return;
     }
 
     if (document.querySelector('script[src*="maps.googleapis.com"]')) return;
 
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry&callback=initServiceMap`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initGTAMap`;
     script.async = true;
 
-    (window as any).initServiceMap = () => {
+    (window as any).initGTAMap = () => {
       if (!mapRef.current) return;
 
       try {
         const map = new google.maps.Map(mapRef.current, {
-          center: { lat: 43.65, lng: -79.38 },
-          zoom: 9.5,
-          mapTypeId: 'roadmap',
+          center: { lat: 43.72, lng: -79.38 },
+          zoom: 10,
           styles: [
-            { featureType: 'all', elementType: 'geometry', stylers: [{ saturation: -20 }, { lightness: 20 }] },
+            { featureType: 'all', elementType: 'geometry', stylers: [{ saturation: -30 }, { lightness: 10 }] },
             { featureType: 'poi', stylers: [{ visibility: 'off' }] },
             { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-            { featureType: 'road.local', stylers: [{ visibility: 'off' }] },
-            { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#a3c5d9' }] },
-            { featureType: 'landscape', stylers: [{ color: '#fafafa' }] },
-            { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#ffffff' }, { weight: 0.8 }] },
-            { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#1e293b' }, { weight: 0.5 }] },
+            { featureType: 'road.local', stylers: [{ visibility: 'simplified' }] },
+            { featureType: 'road.arterial', stylers: [{ visibility: 'simplified' }] },
+            { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#c9dae8' }] },
+            { featureType: 'landscape', stylers: [{ color: '#f5f5f5' }] },
+            { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#1e293b' }] },
           ],
           disableDefaultUI: true,
           zoomControl: true,
@@ -47,87 +46,87 @@ export function GoogleMap() {
           gestureHandling: 'cooperative',
         });
 
-        // Precise GTA boundary (following the actual shoreline and avoiding Brampton)
-        const gtaBoundary = new google.maps.Polygon({
+        // Service Area - GTA (land only, clean boundary)
+        const serviceArea = new google.maps.Polygon({
           paths: [
-            // North boundary
-            { lat: 44.05, lng: -79.55 },
-            { lat: 44.05, lng: -79.00 },
-            // East - Oshawa
-            { lat: 43.92, lng: -78.82 },
-            { lat: 43.87, lng: -78.84 },
+            // Northern boundary
+            { lat: 44.00, lng: -79.60 },
+            { lat: 44.00, lng: -79.00 },
+            // Northeast - towards Oshawa
+            { lat: 43.95, lng: -78.85 },
+            { lat: 43.88, lng: -78.82 },
+            { lat: 43.85, lng: -78.85 },
+            // East coast - along Lake Ontario
             { lat: 43.82, lng: -78.88 },
-            // Southeast shoreline
-            { lat: 43.78, lng: -78.98 },
-            { lat: 43.72, lng: -79.08 },
-            { lat: 43.68, lng: -79.20 },
-            { lat: 43.65, lng: -79.32 },
-            { lat: 43.635, lng: -79.40 }, // Toronto waterfront
+            { lat: 43.77, lng: -79.02 },
+            { lat: 43.70, lng: -79.15 },
+            // Toronto waterfront
+            { lat: 43.64, lng: -79.30 },
+            { lat: 43.63, lng: -79.38 },
             { lat: 43.62, lng: -79.48 },
-            { lat: 43.60, lng: -79.54 },
-            { lat: 43.56, lng: -79.60 },
-            { lat: 43.52, lng: -79.64 },
+            // Southwest coast
+            { lat: 43.55, lng: -79.58 },
+            { lat: 43.52, lng: -79.63 },
             { lat: 43.48, lng: -79.68 },
-            { lat: 43.45, lng: -79.71 },
-            // West boundary - STOPS before Brampton
-            { lat: 43.52, lng: -79.70 },
-            { lat: 43.60, lng: -79.68 },
-            { lat: 43.68, lng: -79.67 }, // Edge, avoiding Brampton
-            // North through Vaughan
-            { lat: 43.76, lng: -79.62 },
-            { lat: 43.84, lng: -79.58 },
-            { lat: 43.92, lng: -79.56 },
-            { lat: 44.00, lng: -79.54 },
+            // West boundary - stops BEFORE Brampton
+            { lat: 43.52, lng: -79.68 },
+            { lat: 43.58, lng: -79.68 },
+            { lat: 43.65, lng: -79.68 },
+            // North through Vaughan, avoiding Brampton
+            { lat: 43.72, lng: -79.68 },
+            { lat: 43.80, lng: -79.65 },
+            { lat: 43.88, lng: -79.62 },
+            { lat: 43.95, lng: -79.60 },
           ],
           strokeColor: '#16a34a',
           strokeOpacity: 1,
-          strokeWeight: 3.5,
+          strokeWeight: 3,
           fillColor: '#22c55e',
-          fillOpacity: 0.12,
-          map,
-        });
-
-        // Brampton - just a RED BORDER outline
-        const bramptonOutline = new google.maps.Polygon({
-          paths: [
-            { lat: 43.80, lng: -79.92 },
-            { lat: 43.80, lng: -79.70 },
-            { lat: 43.64, lng: -79.70 },
-            { lat: 43.64, lng: -79.92 },
-          ],
-          strokeColor: '#dc2626',
-          strokeOpacity: 1,
-          strokeWeight: 4,
-          fillColor: '#ef4444',
           fillOpacity: 0.15,
           map,
         });
 
-        // Add label for Brampton
+        // Brampton - RED border only
+        const brampton = new google.maps.Polygon({
+          paths: [
+            { lat: 43.82, lng: -79.88 },
+            { lat: 43.82, lng: -79.68 },
+            { lat: 43.65, lng: -79.68 },
+            { lat: 43.65, lng: -79.88 },
+          ],
+          strokeColor: '#dc2626',
+          strokeOpacity: 1,
+          strokeWeight: 3,
+          fillColor: '#ef4444',
+          fillOpacity: 0.12,
+          map,
+        });
+
+        // Brampton label
         new google.maps.Marker({
-          position: { lat: 43.72, lng: -79.81 },
+          position: { lat: 43.735, lng: -79.78 },
           map,
           icon: { path: google.maps.SymbolPath.CIRCLE, scale: 0 },
           label: {
             text: 'BRAMPTON',
             color: '#dc2626',
-            fontSize: '12px',
-            fontWeight: 'bold',
+            fontSize: '11px',
+            fontWeight: '700',
           },
         });
 
         // Legend
         const legend = document.createElement('div');
         legend.innerHTML = `
-          <div style="background: rgba(255,255,255,0.98); backdrop-filter: blur(12px); padding: 20px 24px; margin: 16px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.12); font-family: system-ui, sans-serif;">
-            <div style="font-weight: 700; margin-bottom: 16px; color: #0f172a; font-size: 17px;">Service Coverage</div>
-            <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 12px;">
-              <svg width="24" height="16" style="flex-shrink: 0;"><rect width="24" height="16" fill="rgba(34,197,94,0.15)" stroke="#16a34a" stroke-width="3" rx="4"/></svg>
-              <span style="color: #16a34a; font-weight: 600; font-size: 15px;">We Serve This Area</span>
+          <div style="background: white; padding: 16px 20px; margin: 12px; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); font-family: system-ui, sans-serif;">
+            <div style="font-weight: 700; margin-bottom: 12px; color: #0f172a; font-size: 14px;">Service Coverage</div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+              <div style="width: 20px; height: 14px; background: rgba(34,197,94,0.2); border: 2px solid #16a34a; border-radius: 3px;"></div>
+              <span style="color: #16a34a; font-weight: 600; font-size: 13px;">We Serve This Area</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 14px;">
-              <svg width="24" height="16" style="flex-shrink: 0;"><rect width="24" height="16" fill="rgba(239,68,68,0.15)" stroke="#dc2626" stroke-width="3" rx="4"/></svg>
-              <span style="color: #dc2626; font-weight: 600; font-size: 15px;">Brampton (Excluded)</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div style="width: 20px; height: 14px; background: rgba(239,68,68,0.15); border: 2px solid #dc2626; border-radius: 3px;"></div>
+              <span style="color: #dc2626; font-weight: 600; font-size: 13px;">Brampton (Excluded)</span>
             </div>
           </div>
         `;
@@ -140,28 +139,28 @@ export function GoogleMap() {
       }
     };
 
-    script.onerror = () => setError('Failed to load Google Maps');
+    script.onerror = () => setError('Map unavailable');
     document.head.appendChild(script);
 
-    return () => delete (window as any).initServiceMap;
+    return () => delete (window as any).initGTAMap;
   }, [isLoaded]);
 
   if (error) {
     return (
-      <div className="w-full h-[500px] bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center rounded-2xl">
+      <div className="w-full h-[450px] bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center rounded-2xl">
         <p className="text-slate-500 font-medium">{error}</p>
       </div>
     );
   }
 
   return (
-    <div className="relative">
-      <div ref={mapRef} className="w-full h-[500px]" />
+    <div className="relative rounded-2xl overflow-hidden shadow-xl">
+      <div ref={mapRef} className="w-full h-[450px]" />
       {!isLoaded && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 rounded-2xl">
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200">
           <div className="flex flex-col items-center gap-4">
-            <div className="w-14 h-14 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
-            <p className="text-slate-600 font-semibold">Loading service area map...</p>
+            <div className="w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+            <p className="text-slate-600 font-medium">Loading map...</p>
           </div>
         </div>
       )}
