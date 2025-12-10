@@ -7,20 +7,57 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Lead, LeadStatus, DeadReason } from './validation';
 import { generateId, getMonthYearKey } from './utils';
+import { config, SETTINGS_KEY, EmailSettings, defaultEmailSettings } from './config';
 
-// Initialize S3 client - only on server side
+// Initialize S3 client with environment variables
 function getS3Client(): S3Client {
   return new S3Client({
-    region: process.env.AWS_REGION || 'us-east-1',
+    region: config.aws.region,
     credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      accessKeyId: config.aws.accessKeyId,
+      secretAccessKey: config.aws.secretAccessKey,
     },
   });
 }
 
 function getBucketName(): string {
-  return process.env.LEADS_BUCKET_NAME || 'martin-leads';
+  return config.aws.bucketName;
+}
+
+// Get email settings from S3
+export async function getEmailSettings(): Promise<EmailSettings> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  
+  try {
+    const result = await s3.send(new GetObjectCommand({
+      Bucket: bucket,
+      Key: SETTINGS_KEY,
+    }));
+    
+    const body = await result.Body?.transformToString();
+    if (body) {
+      return JSON.parse(body) as EmailSettings;
+    }
+  } catch {
+    // Settings don't exist yet, return defaults
+    console.log('No email settings found, using defaults');
+  }
+  
+  return defaultEmailSettings;
+}
+
+// Save email settings to S3
+export async function saveEmailSettings(settings: EmailSettings): Promise<void> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  
+  await s3.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: SETTINGS_KEY,
+    Body: JSON.stringify(settings, null, 2),
+    ContentType: 'application/json',
+  }));
 }
 
 // Save a new lead
@@ -106,8 +143,6 @@ export async function getLeadsByMonth(year: number, month: number): Promise<Lead
         const body = await getResult.Body?.transformToString();
         if (body) {
           const lead = JSON.parse(body) as Lead;
-          // Store the S3 key for updates
-          (lead as Lead & { _s3Key?: string })._s3Key = obj.Key;
           leads.push(lead);
         }
       } catch (err) {
@@ -204,4 +239,3 @@ export async function getDriversLicenseSignedUrl(licenseKey: string): Promise<st
   
   return signedUrl;
 }
-

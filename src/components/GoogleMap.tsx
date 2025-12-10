@@ -9,10 +9,11 @@ export function GoogleMap() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Use the public environment variable for Google Maps
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     
     if (!apiKey) {
-      setError('Map API key not configured');
+      setError('Map configuration pending');
       return;
     }
 
@@ -26,7 +27,7 @@ export function GoogleMap() {
       if (!mapRef.current) return;
 
       // Center on GTA (between Oshawa and Toronto)
-      const center = { lat: 43.7, lng: -79.2 };
+      const center = { lat: 43.75, lng: -79.15 };
       
       const map = new google.maps.Map(mapRef.current, {
         center,
@@ -34,23 +35,33 @@ export function GoogleMap() {
         styles: [
           {
             featureType: 'all',
-            elementType: 'geometry',
-            stylers: [{ color: '#d2def9' }],
+            elementType: 'geometry.fill',
+            stylers: [{ color: '#e8f0fe' }],
           },
           {
             featureType: 'water',
             elementType: 'geometry',
-            stylers: [{ color: '#799cec' }],
+            stylers: [{ color: '#a6bdf2' }],
           },
           {
-            featureType: 'road',
+            featureType: 'road.highway',
             elementType: 'geometry',
             stylers: [{ color: '#ffffff' }],
           },
           {
-            featureType: 'road',
-            elementType: 'labels.text.fill',
-            stylers: [{ color: '#1948b3' }],
+            featureType: 'road.highway',
+            elementType: 'geometry.stroke',
+            stylers: [{ color: '#d2def9' }],
+          },
+          {
+            featureType: 'road.arterial',
+            elementType: 'geometry',
+            stylers: [{ color: '#ffffff' }],
+          },
+          {
+            featureType: 'road.local',
+            elementType: 'geometry',
+            stylers: [{ color: '#ffffff' }],
           },
           {
             featureType: 'poi',
@@ -58,109 +69,106 @@ export function GoogleMap() {
             stylers: [{ visibility: 'off' }],
           },
           {
+            featureType: 'poi.park',
+            elementType: 'geometry.fill',
+            stylers: [{ color: '#c8e6c9' }],
+          },
+          {
             featureType: 'administrative',
             elementType: 'labels.text.fill',
             stylers: [{ color: '#1948b3' }],
           },
         ],
-        disableDefaultUI: true,
+        disableDefaultUI: false,
         zoomControl: true,
         mapTypeControl: false,
         streetViewControl: false,
-        fullscreenControl: false,
+        fullscreenControl: true,
+        gestureHandling: 'cooperative',
       });
 
-      // Create a service area polygon that includes Oshawa but excludes Brampton
-      // This is an approximate polygon for the eastern GTA
+      // Service area polygon (includes Oshawa, excludes Brampton)
       const serviceAreaCoords = [
-        { lat: 44.0, lng: -78.8 },  // North of Oshawa
-        { lat: 44.0, lng: -79.2 },  // North
-        { lat: 43.9, lng: -79.4 },  // West limit (before Brampton)
-        { lat: 43.6, lng: -79.4 },  // South-west
-        { lat: 43.5, lng: -79.0 },  // South
-        { lat: 43.5, lng: -78.7 },  // South-east
-        { lat: 43.8, lng: -78.7 },  // East
+        { lat: 44.05, lng: -78.75 },
+        { lat: 44.05, lng: -79.25 },
+        { lat: 43.95, lng: -79.45 },
+        { lat: 43.70, lng: -79.45 },
+        { lat: 43.55, lng: -79.20 },
+        { lat: 43.55, lng: -78.75 },
+        { lat: 43.75, lng: -78.65 },
       ];
 
       const serviceArea = new google.maps.Polygon({
         paths: serviceAreaCoords,
         strokeColor: '#1948b3',
-        strokeOpacity: 0.8,
+        strokeOpacity: 0.9,
         strokeWeight: 3,
         fillColor: '#366be3',
-        fillOpacity: 0.25,
+        fillOpacity: 0.15,
       });
 
       serviceArea.setMap(map);
 
-      // Add markers for reference
-      const oshawaMarker = new google.maps.Marker({
+      // Oshawa marker (inside)
+      new google.maps.Marker({
         position: { lat: 43.8971, lng: -78.8658 },
         map,
         title: 'Oshawa - Within Service Area',
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
-          scale: 10,
+          scale: 12,
           fillColor: '#22c55e',
           fillOpacity: 1,
           strokeColor: '#ffffff',
-          strokeWeight: 2,
+          strokeWeight: 3,
         },
       });
 
-      const bramptonMarker = new google.maps.Marker({
+      // Brampton marker (outside)
+      new google.maps.Marker({
         position: { lat: 43.7315, lng: -79.7624 },
         map,
         title: 'Brampton - Outside Service Area',
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
-          scale: 10,
+          scale: 12,
           fillColor: '#ef4444',
           fillOpacity: 1,
           strokeColor: '#ffffff',
-          strokeWeight: 2,
+          strokeWeight: 3,
         },
-      });
-
-      // Info windows
-      const oshawaInfo = new google.maps.InfoWindow({
-        content: '<div style="padding: 8px; font-weight: bold; color: #22c55e;">✓ Oshawa - Service Area</div>',
-      });
-      
-      const bramptonInfo = new google.maps.InfoWindow({
-        content: '<div style="padding: 8px; font-weight: bold; color: #ef4444;">✗ Brampton - Outside Area</div>',
-      });
-
-      oshawaMarker.addListener('click', () => {
-        oshawaInfo.open(map, oshawaMarker);
-      });
-
-      bramptonMarker.addListener('click', () => {
-        bramptonInfo.open(map, bramptonMarker);
       });
 
       setIsLoaded(true);
     }).catch((err) => {
       console.error('Error loading Google Maps:', err);
-      setError('Failed to load map');
+      setError('Map temporarily unavailable');
     });
   }, []);
 
   if (error) {
     return (
-      <div className="w-full h-[400px] rounded-2xl bg-primary-100 flex items-center justify-center">
-        <p className="text-muted">{error}</p>
+      <div className="w-full h-[400px] rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center border-2 border-blue-100">
+        <div className="text-center p-6">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-100 flex items-center justify-center">
+            <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+          </div>
+          <p className="text-blue-600 font-medium">Service Area Map</p>
+          <p className="text-sm text-blue-400 mt-1">Eastern GTA Coverage</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="relative w-full h-[400px] rounded-2xl overflow-hidden shadow-xl">
+    <div className="relative w-full h-[400px] rounded-2xl overflow-hidden shadow-xl border-2 border-blue-100">
       {!isLoaded && (
-        <div className="absolute inset-0 bg-primary-100 flex items-center justify-center">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-primary-500 animate-pulse" />
-            <span className="text-muted">Loading map...</span>
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center z-10">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+            <span className="text-blue-600 font-medium">Loading map...</span>
           </div>
         </div>
       )}
@@ -168,4 +176,3 @@ export function GoogleMap() {
     </div>
   );
 }
-

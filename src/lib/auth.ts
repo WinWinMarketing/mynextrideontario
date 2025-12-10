@@ -1,30 +1,17 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
+import { config } from './config';
 
 const COOKIE_NAME = 'admin_session';
 const COOKIE_MAX_AGE = 60 * 60 * 24; // 24 hours
 
 function getSecretKey(): Uint8Array {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret) {
-    throw new Error('SESSION_SECRET is not configured');
-  }
-  return new TextEncoder().encode(secret);
-}
-
-function getAdminPassword(): string {
-  const password = process.env.ADMIN_PASSWORD;
-  if (!password) {
-    throw new Error('ADMIN_PASSWORD is not configured');
-  }
-  return password;
+  return new TextEncoder().encode(config.admin.sessionSecret);
 }
 
 // Verify admin password and create session
 export async function verifyAdminAndCreateSession(password: string): Promise<boolean> {
-  const adminPassword = getAdminPassword();
-  
-  if (password !== adminPassword) {
+  if (password !== config.admin.password) {
     return false;
   }
   
@@ -71,4 +58,3 @@ export async function clearAdminSession(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(COOKIE_NAME);
 }
-
