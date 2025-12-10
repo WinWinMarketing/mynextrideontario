@@ -5,7 +5,7 @@ import {
   ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { Lead, LeadStatus, DeadReason } from './validation';
+import { Lead, LeadStatus, DeadReason, ShowcaseVehicle, MAX_SHOWCASE_VEHICLES } from './validation';
 import { generateId, getMonthYearKey } from './utils';
 import { config, SETTINGS_KEY, EmailSettings, defaultEmailSettings } from './config';
 
@@ -238,4 +238,121 @@ export async function getDriversLicenseSignedUrl(licenseKey: string): Promise<st
   const signedUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
   
   return signedUrl;
+}
+
+// ============ SHOWCASE VEHICLES ============
+
+const SHOWCASE_KEY = 'showcase/vehicles.json';
+
+// Get all showcase vehicles
+export async function getShowcaseVehicles(): Promise<ShowcaseVehicle[]> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  
+  try {
+    const result = await s3.send(new GetObjectCommand({
+      Bucket: bucket,
+      Key: SHOWCASE_KEY,
+    }));
+    
+    const body = await result.Body?.transformToString();
+    if (body) {
+      return JSON.parse(body) as ShowcaseVehicle[];
+    }
+  } catch {
+    console.log('No showcase vehicles found');
+  }
+  
+  return [];
+}
+
+// Save showcase vehicles
+export async function saveShowcaseVehicles(vehicles: ShowcaseVehicle[]): Promise<void> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  
+  // Limit to max vehicles
+  const limitedVehicles = vehicles.slice(0, MAX_SHOWCASE_VEHICLES);
+  
+  await s3.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: SHOWCASE_KEY,
+    Body: JSON.stringify(limitedVehicles, null, 2),
+    ContentType: 'application/json',
+  }));
+}
+
+// Add a showcase vehicle
+export async function addShowcaseVehicle(
+  vehicle: Omit<ShowcaseVehicle, 'id' | 'createdAt'>,
+  imageFile?: { buffer: Buffer; filename: string; contentType: string }
+): Promise<ShowcaseVehicle | null> {
+  const vehicles = await getShowcaseVehicles();
+  
+  if (vehicles.length >= MAX_SHOWCASE_VEHICLES) {
+    return null;
+  }
+  
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  const id = generateId();
+  
+  let imageKey: string | undefined;
+  let imageUrl: string | undefined;
+  
+  // Upload image if provided
+  if (imageFile) {
+    const ext = imageFile.filename.split('.').pop() || 'jpg';
+    imageKey = `showcase-images/${id}.${ext}`;
+    
+    await s3.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: imageKey,
+      Body: imageFile.buffer,
+      ContentType: imageFile.contentType,
+    }));
+    
+    // Generate a long-lived URL (public showcase images)
+    imageUrl = `https://${bucket}.s3.${config.aws.region}.amazonaws.com/${imageKey}`;
+  }
+  
+  const newVehicle: ShowcaseVehicle = {
+    ...vehicle,
+    id,
+    imageKey,
+    imageUrl,
+    createdAt: new Date().toISOString(),
+  };
+  
+  vehicles.unshift(newVehicle);
+  await saveShowcaseVehicles(vehicles);
+  
+  return newVehicle;
+}
+
+// Delete a showcase vehicle
+export async function deleteShowcaseVehicle(vehicleId: string): Promise<boolean> {
+  const vehicles = await getShowcaseVehicles();
+  const index = vehicles.findIndex(v => v.id === vehicleId);
+  
+  if (index === -1) return false;
+  
+  // Remove from array
+  vehicles.splice(index, 1);
+  await saveShowcaseVehicles(vehicles);
+  
+  return true;
+}
+
+// Get signed URL for showcase image
+export async function getShowcaseImageSignedUrl(imageKey: string): Promise<string> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  
+  const command = new GetObjectCommand({
+    Bucket: bucket,
+    Key: imageKey,
+  });
+  
+  return await getSignedUrl(s3, command, { expiresIn: 3600 });
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -18,7 +18,17 @@ import {
   licenseClassOptions,
 } from '@/lib/validation';
 
+type FormStep = 1 | 2 | 3 | 4;
+
+const STEPS = [
+  { step: 1, title: 'Vehicle Preferences', desc: 'Tell us about your ideal vehicle' },
+  { step: 2, title: 'Your Information', desc: 'Contact details' },
+  { step: 3, title: 'Additional Details', desc: 'Trade-in & license info' },
+  { step: 4, title: 'Review & Submit', desc: 'Confirm your application' },
+];
+
 export default function ApplyPage() {
+  const [currentStep, setCurrentStep] = useState<FormStep>(1);
   const [licenseFile, setLicenseFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -28,8 +38,9 @@ export default function ApplyPage() {
     register,
     handleSubmit,
     watch,
-    setValue,
+    trigger,
     formState: { errors },
+    getValues,
   } = useForm<LeadApplicationData>({
     resolver: zodResolver(leadApplicationSchema),
     mode: 'onChange',
@@ -39,6 +50,45 @@ export default function ApplyPage() {
   const tradeIn = watch('tradeIn');
   const cosigner = watch('cosigner');
 
+  const validateStep = async (): Promise<boolean> => {
+    let fields: (keyof LeadApplicationData)[] = [];
+    
+    switch (currentStep) {
+      case 1:
+        fields = ['urgency', 'vehicleType', 'paymentType'];
+        if (paymentType === 'finance') fields.push('financeBudget', 'creditRating');
+        if (paymentType === 'cash') fields.push('cashBudget');
+        break;
+      case 2:
+        fields = ['fullName', 'phone', 'email', 'dateOfBirth', 'bestTimeToReach', 'licenseClass'];
+        break;
+      case 3:
+        fields = ['tradeIn', 'cosigner'];
+        if (tradeIn === 'yes' || tradeIn === 'unsure') {
+          fields.push('tradeInYear', 'tradeInMake', 'tradeInModel');
+        }
+        if (cosigner === 'yes') {
+          fields.push('cosignerFullName', 'cosignerPhone', 'cosignerEmail');
+        }
+        break;
+    }
+    
+    return await trigger(fields);
+  };
+
+  const nextStep = async () => {
+    const isValid = await validateStep();
+    if (isValid && currentStep < 4) {
+      setCurrentStep((currentStep + 1) as FormStep);
+    }
+  };
+
+  const prevStep = () => {
+    if (currentStep > 1) {
+      setCurrentStep((currentStep - 1) as FormStep);
+    }
+  };
+
   const onSubmit = async (data: LeadApplicationData) => {
     setIsSubmitting(true);
     setSubmitError(null);
@@ -46,19 +96,10 @@ export default function ApplyPage() {
     try {
       const formData = new FormData();
       formData.append('data', JSON.stringify(data));
-      if (licenseFile) {
-        formData.append('license', licenseFile);
-      }
+      if (licenseFile) formData.append('license', licenseFile);
 
-      const response = await fetch('/api/submit-lead', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Submission failed');
-      }
-
+      const response = await fetch('/api/submit-lead', { method: 'POST', body: formData });
+      if (!response.ok) throw new Error('Submission failed');
       setIsSuccess(true);
     } catch {
       setSubmitError('Something went wrong. Please try again.');
@@ -67,395 +108,487 @@ export default function ApplyPage() {
     }
   };
 
+  // Success Screen
   if (isSuccess) {
     return (
-      <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex items-center justify-center p-6">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-primary-50/30 to-slate-50 flex items-center justify-center p-6">
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
+          initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="max-w-lg w-full text-center"
+          className="max-w-md w-full text-center"
         >
-          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
+          <div className="bg-white/80 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl shadow-primary-500/10 p-10">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+              className="w-20 h-20 bg-gradient-to-br from-green-400 to-green-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-green-500/30"
+            >
+              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            </motion.div>
+            <h1 className="text-2xl font-bold text-slate-900 mb-3">Application Submitted!</h1>
+            <p className="text-slate-600 mb-8">
+              Thank you for your application. We&apos;ll review it and contact you within <strong className="text-primary-700">24 hours</strong>.
+            </p>
+            <Link href="/">
+              <Button variant="primary" size="lg" className="w-full">Return Home</Button>
+            </Link>
           </div>
-          <h1 className="text-3xl font-bold text-slate-900 mb-3">Application Submitted!</h1>
-          <p className="text-lg text-slate-600 mb-8">
-            Thank you! We'll review your application and contact you within <strong>24 hours</strong>.
-          </p>
-          <Link href="/">
-            <Button variant="primary" size="lg">Back to Home</Button>
-          </Link>
         </motion.div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-primary-50/30 to-slate-50">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
+      <header className="bg-white/70 backdrop-blur-xl border-b border-white/50 sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-primary-600 flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+          <Link href="/" className="flex items-center gap-3 group">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shadow-lg shadow-primary-500/20 group-hover:shadow-primary-500/40 transition-shadow">
+              <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>
               </svg>
             </div>
-            <span className="font-semibold text-slate-900">My Next Ride Ontario</span>
+            <span className="font-bold text-slate-900">My Next Ride Ontario</span>
           </Link>
-          <span className="text-sm text-slate-500">Vehicle Application</span>
+          <div className="text-sm text-slate-500">Vehicle Application</div>
         </div>
       </header>
 
-      {/* Form */}
-      <div className="max-w-5xl mx-auto px-6 py-12">
-        <div className="text-center mb-10">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">Find Your Perfect Vehicle</h1>
-          <p className="text-slate-600">Complete the form below and we'll match you with the right vehicle and financing.</p>
+      <div className="max-w-3xl mx-auto px-6 py-10">
+        {/* Step Progress */}
+        <div className="mb-10">
+          <div className="flex justify-between items-center mb-4">
+            {STEPS.map((s) => (
+              <div key={s.step} className="flex items-center">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                  currentStep > s.step 
+                    ? 'bg-gradient-to-br from-primary-500 to-primary-700 text-white shadow-lg shadow-primary-500/30' 
+                    : currentStep === s.step 
+                    ? 'bg-white border-2 border-primary-500 text-primary-700 shadow-lg' 
+                    : 'bg-white/50 border border-slate-200 text-slate-400'
+                }`}>
+                  {currentStep > s.step ? (
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  ) : s.step}
+                </div>
+                {s.step < 4 && (
+                  <div className={`w-full h-1 mx-2 rounded-full transition-all ${
+                    currentStep > s.step ? 'bg-gradient-to-r from-primary-500 to-primary-600' : 'bg-slate-200'
+                  }`} style={{ width: '60px' }} />
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="text-center">
+            <h2 className="text-2xl font-bold text-slate-900">{STEPS[currentStep - 1].title}</h2>
+            <p className="text-slate-500 mt-1">{STEPS[currentStep - 1].desc}</p>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
-          {/* Vehicle Preferences */}
-          <Section title="Vehicle Preferences" description="Tell us what you're looking for">
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Urgency */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-3">
-                  When do you need your vehicle? <span className="text-red-500">*</span>
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {urgencyOptions.map(opt => (
-                    <label
-                      key={opt.value}
-                      className={`flex items-center justify-center p-3 rounded-lg border-2 cursor-pointer transition-all text-center text-sm ${
-                        watch('urgency') === opt.value
-                          ? 'border-primary-500 bg-primary-50 text-primary-700'
-                          : 'border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <input type="radio" value={opt.value} {...register('urgency')} className="sr-only" />
-                      {opt.label}
-                    </label>
-                  ))}
-                </div>
-                {errors.urgency && <p className="text-red-500 text-sm mt-1">{errors.urgency.message}</p>}
-              </div>
-
-              {/* Vehicle Type */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-3">
-                  Vehicle Type <span className="text-red-500">*</span>
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {vehicleTypeOptions.map(opt => (
-                    <label
-                      key={opt.value}
-                      className={`flex items-center justify-center p-3 rounded-lg border-2 cursor-pointer transition-all text-center text-sm ${
-                        watch('vehicleType') === opt.value
-                          ? 'border-primary-500 bg-primary-50 text-primary-700'
-                          : 'border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <input type="radio" value={opt.value} {...register('vehicleType')} className="sr-only" />
-                      {opt.label}
-                    </label>
-                  ))}
-                </div>
-                {errors.vehicleType && <p className="text-red-500 text-sm mt-1">{errors.vehicleType.message}</p>}
-              </div>
-            </div>
-
-            {/* Payment Type */}
-            <div className="mt-6">
-              <label className="block text-sm font-medium text-slate-700 mb-3">
-                How would you like to pay? <span className="text-red-500">*</span>
-              </label>
-              <div className="grid md:grid-cols-2 gap-4">
-                <label
-                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                    paymentType === 'finance'
-                      ? 'border-primary-500 bg-primary-50'
-                      : 'border-slate-200 hover:border-slate-300'
-                  }`}
+        {/* Form Card */}
+        <form onSubmit={handleSubmit(onSubmit)}>
+          <div className="bg-white/80 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl shadow-slate-200/50 p-8 min-h-[420px]">
+            <AnimatePresence mode="wait">
+              
+              {/* Step 1: Vehicle Preferences */}
+              {currentStep === 1 && (
+                <motion.div
+                  key="step1"
+                  initial={{ opacity: 0, x: 30 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -30 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-6"
                 >
-                  <input type="radio" value="finance" {...register('paymentType')} className="sr-only" />
-                  <div className="font-semibold text-slate-900 mb-1">Finance</div>
-                  <p className="text-sm text-slate-500">Monthly payments with approved financing</p>
-                </label>
-                <label
-                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                    paymentType === 'cash'
-                      ? 'border-primary-500 bg-primary-50'
-                      : 'border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <input type="radio" value="cash" {...register('paymentType')} className="sr-only" />
-                  <div className="font-semibold text-slate-900 mb-1">Cash</div>
-                  <p className="text-sm text-slate-500">Pay the full amount upfront</p>
-                </label>
-              </div>
-              {errors.paymentType && <p className="text-red-500 text-sm mt-1">{errors.paymentType.message}</p>}
-            </div>
+                  {/* Urgency */}
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-3">
+                      When do you want to get into your next vehicle?
+                    </label>
+                    <Select
+                      options={urgencyOptions}
+                      error={errors.urgency?.message}
+                      placeholder="Select timing..."
+                      {...register('urgency')}
+                    />
+                  </div>
 
-            {/* Conditional Budget & Credit */}
-            {paymentType && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="mt-6 grid md:grid-cols-2 gap-6"
-              >
-                {paymentType === 'finance' ? (
-                  <>
+                  {/* Vehicle Type */}
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-3">
+                      What type of vehicle are you seeking?
+                    </label>
                     <Select
-                      label="Monthly Budget"
-                      options={financeBudgetOptions}
-                      error={errors.financeBudget?.message}
-                      required
-                      {...register('financeBudget')}
+                      options={vehicleTypeOptions}
+                      error={errors.vehicleType?.message}
+                      placeholder="Select vehicle type..."
+                      {...register('vehicleType')}
                     />
-                    <Select
-                      label="Credit Rating"
-                      options={creditRatingOptions}
-                      error={errors.creditRating?.message}
-                      required
-                      {...register('creditRating')}
-                    />
-                  </>
-                ) : (
-                  <Select
-                    label="Cash Budget"
-                    options={cashBudgetOptions}
-                    error={errors.cashBudget?.message}
+                  </div>
+
+                  {/* Payment Type */}
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-3">
+                      Payment type
+                    </label>
+                    <div className="grid grid-cols-2 gap-4">
+                      {[
+                        { value: 'finance', label: 'Finance', desc: 'Monthly payments' },
+                        { value: 'cash', label: 'Cash', desc: 'Pay upfront' },
+                      ].map((opt) => (
+                        <label
+                          key={opt.value}
+                          className={`relative p-5 rounded-2xl border-2 cursor-pointer transition-all ${
+                            paymentType === opt.value
+                              ? 'border-primary-500 bg-primary-50/50 shadow-lg shadow-primary-500/10'
+                              : 'border-slate-200 hover:border-slate-300 bg-white/50'
+                          }`}
+                        >
+                          <input type="radio" value={opt.value} {...register('paymentType')} className="sr-only" />
+                          <div className="font-semibold text-slate-900">{opt.label}</div>
+                          <p className="text-sm text-slate-500 mt-1">{opt.desc}</p>
+                          {paymentType === opt.value && (
+                            <div className="absolute top-3 right-3 w-5 h-5 bg-primary-500 rounded-full flex items-center justify-center">
+                              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                    {errors.paymentType && <p className="text-red-500 text-sm mt-2">{errors.paymentType.message}</p>}
+                  </div>
+
+                  {/* Conditional Budget & Credit */}
+                  {paymentType && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      className="space-y-6 pt-4 border-t border-slate-100"
+                    >
+                      {paymentType === 'finance' ? (
+                        <>
+                          <Select
+                            label="What is your monthly payment budget?"
+                            options={financeBudgetOptions}
+                            error={errors.financeBudget?.message}
+                            placeholder="Select budget..."
+                            {...register('financeBudget')}
+                          />
+                          <Select
+                            label="What is your credit rating?"
+                            options={creditRatingOptions}
+                            error={errors.creditRating?.message}
+                            placeholder="Select credit rating..."
+                            {...register('creditRating')}
+                          />
+                        </>
+                      ) : (
+                        <Select
+                          label="What is your budget?"
+                          options={cashBudgetOptions}
+                          error={errors.cashBudget?.message}
+                          placeholder="Select budget..."
+                          {...register('cashBudget')}
+                        />
+                      )}
+                    </motion.div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* Step 2: Contact Info */}
+              {currentStep === 2 && (
+                <motion.div
+                  key="step2"
+                  initial={{ opacity: 0, x: 30 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -30 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-5"
+                >
+                  <Input
+                    label="Full Name"
+                    placeholder="John Smith"
+                    error={errors.fullName?.message}
                     required
-                    {...register('cashBudget')}
+                    {...register('fullName')}
                   />
-                )}
-              </motion.div>
-            )}
-          </Section>
+                  <div className="grid md:grid-cols-2 gap-5">
+                    <Input
+                      label="Phone Number"
+                      type="tel"
+                      placeholder="(416) 555-0123"
+                      error={errors.phone?.message}
+                      required
+                      {...register('phone')}
+                    />
+                    <Input
+                      label="Email"
+                      type="email"
+                      placeholder="john@example.com"
+                      error={errors.email?.message}
+                      required
+                      {...register('email')}
+                    />
+                  </div>
+                  <Input
+                    label="Date of Birth"
+                    type="date"
+                    error={errors.dateOfBirth?.message}
+                    required
+                    {...register('dateOfBirth')}
+                  />
+                  <div className="grid md:grid-cols-2 gap-5">
+                    <Select
+                      label="Best time to reach you"
+                      options={bestTimeOptions}
+                      error={errors.bestTimeToReach?.message}
+                      placeholder="Select..."
+                      {...register('bestTimeToReach')}
+                    />
+                    <Select
+                      label="What class of license do you hold?"
+                      options={licenseClassOptions}
+                      error={errors.licenseClass?.message}
+                      placeholder="Select..."
+                      {...register('licenseClass')}
+                    />
+                  </div>
+                </motion.div>
+              )}
 
-          {/* Contact Information */}
-          <Section title="Contact Information" description="How can we reach you?">
-            <div className="grid md:grid-cols-2 gap-6">
-              <Input
-                label="Full Name"
-                placeholder="John Smith"
-                error={errors.fullName?.message}
-                required
-                {...register('fullName')}
-              />
-              <Input
-                label="Phone Number"
-                type="tel"
-                placeholder="(416) 555-0123"
-                error={errors.phone?.message}
-                required
-                {...register('phone')}
-              />
-              <Input
-                label="Email Address"
-                type="email"
-                placeholder="john@example.com"
-                error={errors.email?.message}
-                required
-                {...register('email')}
-              />
-              <Input
-                label="Date of Birth"
-                type="date"
-                error={errors.dateOfBirth?.message}
-                required
-                {...register('dateOfBirth')}
-              />
-              <Select
-                label="Best Time to Reach"
-                options={bestTimeOptions}
-                error={errors.bestTimeToReach?.message}
-                required
-                {...register('bestTimeToReach')}
-              />
-              <Select
-                label="License Class"
-                options={licenseClassOptions}
-                error={errors.licenseClass?.message}
-                required
-                {...register('licenseClass')}
-              />
-            </div>
-          </Section>
-
-          {/* Trade-In */}
-          <Section title="Trade-In" description="Do you have a vehicle to trade?">
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              {[
-                { value: 'yes', label: 'Yes' },
-                { value: 'no', label: 'No' },
-                { value: 'unsure', label: 'Not Sure' },
-              ].map(opt => (
-                <label
-                  key={opt.value}
-                  className={`flex items-center justify-center p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
-                    tradeIn === opt.value
-                      ? 'border-primary-500 bg-primary-50 text-primary-700 font-medium'
-                      : 'border-slate-200 hover:border-slate-300'
-                  }`}
+              {/* Step 3: Additional Details */}
+              {currentStep === 3 && (
+                <motion.div
+                  key="step3"
+                  initial={{ opacity: 0, x: 30 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -30 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-6"
                 >
-                  <input type="radio" value={opt.value} {...register('tradeIn')} className="sr-only" />
-                  {opt.label}
-                </label>
-              ))}
-            </div>
-            {errors.tradeIn && <p className="text-red-500 text-sm mb-4">{errors.tradeIn.message}</p>}
+                  {/* Trade-in */}
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-3">
+                      Do you have a trade-in?
+                    </label>
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { value: 'yes', label: 'Yes' },
+                        { value: 'no', label: 'No' },
+                        { value: 'unsure', label: 'Unsure' },
+                      ].map((opt) => (
+                        <label
+                          key={opt.value}
+                          className={`p-4 rounded-xl border-2 cursor-pointer text-center transition-all ${
+                            tradeIn === opt.value
+                              ? 'border-primary-500 bg-primary-50/50 shadow-md'
+                              : 'border-slate-200 hover:border-slate-300 bg-white/50'
+                          }`}
+                        >
+                          <input type="radio" value={opt.value} {...register('tradeIn')} className="sr-only" />
+                          <span className="font-medium text-slate-800">{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {errors.tradeIn && <p className="text-red-500 text-sm mt-2">{errors.tradeIn.message}</p>}
+                  </div>
 
-            {(tradeIn === 'yes' || tradeIn === 'unsure') && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-xl"
-              >
-                <Input
-                  label="Year"
-                  placeholder="2020"
-                  error={errors.tradeInYear?.message}
-                  {...register('tradeInYear')}
-                />
-                <Input
-                  label="Make"
-                  placeholder="Toyota"
-                  error={errors.tradeInMake?.message}
-                  {...register('tradeInMake')}
-                />
-                <Input
-                  label="Model"
-                  placeholder="Camry"
-                  error={errors.tradeInModel?.message}
-                  {...register('tradeInModel')}
-                />
-                <Input
-                  label="Mileage"
-                  placeholder="50,000"
-                  {...register('tradeInMileage')}
-                />
-              </motion.div>
-            )}
-          </Section>
+                  {/* Trade-in Details */}
+                  {(tradeIn === 'yes' || tradeIn === 'unsure') && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      className="p-5 bg-slate-50/80 rounded-2xl border border-slate-100 space-y-4"
+                    >
+                      <p className="text-sm font-medium text-slate-600">Trade-in vehicle details</p>
+                      <div className="grid grid-cols-3 gap-4">
+                        <Input label="Year" placeholder="2020" error={errors.tradeInYear?.message} {...register('tradeInYear')} />
+                        <Input label="Make" placeholder="Toyota" error={errors.tradeInMake?.message} {...register('tradeInMake')} />
+                        <Input label="Model" placeholder="Camry" error={errors.tradeInModel?.message} {...register('tradeInModel')} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Input label="Mileage" placeholder="50,000 km" {...register('tradeInMileage')} />
+                        <Input label="VIN (optional)" placeholder="Vehicle ID" {...register('tradeInVin')} />
+                      </div>
+                    </motion.div>
+                  )}
 
-          {/* Driver's License */}
-          <Section title="Driver's License" description="Upload a photo of your license (optional)">
-            <FileUpload
-              accept="image/*"
-              maxSize={10 * 1024 * 1024}
-              onFileSelect={setLicenseFile}
-              selectedFile={licenseFile}
-              onClear={() => setLicenseFile(null)}
-            />
-          </Section>
+                  {/* Driver's License Upload */}
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-3">
+                      Upload Driver&apos;s License (Optional)
+                    </label>
+                    <FileUpload
+                      accept="image/*"
+                      maxSize={10 * 1024 * 1024}
+                      onFileSelect={setLicenseFile}
+                      selectedFile={licenseFile}
+                      onClear={() => setLicenseFile(null)}
+                    />
+                  </div>
 
-          {/* Cosigner */}
-          <Section title="Cosigner" description="Will you have a cosigner?">
-            <div className="grid grid-cols-2 gap-3 mb-6 max-w-xs">
-              {[
-                { value: 'yes', label: 'Yes' },
-                { value: 'no', label: 'No' },
-              ].map(opt => (
-                <label
-                  key={opt.value}
-                  className={`flex items-center justify-center p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
-                    cosigner === opt.value
-                      ? 'border-primary-500 bg-primary-50 text-primary-700 font-medium'
-                      : 'border-slate-200 hover:border-slate-300'
-                  }`}
+                  {/* Cosigner */}
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-3">
+                      Will you have a cosigner?
+                    </label>
+                    <div className="grid grid-cols-2 gap-3 max-w-xs">
+                      {[
+                        { value: 'yes', label: 'Yes' },
+                        { value: 'no', label: 'No' },
+                      ].map((opt) => (
+                        <label
+                          key={opt.value}
+                          className={`p-4 rounded-xl border-2 cursor-pointer text-center transition-all ${
+                            cosigner === opt.value
+                              ? 'border-primary-500 bg-primary-50/50 shadow-md'
+                              : 'border-slate-200 hover:border-slate-300 bg-white/50'
+                          }`}
+                        >
+                          <input type="radio" value={opt.value} {...register('cosigner')} className="sr-only" />
+                          <span className="font-medium text-slate-800">{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {errors.cosigner && <p className="text-red-500 text-sm mt-2">{errors.cosigner.message}</p>}
+                  </div>
+
+                  {/* Cosigner Details */}
+                  {cosigner === 'yes' && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      className="p-5 bg-slate-50/80 rounded-2xl border border-slate-100 space-y-4"
+                    >
+                      <p className="text-sm font-medium text-slate-600">Cosigner information</p>
+                      <Input label="Cosigner Full Name" placeholder="Jane Smith" error={errors.cosignerFullName?.message} required {...register('cosignerFullName')} />
+                      <div className="grid grid-cols-2 gap-4">
+                        <Input label="Phone" type="tel" placeholder="(416) 555-0124" error={errors.cosignerPhone?.message} required {...register('cosignerPhone')} />
+                        <Input label="Email" type="email" placeholder="jane@example.com" error={errors.cosignerEmail?.message} required {...register('cosignerEmail')} />
+                      </div>
+                      <Input label="Date of Birth" type="date" {...register('cosignerDateOfBirth')} />
+                    </motion.div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* Step 4: Review */}
+              {currentStep === 4 && (
+                <motion.div
+                  key="step4"
+                  initial={{ opacity: 0, x: 30 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -30 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-6"
                 >
-                  <input type="radio" value={opt.value} {...register('cosigner')} className="sr-only" />
-                  {opt.label}
-                </label>
-              ))}
-            </div>
-            {errors.cosigner && <p className="text-red-500 text-sm mb-4">{errors.cosigner.message}</p>}
+                  <div className="text-center mb-6">
+                    <p className="text-slate-600">Please review your information before submitting.</p>
+                  </div>
 
-            {cosigner === 'yes' && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="grid md:grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl"
-              >
-                <Input
-                  label="Cosigner Full Name"
-                  placeholder="Jane Smith"
-                  error={errors.cosignerFullName?.message}
-                  required
-                  {...register('cosignerFullName')}
-                />
-                <Input
-                  label="Cosigner Phone"
-                  type="tel"
-                  placeholder="(416) 555-0124"
-                  error={errors.cosignerPhone?.message}
-                  required
-                  {...register('cosignerPhone')}
-                />
-                <Input
-                  label="Cosigner Email"
-                  type="email"
-                  placeholder="jane@example.com"
-                  error={errors.cosignerEmail?.message}
-                  required
-                  {...register('cosignerEmail')}
-                />
-                <Input
-                  label="Cosigner DOB"
-                  type="date"
-                  {...register('cosignerDateOfBirth')}
-                />
-              </motion.div>
+                  <ReviewCard title="Vehicle Preferences">
+                    <ReviewItem label="Timing" value={getValues('urgency')} />
+                    <ReviewItem label="Vehicle Type" value={getValues('vehicleType')} />
+                    <ReviewItem label="Payment" value={getValues('paymentType')} />
+                    {paymentType === 'finance' && (
+                      <>
+                        <ReviewItem label="Monthly Budget" value={getValues('financeBudget')} />
+                        <ReviewItem label="Credit Rating" value={getValues('creditRating')} />
+                      </>
+                    )}
+                    {paymentType === 'cash' && <ReviewItem label="Cash Budget" value={getValues('cashBudget')} />}
+                  </ReviewCard>
+
+                  <ReviewCard title="Contact Information">
+                    <ReviewItem label="Name" value={getValues('fullName')} />
+                    <ReviewItem label="Phone" value={getValues('phone')} />
+                    <ReviewItem label="Email" value={getValues('email')} />
+                    <ReviewItem label="DOB" value={getValues('dateOfBirth')} />
+                    <ReviewItem label="Best Time" value={getValues('bestTimeToReach')} />
+                    <ReviewItem label="License Class" value={getValues('licenseClass')} />
+                  </ReviewCard>
+
+                  <ReviewCard title="Additional Details">
+                    <ReviewItem label="Trade-in" value={getValues('tradeIn')} />
+                    {(tradeIn === 'yes' || tradeIn === 'unsure') && (
+                      <ReviewItem label="Trade-in Vehicle" value={`${getValues('tradeInYear')} ${getValues('tradeInMake')} ${getValues('tradeInModel')}`} />
+                    )}
+                    <ReviewItem label="Cosigner" value={getValues('cosigner')} />
+                    {cosigner === 'yes' && (
+                      <ReviewItem label="Cosigner Name" value={getValues('cosignerFullName')} />
+                    )}
+                    {licenseFile && <ReviewItem label="License Uploaded" value={licenseFile.name} />}
+                  </ReviewCard>
+
+                  {submitError && (
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                      {submitError}
+                    </div>
+                  )}
+
+                  <div className="p-4 bg-primary-50/50 rounded-xl border border-primary-100 text-center">
+                    <p className="text-sm text-primary-700">
+                      You will receive a response within <strong>24 hours</strong> of submitting your application.
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Navigation Buttons */}
+          <div className="flex items-center justify-between mt-6">
+            {currentStep > 1 ? (
+              <Button type="button" variant="ghost" onClick={prevStep}>
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Back
+              </Button>
+            ) : <div />}
+
+            {currentStep < 4 ? (
+              <Button type="button" variant="primary" onClick={nextStep}>
+                Continue
+                <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </Button>
+            ) : (
+              <Button type="submit" variant="primary" size="lg" isLoading={isSubmitting}>
+                Submit Application
+              </Button>
             )}
-          </Section>
-
-          {/* Submit */}
-          {submitError && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-              {submitError}
-            </div>
-          )}
-
-          <div className="flex items-center justify-between pt-6 border-t border-slate-200">
-            <p className="text-sm text-slate-500">
-              We'll respond within <strong>24 hours</strong>
-            </p>
-            <Button
-              type="submit"
-              variant="primary"
-              size="lg"
-              isLoading={isSubmitting}
-            >
-              Submit Application
-            </Button>
           </div>
         </form>
       </div>
-    </main>
+    </div>
   );
 }
 
-// Section Component
-function Section({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
+function ReviewCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="bg-white rounded-2xl border border-slate-200 p-6 md:p-8">
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold text-slate-900">{title}</h2>
-        <p className="text-sm text-slate-500 mt-1">{description}</p>
-      </div>
-      {children}
-    </section>
+    <div className="p-5 bg-slate-50/80 rounded-2xl border border-slate-100">
+      <h3 className="font-semibold text-slate-900 mb-3">{title}</h3>
+      <div className="grid grid-cols-2 gap-3 text-sm">{children}</div>
+    </div>
+  );
+}
+
+function ReviewItem({ label, value }: { label: string; value?: string }) {
+  return (
+    <div>
+      <span className="text-slate-500">{label}:</span>{' '}
+      <span className="text-slate-900 font-medium">{value || '-'}</span>
+    </div>
   );
 }

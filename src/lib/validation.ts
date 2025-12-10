@@ -232,6 +232,23 @@ export const deadReasonOptions = [
 
 export type DeadReason = typeof deadReasonOptions[number]['value'];
 
+// Showcase Vehicle
+export interface ShowcaseVehicle {
+  id: string;
+  year: string;
+  make: string;
+  model: string;
+  trim?: string;
+  price?: string;
+  mileage?: string;
+  imageUrl?: string;
+  imageKey?: string;
+  featured: boolean;
+  createdAt: string;
+}
+
+export const MAX_SHOWCASE_VEHICLES = 12;
+
 // Full lead type including metadata
 export interface Lead {
   id: string;

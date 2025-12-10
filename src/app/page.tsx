@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Button, Card } from '@/components/ui';
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { GoogleMap } from '@/components/GoogleMap';
+import { ShowcaseSection } from '@/components/ShowcaseSection';
 
 const fadeInUp = {
   initial: { opacity: 0, y: 30 },
@@ -222,6 +223,9 @@ export default function HomePage() {
             </div>
           </div>
         </section>
+
+        {/* Showcase Section */}
+        <ShowcaseSection />
 
         {/* Credit Profiles Section */}
         <section className="py-20 px-4 bg-gradient-to-b from-transparent to-primary-100/50">

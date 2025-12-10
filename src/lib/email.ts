@@ -1,6 +1,17 @@
+import { Resend } from 'resend';
 import { Lead } from './validation';
 import { getEmailSettings } from './s3';
 import { config } from './config';
+
+// Initialize Resend client
+function getResendClient(): Resend | null {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.log('RESEND_API_KEY not configured');
+    return null;
+  }
+  return new Resend(apiKey);
+}
 
 // Format budget display
 function formatBudget(formData: Lead['formData']): string {
@@ -23,7 +34,7 @@ function formatBudget(formData: Lead['formData']): string {
   }
 }
 
-// Build beautiful email HTML
+// Build email HTML
 function buildEmailHtml(lead: Lead): string {
   const { formData } = lead;
   
@@ -48,127 +59,85 @@ function buildEmailHtml(lead: Lead): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1e293b; margin: 0; padding: 0; background: #f1f5f9; }
-    .wrapper { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { background: linear-gradient(135deg, #1948b3 0%, #366be3 100%); color: white; padding: 40px 30px; border-radius: 16px 16px 0 0; text-align: center; }
-    .header h1 { margin: 0 0 8px 0; font-size: 28px; font-weight: 700; }
-    .header .subtitle { opacity: 0.9; font-size: 16px; margin: 0; }
-    .header .time { opacity: 0.7; font-size: 13px; margin-top: 12px; }
-    .content { background: white; padding: 30px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-    .section { margin-bottom: 24px; }
-    .section:last-child { margin-bottom: 0; }
-    .section-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0; }
-    .section-header h2 { margin: 0; font-size: 16px; font-weight: 600; color: #1948b3; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .field { padding: 12px; background: #f8fafc; border-radius: 8px; }
-    .field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 4px; }
-    .field-value { font-size: 15px; font-weight: 600; color: #0f172a; }
-    .field-value a { color: #1948b3; text-decoration: none; }
-    .highlight { display: inline-block; background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 20px; font-weight: 600; font-size: 13px; }
-    .urgent { background: #fecaca; color: #991b1b; }
-    .badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
-    .badge-green { background: #dcfce7; color: #166534; }
-    .badge-red { background: #fee2e2; color: #991b1b; }
-    .footer { margin-top: 24px; padding: 24px; background: linear-gradient(135deg, #1948b3 0%, #366be3 100%); border-radius: 12px; text-align: center; color: white; }
-    .footer p { margin: 0 0 8px 0; font-size: 14px; }
-    .footer .cta { display: inline-block; background: #ecc979; color: #1948b3; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 700; margin-top: 12px; }
-    .footer .lead-id { opacity: 0.7; font-size: 12px; margin-top: 16px; }
-  </style>
 </head>
-<body>
-  <div class="wrapper">
-    <div class="header">
-      <h1>🚗 New Vehicle Application</h1>
-      <p class="subtitle">${formData.fullName}</p>
-      <p class="time">${new Date(lead.createdAt).toLocaleString('en-CA', { dateStyle: 'full', timeStyle: 'short' })}</p>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1e293b; margin: 0; padding: 20px; background: #f1f5f9;">
+  <div style="max-width: 600px; margin: 0 auto;">
+    <div style="background: linear-gradient(135deg, #1948b3 0%, #366be3 100%); color: white; padding: 40px 30px; border-radius: 16px 16px 0 0; text-align: center;">
+      <h1 style="margin: 0 0 8px 0; font-size: 28px;">New Vehicle Application</h1>
+      <p style="opacity: 0.9; font-size: 18px; margin: 0;">${formData.fullName}</p>
+      <p style="opacity: 0.7; font-size: 13px; margin-top: 12px;">${new Date(lead.createdAt).toLocaleString('en-CA')}</p>
     </div>
-    <div class="content">
-      <div class="section">
-        <div class="section-header">
-          <span>📋</span>
-          <h2>Contact Information</h2>
-        </div>
-        <div class="grid">
-          <div class="field">
-            <div class="field-label">Full Name</div>
-            <div class="field-value">${formData.fullName}</div>
-          </div>
-          <div class="field">
-            <div class="field-label">Phone</div>
-            <div class="field-value"><a href="tel:${formData.phone}">${formData.phone}</a></div>
-          </div>
-          <div class="field">
-            <div class="field-label">Email</div>
-            <div class="field-value"><a href="mailto:${formData.email}">${formData.email}</a></div>
-          </div>
-          <div class="field">
-            <div class="field-label">Best Time</div>
-            <div class="field-value">${formData.bestTimeToReach}</div>
-          </div>
-        </div>
-      </div>
+    <div style="background: white; padding: 30px; border-radius: 0 0 16px 16px;">
+      <h2 style="color: #1948b3; font-size: 16px; margin: 0 0 16px 0; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0;">Contact Information</h2>
+      <table style="width: 100%; margin-bottom: 24px;">
+        <tr>
+          <td style="padding: 8px; background: #f8fafc; border-radius: 8px; width: 50%;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 4px;">Phone</div>
+            <div style="font-size: 15px; font-weight: 600;">${formData.phone}</div>
+          </td>
+          <td style="width: 12px;"></td>
+          <td style="padding: 8px; background: #f8fafc; border-radius: 8px; width: 50%;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 4px;">Email</div>
+            <div style="font-size: 15px; font-weight: 600;">${formData.email}</div>
+          </td>
+        </tr>
+      </table>
       
-      <div class="section">
-        <div class="section-header">
-          <span>🚘</span>
-          <h2>Vehicle Preferences</h2>
-        </div>
-        <div class="grid">
-          <div class="field">
-            <div class="field-label">Urgency</div>
-            <div class="field-value"><span class="highlight ${formData.urgency === 'right-away' ? 'urgent' : ''}">${urgencyLabel}</span></div>
-          </div>
-          <div class="field">
-            <div class="field-label">Vehicle Type</div>
-            <div class="field-value">${vehicleTypeLabel}</div>
-          </div>
-          <div class="field">
-            <div class="field-label">Payment</div>
-            <div class="field-value">${formData.paymentType === 'finance' ? 'Finance' : 'Cash'}</div>
-          </div>
-          <div class="field">
-            <div class="field-label">Budget</div>
-            <div class="field-value">${formatBudget(formData)}</div>
-          </div>
-          ${formData.paymentType === 'finance' ? `
-          <div class="field" style="grid-column: span 2;">
-            <div class="field-label">Credit Rating</div>
-            <div class="field-value">${(formData.creditRating || 'Not specified').charAt(0).toUpperCase() + (formData.creditRating || '').slice(1)}</div>
-          </div>
-          ` : ''}
-        </div>
-      </div>
+      <h2 style="color: #1948b3; font-size: 16px; margin: 0 0 16px 0; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0;">Vehicle Preferences</h2>
+      <table style="width: 100%; margin-bottom: 24px;">
+        <tr>
+          <td style="padding: 8px; background: #f8fafc; border-radius: 8px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 4px;">Urgency</div>
+            <div style="font-size: 15px; font-weight: 600;">${urgencyLabel}</div>
+          </td>
+          <td style="width: 12px;"></td>
+          <td style="padding: 8px; background: #f8fafc; border-radius: 8px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 4px;">Vehicle</div>
+            <div style="font-size: 15px; font-weight: 600;">${vehicleTypeLabel}</div>
+          </td>
+        </tr>
+        <tr><td colspan="3" style="height: 12px;"></td></tr>
+        <tr>
+          <td style="padding: 8px; background: #f8fafc; border-radius: 8px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 4px;">Payment</div>
+            <div style="font-size: 15px; font-weight: 600;">${formData.paymentType === 'finance' ? 'Finance' : 'Cash'}</div>
+          </td>
+          <td style="width: 12px;"></td>
+          <td style="padding: 8px; background: #f8fafc; border-radius: 8px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 4px;">Budget</div>
+            <div style="font-size: 15px; font-weight: 600;">${formatBudget(formData)}</div>
+          </td>
+        </tr>
+        ${formData.paymentType === 'finance' ? `
+        <tr><td colspan="3" style="height: 12px;"></td></tr>
+        <tr>
+          <td colspan="3" style="padding: 8px; background: #f8fafc; border-radius: 8px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 4px;">Credit Rating</div>
+            <div style="font-size: 15px; font-weight: 600;">${(formData.creditRating || 'Not specified').charAt(0).toUpperCase() + (formData.creditRating || '').slice(1)}</div>
+          </td>
+        </tr>
+        ` : ''}
+      </table>
       
-      <div class="section">
-        <div class="section-header">
-          <span>📄</span>
-          <h2>Additional Details</h2>
-        </div>
-        <div class="grid">
-          <div class="field">
-            <div class="field-label">Trade-In</div>
-            <div class="field-value">${formData.tradeIn === 'yes' ? `Yes - ${formData.tradeInYear} ${formData.tradeInMake} ${formData.tradeInModel}` : formData.tradeIn === 'unsure' ? 'Maybe' : 'No'}</div>
-          </div>
-          <div class="field">
-            <div class="field-label">License Class</div>
-            <div class="field-value">${formData.licenseClass.toUpperCase()}</div>
-          </div>
-          <div class="field">
-            <div class="field-label">License Image</div>
-            <div class="field-value"><span class="badge ${lead.driversLicenseKey ? 'badge-green' : 'badge-red'}">${lead.driversLicenseKey ? '✓ Uploaded' : '✗ Not provided'}</span></div>
-          </div>
-          <div class="field">
-            <div class="field-label">Cosigner</div>
-            <div class="field-value">${formData.cosigner === 'yes' ? `Yes - ${formData.cosignerFullName}` : 'No'}</div>
-          </div>
-        </div>
-      </div>
+      <h2 style="color: #1948b3; font-size: 16px; margin: 0 0 16px 0; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0;">Additional Details</h2>
+      <table style="width: 100%;">
+        <tr>
+          <td style="padding: 8px; background: #f8fafc; border-radius: 8px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 4px;">Trade-In</div>
+            <div style="font-size: 15px; font-weight: 600;">${formData.tradeIn === 'yes' ? `Yes - ${formData.tradeInYear} ${formData.tradeInMake} ${formData.tradeInModel}` : formData.tradeIn === 'unsure' ? 'Maybe' : 'No'}</div>
+          </td>
+          <td style="width: 12px;"></td>
+          <td style="padding: 8px; background: #f8fafc; border-radius: 8px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 4px;">Cosigner</div>
+            <div style="font-size: 15px; font-weight: 600;">${formData.cosigner === 'yes' ? `Yes - ${formData.cosignerFullName}` : 'No'}</div>
+          </td>
+        </tr>
+      </table>
       
-      <div class="footer">
-        <p><strong>⏰ Remember: Respond within 24 hours!</strong></p>
-        <a href="https://mynextrideontario.vercel.app/admin" class="cta">View in Dashboard</a>
-        <p class="lead-id">Lead ID: ${lead.id}</p>
+      <div style="margin-top: 24px; padding: 20px; background: linear-gradient(135deg, #1948b3 0%, #366be3 100%); border-radius: 12px; text-align: center; color: white;">
+        <p style="margin: 0; font-weight: 600;">Remember: Respond within 24 hours!</p>
+        <a href="https://mynextrideontario.vercel.app/admin" style="display: inline-block; background: #ecc979; color: #1948b3; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 700; margin-top: 12px;">View in Dashboard</a>
+        <p style="opacity: 0.7; font-size: 12px; margin-top: 16px;">Lead ID: ${lead.id}</p>
       </div>
     </div>
   </div>
@@ -200,45 +169,34 @@ export async function sendLeadNotificationEmail(lead: Lead): Promise<boolean> {
     }[formData.vehicleType] || formData.vehicleType;
 
     const htmlContent = buildEmailHtml(lead);
-    const subject = `🚗 New Application: ${formData.fullName} - ${vehicleTypeLabel}`;
+    const subject = `New Application: ${formData.fullName} - ${vehicleTypeLabel}`;
     
-    // Check if Resend API key is configured
-    const resendApiKey = process.env.RESEND_API_KEY;
+    const resend = getResendClient();
     
-    if (resendApiKey) {
+    if (resend) {
       try {
-        const response = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${resendApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: `${settings.fromName} <onboarding@resend.dev>`,
-            to: recipientEmail,
-            subject: subject,
-            html: htmlContent,
-          }),
+        const { data, error } = await resend.emails.send({
+          from: 'My Next Ride Ontario <onboarding@resend.dev>',
+          to: [recipientEmail],
+          subject: subject,
+          html: htmlContent,
         });
         
-        if (response.ok) {
-          console.log(`✅ Email sent to ${recipientEmail} for lead ${lead.id}`);
-          return true;
-        } else {
-          const error = await response.text();
-          console.log('Email API error:', error);
+        if (error) {
+          console.error('Resend API error:', error);
+          return false;
         }
+        
+        console.log(`✅ Email sent successfully! ID: ${data?.id}`);
+        return true;
       } catch (emailError) {
-        console.log('Email sending failed:', emailError);
+        console.error('Email sending failed:', emailError);
+        return false;
       }
     } else {
-      console.log('📧 No email service configured. Lead saved to dashboard.');
-      console.log(`   Recipient would be: ${recipientEmail}`);
-      console.log(`   Subject: ${subject}`);
+      console.log('📧 Resend not configured. Lead saved to dashboard.');
+      return false;
     }
-    
-    // Lead is always saved regardless of email status
-    return false;
   } catch (error) {
     console.error('Error in email notification:', error);
     return false;
