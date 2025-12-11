@@ -106,6 +106,7 @@ export interface TextLabel {
   y: number;
   fontSize: number;
   color: string;
+  bgColor?: string;
 }
 
 // EMAIL TEMPLATES
