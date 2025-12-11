@@ -242,6 +242,7 @@ export interface ShowcaseVehicle {
   imageUrl?: string;
   imageKey?: string;
   featured: boolean;
+  ctaText?: string;
   createdAt: string;
 }
 

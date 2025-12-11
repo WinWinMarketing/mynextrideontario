@@ -47,7 +47,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Maximum vehicles reached' }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, vehicle });
+    let vehicleWithUrl = vehicle;
+    if (vehicle.imageKey) {
+      const signed = await import('@/lib/s3').then(m => m.getShowcaseImageSignedUrl(vehicle.imageKey!));
+      vehicleWithUrl = { ...vehicle, imageUrl: signed };
+    }
+
+    return NextResponse.json({ success: true, vehicle: vehicleWithUrl });
   } catch (error) {
     console.error('Error adding showcase vehicle:', error);
     return NextResponse.json({ error: 'Failed to add vehicle' }, { status: 500 });

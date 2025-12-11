@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import Link from 'next/link';
-import { Button, Card } from '@/components/ui';
+import { Button } from '@/components/ui';
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { GoogleMap } from '@/components/GoogleMap';
 import { ShowcaseSection } from '@/components/ShowcaseSection';
@@ -27,7 +27,7 @@ export default function HomePage() {
       <LoadingScreen />
       
       <main className="min-h-screen">
-        {/* Hero Section - Dark blue gradient matching loading screen */}
+        {/* Hero Section */}
         <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-900 via-primary-900 to-slate-900">
           {/* Animated background effects */}
           <div className="absolute inset-0 overflow-hidden">
@@ -40,11 +40,6 @@ export default function HomePage() {
               animate={{ scale: [1.2, 1, 1.2], opacity: [0.2, 0.4, 0.2] }}
               transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
               className="absolute bottom-1/4 -right-1/4 w-[500px] h-[500px] bg-accent/15 rounded-full blur-[100px]"
-            />
-            <motion.div
-              animate={{ scale: [1, 1.3, 1], opacity: [0.1, 0.2, 0.1] }}
-              transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
-              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary-400/10 rounded-full blur-[150px]"
             />
           </div>
 
@@ -118,11 +113,11 @@ export default function HomePage() {
                     </svg>
                   </Button>
                 </Link>
-                <a href="#how-it-works">
+                <Link href="/about">
                   <Button size="lg" variant="ghost" className="text-lg px-10 py-5 text-white border-white/20 hover:bg-white/10">
-                    Learn More
+                    Our Mission
                   </Button>
-                </a>
+                </Link>
               </motion.div>
             </motion.div>
           </div>
@@ -176,7 +171,7 @@ export default function HomePage() {
                 {
                   step: '02',
                   title: 'We Find Your Match',
-                  description: 'Our team searches our network of dealers and 17 lenders to find vehicles and financing that fit your situation.',
+                  description: 'Our team searches through our extensive network of lenders and dealers to find vehicles and financing tailored to your financial situation.',
                   icon: (
                     <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -186,7 +181,7 @@ export default function HomePage() {
                 {
                   step: '03',
                   title: 'Get Approved & Drive',
-                  description: 'Review your options, get approved, and drive away in your new vehicle. It&apos;s that simple.',
+                  description: 'Review your personalized options, get approved, and drive away in your new vehicle. It\'s that simple.',
                   icon: (
                     <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -217,36 +212,11 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* Showcase Section */}
+        {/* Showcase Section - Will hide automatically if no vehicles */}
         <ShowcaseSection />
 
-        {/* Credit Profiles Section - Dynamic */}
+        {/* Credit Profiles Section - Professional Design */}
         <section className="py-24 px-6 bg-gradient-to-b from-white to-slate-50 relative overflow-hidden">
-          {/* Subtle animated background elements */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            {[...Array(5)].map((_, i) => (
-              <motion.div
-                key={i}
-                className="absolute w-64 h-64 rounded-full blur-3xl"
-                style={{
-                  background: `radial-gradient(circle, ${['rgba(34,197,94,0.08)', 'rgba(59,130,246,0.08)', 'rgba(251,191,36,0.08)', 'rgba(99,102,241,0.08)'][i % 4]}, transparent)`,
-                  top: `${20 + i * 15}%`,
-                  left: `${10 + i * 20}%`,
-                }}
-                animate={{
-                  x: [0, 30, 0],
-                  y: [0, -20, 0],
-                  scale: [1, 1.1, 1],
-                }}
-                transition={{
-                  duration: 10 + i * 2,
-                  repeat: Infinity,
-                  ease: 'easeInOut',
-                }}
-              />
-            ))}
-          </div>
-
           <div className="container mx-auto max-w-6xl relative z-10">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -259,8 +229,11 @@ export default function HomePage() {
                 All <span className="text-primary-600">Credit Types</span> Welcome
               </h2>
               <p className="text-slate-600 text-lg max-w-2xl mx-auto">
-                We work with 17 different lenders including prime, near-prime, and non-prime, 
-                giving us high approval odds for a wide range of credit profiles.
+                We work with{' '}
+                <span className="inline-block bg-accent/20 text-amber-800 font-bold px-3 py-1 rounded-lg border border-accent/30">
+                  17 different lenders
+                </span>
+                {' '}including prime, near-prime, and non-prime, giving us high approval odds for a wide range of credit profiles.
               </p>
             </motion.div>
 
@@ -271,28 +244,52 @@ export default function HomePage() {
                   subtitle: 'Prime', 
                   description: 'Best rates and terms available', 
                   gradient: 'from-emerald-500 to-green-600',
-                  icon: <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  bgLight: 'bg-emerald-50',
+                  borderColor: 'border-emerald-200',
+                  icon: (
+                    <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )
                 },
                 { 
                   title: 'Good', 
                   subtitle: 'Prime', 
                   description: 'Great options with competitive rates', 
                   gradient: 'from-blue-500 to-cyan-600',
-                  icon: <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                  bgLight: 'bg-blue-50',
+                  borderColor: 'border-blue-200',
+                  icon: (
+                    <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  )
                 },
                 { 
                   title: 'Fair', 
                   subtitle: 'Near-Prime', 
-                  description: 'Many options available', 
+                  description: 'Many flexible options available', 
                   gradient: 'from-amber-500 to-orange-600',
-                  icon: <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  bgLight: 'bg-amber-50',
+                  borderColor: 'border-amber-200',
+                  icon: (
+                    <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )
                 },
                 { 
                   title: 'Poor', 
                   subtitle: 'Non-Prime', 
                   description: 'We can still help you get approved', 
                   gradient: 'from-primary-500 to-primary-700',
-                  icon: <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg>
+                  bgLight: 'bg-primary-50',
+                  borderColor: 'border-primary-200',
+                  icon: (
+                    <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                    </svg>
+                  )
                 },
               ].map((item, index) => (
                 <motion.div
@@ -301,14 +298,10 @@ export default function HomePage() {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ duration: 0.5, delay: index * 0.1 }}
-                  whileHover={{ y: -12, scale: 1.03 }}
+                  whileHover={{ y: -10 }}
                   className="relative"
                 >
-                  <div className="h-full bg-white rounded-3xl p-7 border-2 border-slate-100 shadow-xl hover:shadow-2xl transition-all overflow-hidden group">
-                    <motion.div 
-                      className={`absolute inset-0 bg-gradient-to-br ${item.gradient} opacity-0 group-hover:opacity-8 transition-opacity duration-500`}
-                    />
-                    
+                  <div className={`h-full ${item.bgLight} rounded-3xl p-7 border-2 ${item.borderColor} shadow-lg hover:shadow-xl transition-all overflow-hidden`}>
                     <div className="relative z-10 text-center">
                       <div className={`w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br ${item.gradient} text-white flex items-center justify-center mb-4 shadow-lg`}>
                         {item.icon}
@@ -331,16 +324,13 @@ export default function HomePage() {
               transition={{ duration: 0.6, delay: 0.4 }}
               className="text-center mt-12"
             >
-              <motion.div 
-                whileHover={{ scale: 1.05 }}
-                className="inline-flex items-center gap-4 bg-white px-8 py-4 rounded-2xl border border-slate-200 shadow-xl"
-              >
-                <span className="font-bold text-slate-900 text-lg">17 Lenders</span>
+              <div className="inline-flex items-center gap-4 bg-white px-8 py-4 rounded-2xl border border-slate-200 shadow-xl">
+                <span className="font-bold text-slate-900 text-lg">Wide Network</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
                 <span className="text-slate-600">High Approval Rates</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
                 <span className="text-slate-600">Quick Decisions</span>
-              </motion.div>
+              </div>
             </motion.div>
           </div>
         </section>
@@ -407,11 +397,61 @@ export default function HomePage() {
         </section>
 
         {/* Footer */}
-        <footer className="py-8 px-6 bg-slate-900 border-t border-slate-800">
-          <div className="container mx-auto max-w-6xl text-center">
-            <p className="text-slate-400 text-sm">
-              © {new Date().getFullYear()} My Next Ride Ontario. All rights reserved.
-            </p>
+        <footer className="py-16 px-6 bg-slate-900 border-t border-slate-800">
+          <div className="container mx-auto max-w-6xl">
+            <div className="grid md:grid-cols-4 gap-10 mb-12">
+              {/* Brand */}
+              <div className="md:col-span-2">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>
+                    </svg>
+                  </div>
+                  <span className="text-xl font-bold text-white">My Next Ride Ontario</span>
+                </div>
+                <p className="text-slate-400 text-sm leading-relaxed max-w-sm">
+                  Helping Ontarians find their perfect vehicle match with personalized service 
+                  and access to 17 different lenders for all credit situations.
+                </p>
+              </div>
+
+              {/* Quick Links */}
+              <div>
+                <h4 className="text-white font-semibold mb-4">Quick Links</h4>
+                <ul className="space-y-2">
+                  <li><Link href="/apply" className="text-slate-400 hover:text-white transition-colors text-sm">Apply Now</Link></li>
+                  <li><Link href="/about" className="text-slate-400 hover:text-white transition-colors text-sm">Our Mission</Link></li>
+                  <li><Link href="/contact" className="text-slate-400 hover:text-white transition-colors text-sm">Contact Us</Link></li>
+                </ul>
+              </div>
+
+              {/* Contact */}
+              <div>
+                <h4 className="text-white font-semibold mb-4">Contact</h4>
+                <ul className="space-y-2">
+                  <li className="text-slate-400 text-sm flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    info@mynextrideontario.com
+                  </li>
+                  <li className="text-slate-400 text-sm flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    Greater Toronto Area
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="pt-8 border-t border-slate-800 text-center">
+              <p className="text-slate-500 text-sm">
+                © {new Date().getFullYear()} My Next Ride Ontario. All rights reserved.
+              </p>
+            </div>
           </div>
         </footer>
       </main>

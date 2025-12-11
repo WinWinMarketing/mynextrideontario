@@ -1,8 +1,8 @@
 'use client';
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { useState, useEffect, useCallback } from 'react';
-import { Button, Card, Select, Textarea, Modal, Input } from '@/components/ui';
+import { Button, Select, Modal, Input } from '@/components/ui';
 import { Lead, LeadStatus, deadReasonOptions, leadStatusOptions, ShowcaseVehicle } from '@/lib/validation';
 import { formatDate } from '@/lib/utils';
 import { DEFAULT_TEMPLATES, EmailTemplate } from '@/lib/email';
@@ -11,14 +11,14 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type TabType = 'dashboard' | 'leads' | 'templates' | 'showcase';
+type TabType = 'dashboard' | 'leads' | 'schedule' | 'templates' | 'analytics' | 'showcase';
 
-const STATUS_CONFIG: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-  'new': { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200', dot: 'bg-slate-400' },
-  'working': { bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-200', dot: 'bg-amber-500' },
-  'circle-back': { bg: 'bg-cyan-50', text: 'text-cyan-800', border: 'border-cyan-200', dot: 'bg-cyan-500' },
-  'approval': { bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-200', dot: 'bg-emerald-500' },
-  'dead': { bg: 'bg-red-50', text: 'text-red-800', border: 'border-red-200', dot: 'bg-red-500' },
+const STATUS_CONFIG: Record<string, { bg: string; text: string; border: string; dot: string; gradient: string }> = {
+  'new': { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-300', dot: 'bg-slate-400', gradient: 'from-slate-400 to-slate-600' },
+  'working': { bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-300', dot: 'bg-amber-500', gradient: 'from-amber-400 to-amber-600' },
+  'circle-back': { bg: 'bg-cyan-50', text: 'text-cyan-800', border: 'border-cyan-300', dot: 'bg-cyan-500', gradient: 'from-cyan-400 to-cyan-600' },
+  'approval': { bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-300', dot: 'bg-emerald-500', gradient: 'from-emerald-400 to-emerald-600' },
+  'dead': { bg: 'bg-red-50', text: 'text-red-800', border: 'border-red-300', dot: 'bg-red-500', gradient: 'from-red-400 to-red-600' },
 };
 
 export function AdminDashboard({ onLogout }: AdminDashboardProps) {
@@ -30,7 +30,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all');
   const [starredLeads, setStarredLeads] = useState<Set<string>>(new Set());
   const [licenseUrls, setLicenseUrls] = useState<Record<string, string>>({});
-  const [licenseModal, setLicenseModal] = useState<{ url: string; name: string } | null>(null);
+  const [licenseModal, setLicenseModal] = useState<{ url: string; name: string; leadId: string } | null>(null);
   const [detailModal, setDetailModal] = useState<Lead | null>(null);
   const [emailModal, setEmailModal] = useState<{ lead: Lead } | null>(null);
   const [templates, setTemplates] = useState<EmailTemplate[]>(DEFAULT_TEMPLATES);
@@ -92,18 +92,33 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     fetchShowcase();
   }, [fetchLeads, fetchShowcase]);
 
-  // Update status
-  const updateStatus = async (leadId: string, status: LeadStatus) => {
+  // Update lead status
+  const updateStatus = async (leadId: string, status: LeadStatus, deadReason?: string) => {
     try {
       await fetch('/api/admin/leads', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leadId, year: selectedYear, month: selectedMonth, status }),
+        body: JSON.stringify({ leadId, year: selectedYear, month: selectedMonth, status, deadReason }),
       });
-      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status } : l));
-      if (detailModal?.id === leadId) setDetailModal({ ...detailModal, status });
+      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status, deadReason: deadReason as any } : l));
+      if (detailModal?.id === leadId) setDetailModal({ ...detailModal, status, deadReason: deadReason as any });
     } catch (e) {
       console.error('Error updating status:', e);
+    }
+  };
+
+  // Save notes
+  const saveNotes = async (leadId: string, notes: string) => {
+    try {
+      await fetch('/api/admin/leads', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId, year: selectedYear, month: selectedMonth, notes }),
+      });
+      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, notes } : l));
+      if (detailModal?.id === leadId) setDetailModal({ ...detailModal, notes });
+    } catch (e) {
+      console.error('Error saving notes:', e);
     }
   };
 
@@ -116,12 +131,30 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     });
   };
 
-  // Open license immediately
+  // Delete showcase vehicle
+  const deleteShowcaseVehicle = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/showcase?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setShowcase(prev => prev.filter(v => v.id !== id));
+      }
+    } catch (e) {
+      console.error('Error deleting vehicle:', e);
+    }
+  };
+
+  // Open license - friendly URL
   const openLicense = (leadId: string, leadName: string) => {
     const url = licenseUrls[leadId];
     if (url) {
-      setLicenseModal({ url, name: leadName });
+      setLicenseModal({ url, name: leadName, leadId });
     }
+  };
+
+  // Generate friendly license URL
+  const getFriendlyLicenseUrl = (leadId: string, leadName: string) => {
+    const safeName = leadName.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+    return `${window.location.origin}/api/admin/leads/${leadId}/license?name=${safeName}`;
   };
 
   // Filter and sort leads
@@ -140,6 +173,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     total: leads.length,
     new: leads.filter(l => l.status === 'new').length,
     working: leads.filter(l => l.status === 'working').length,
+    circleBack: leads.filter(l => l.status === 'circle-back').length,
     approval: leads.filter(l => l.status === 'approval').length,
     dead: leads.filter(l => l.status === 'dead').length,
   };
@@ -147,7 +181,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const mood = approvalRate >= 50 ? 'great' : approvalRate >= 20 ? 'good' : 'poor';
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-100">
       {/* HEADER */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200 shadow-sm">
         <div className="h-16 px-6 flex items-center justify-between">
@@ -164,11 +198,11 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
           </div>
 
           <nav className="absolute left-1/2 -translate-x-1/2 flex gap-1 bg-slate-100 p-1 rounded-xl">
-            {(['dashboard', 'leads', 'templates', 'showcase'] as TabType[]).map(tab => (
+            {(['dashboard', 'leads', 'schedule', 'templates', 'analytics', 'showcase'] as TabType[]).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-5 py-2 text-sm font-semibold rounded-lg capitalize transition-all ${
+                className={`px-4 py-2 text-sm font-semibold rounded-lg capitalize transition-all ${
                   activeTab === tab ? 'bg-white text-slate-900 shadow' : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
@@ -188,7 +222,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
       <div className="pt-20 pb-10">
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
-            <DashboardView key="dashboard" stats={stats} approvalRate={approvalRate} mood={mood} onViewLeads={() => setActiveTab('leads')} onViewTemplates={() => setActiveTab('templates')} onViewShowcase={() => setActiveTab('showcase')} />
+            <DashboardView key="dashboard" stats={stats} approvalRate={approvalRate} mood={mood} onViewLeads={() => setActiveTab('leads')} onViewSchedule={() => setActiveTab('schedule')} onViewAnalytics={() => setActiveTab('analytics')} />
           )}
 
           {activeTab === 'leads' && (
@@ -213,23 +247,43 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             />
           )}
 
+          {activeTab === 'schedule' && (
+            <ScheduleView
+              key="schedule"
+              leads={leads}
+              onStatusChange={updateStatus}
+              onViewDetails={setDetailModal}
+              onToggleStar={toggleStar}
+              starredLeads={starredLeads}
+              templates={templates}
+            />
+          )}
+
           {activeTab === 'templates' && (
             <TemplatesView key="templates" templates={templates} setTemplates={setTemplates} />
           )}
 
+          {activeTab === 'analytics' && (
+            <AnalyticsView key="analytics" leads={leads} stats={stats} approvalRate={approvalRate} />
+          )}
+
           {activeTab === 'showcase' && (
-            <ShowcaseView key="showcase" vehicles={showcase} onRefresh={fetchShowcase} />
+            <ShowcaseView key="showcase" vehicles={showcase} onRefresh={fetchShowcase} onDelete={deleteShowcaseVehicle} />
           )}
         </AnimatePresence>
       </div>
 
-      {/* LICENSE MODAL - Opens immediately on click */}
+      {/* LICENSE MODAL */}
       <Modal isOpen={!!licenseModal} onClose={() => setLicenseModal(null)} title={`License: ${licenseModal?.name}`} size="xl">
         {licenseModal && (
           <div className="space-y-4">
             <img src={licenseModal.url} alt="License" className="w-full rounded-xl shadow-lg" />
+            <div className="bg-slate-50 p-4 rounded-xl">
+              <p className="text-xs text-slate-500 mb-2">Shareable URL:</p>
+              <code className="text-sm text-slate-700 break-all">{getFriendlyLicenseUrl(licenseModal.leadId, licenseModal.name)}</code>
+            </div>
             <div className="flex gap-3">
-              <Button variant="secondary" onClick={() => navigator.clipboard.writeText(licenseModal.url)} className="flex-1">
+              <Button variant="secondary" onClick={() => navigator.clipboard.writeText(getFriendlyLicenseUrl(licenseModal.leadId, licenseModal.name))} className="flex-1">
                 📋 Copy URL
               </Button>
               <a href={licenseModal.url} download className="flex-1">
@@ -247,6 +301,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             lead={detailModal}
             licenseUrl={licenseUrls[detailModal.id]}
             onStatusChange={updateStatus}
+            onSaveNotes={saveNotes}
             onClose={() => setDetailModal(null)}
             onViewLicense={() => openLicense(detailModal.id, detailModal.formData.fullName)}
             onSendEmail={() => { setDetailModal(null); setEmailModal({ lead: detailModal }); }}
@@ -268,51 +323,66 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   );
 }
 
-// ============ DASHBOARD VIEW - BIGGER STATS ============
-function DashboardView({ stats, approvalRate, mood, onViewLeads, onViewTemplates, onViewShowcase }: any) {
+// ============ DASHBOARD VIEW ============
+function DashboardView({ stats, approvalRate, mood, onViewLeads, onViewSchedule, onViewAnalytics }: any) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="max-w-7xl mx-auto px-6">
-      {/* Hero Card */}
-      <div className="relative h-48 mb-8 rounded-3xl overflow-hidden shadow-xl">
-        {mood === 'great' && <SunshineBackground />}
-        {mood === 'good' && <CloudyBackground />}
-        {mood === 'poor' && <RainyBackground />}
+      {/* Hero Card with Weather Animation */}
+      <div className="relative h-52 mb-8 rounded-3xl overflow-hidden shadow-2xl">
+        {mood === 'great' && <div className="absolute inset-0 bg-gradient-to-br from-amber-400 via-orange-400 to-yellow-500" />}
+        {mood === 'good' && <div className="absolute inset-0 bg-gradient-to-br from-slate-400 via-slate-500 to-slate-600" />}
+        {mood === 'poor' && <div className="absolute inset-0 bg-gradient-to-br from-slate-600 via-slate-700 to-slate-800" />}
+        
+        {/* Animated elements */}
+        {mood === 'great' && (
+          <motion.div animate={{ scale: [1, 1.1, 1], opacity: [0.8, 1, 0.8] }} transition={{ duration: 3, repeat: Infinity }} className="absolute top-8 right-12 w-20 h-20 rounded-full bg-yellow-300 shadow-lg shadow-yellow-400/50" />
+        )}
+        {mood === 'poor' && (
+          <div className="absolute inset-0 overflow-hidden">
+            {[...Array(20)].map((_, i) => (
+              <motion.div
+                key={i}
+                className="absolute w-0.5 h-8 bg-slate-400/30 rounded-full"
+                style={{ left: `${5 + i * 5}%`, top: -32 }}
+                animate={{ y: [0, 300], opacity: [0.5, 0] }}
+                transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.1 }}
+              />
+            ))}
+          </div>
+        )}
+
         <div className="relative z-10 h-full flex flex-col items-center justify-center text-white">
           <motion.h2 initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-5xl md:text-6xl font-bold mb-2">
             {stats.total} Total Leads
           </motion.h2>
           <p className="text-xl text-white/80">{approvalRate}% Approval Rate</p>
+          <p className="text-sm text-white/60 mt-2">
+            {mood === 'great' ? '☀️ Excellent performance!' : mood === 'good' ? '⛅ Good progress' : '🌧️ Room for improvement'}
+          </p>
         </div>
       </div>
 
-      {/* Stats Grid - BIGGER */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         {[
-          { label: 'New Leads', value: stats.new, icon: <PlusIcon />, bg: 'from-slate-500 to-slate-700', color: 'slate' },
-          { label: 'Working', value: stats.working, icon: <BoltIcon />, bg: 'from-amber-500 to-amber-600', color: 'amber' },
-          { label: 'Approved', value: stats.approval, icon: <CheckCircleIcon />, bg: 'from-emerald-500 to-emerald-600', color: 'emerald' },
-          { label: 'Dead', value: stats.dead, icon: <XCircleIcon />, bg: 'from-red-500 to-red-600', color: 'red' },
+          { label: 'New', value: stats.new, color: 'slate' },
+          { label: 'Working', value: stats.working, color: 'amber' },
+          { label: 'Circle Back', value: stats.circleBack, color: 'cyan' },
+          { label: 'Approved', value: stats.approval, color: 'emerald' },
+          { label: 'Dead', value: stats.dead, color: 'red' },
         ].map((stat) => (
-          <motion.div key={stat.label} whileHover={{ y: -6, scale: 1.02 }} className="bg-white rounded-2xl p-6 shadow-xl border border-slate-100 overflow-hidden relative">
-            <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${stat.bg}`} />
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-500 text-sm font-medium mb-1">{stat.label}</p>
-                <p className="text-4xl font-bold text-slate-900">{stat.value}</p>
-              </div>
-              <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${stat.bg} text-white flex items-center justify-center shadow-lg`}>
-                {stat.icon}
-              </div>
-            </div>
+          <motion.div key={stat.label} whileHover={{ y: -4, scale: 1.02 }} className="bg-white rounded-2xl p-5 shadow-lg border border-slate-100">
+            <p className="text-slate-500 text-sm font-medium mb-1">{stat.label}</p>
+            <p className="text-3xl font-bold text-slate-900">{stat.value}</p>
           </motion.div>
         ))}
       </div>
 
-      {/* Quick Actions - WIDER */}
+      {/* Quick Actions */}
       <div className="grid md:grid-cols-3 gap-5">
-        <QuickActionCard title="View All Leads" desc="Manage your pipeline" icon={<ClipboardIcon />} onClick={onViewLeads} bg="from-primary-500 to-primary-700" />
-        <QuickActionCard title="Email Templates" desc="Send to clients" icon={<MailIcon />} onClick={onViewTemplates} bg="from-amber-400 to-amber-600" />
-        <QuickActionCard title="Vehicle Showcase" desc="Manage inventory" icon={<ImageIcon />} onClick={onViewShowcase} bg="from-emerald-400 to-emerald-600" />
+        <QuickActionCard title="View Leads" desc="Manage your pipeline" icon="📋" onClick={onViewLeads} bg="from-primary-500 to-primary-700" />
+        <QuickActionCard title="Lead Schedule" desc="Visual pipeline flow" icon="📊" onClick={onViewSchedule} bg="from-cyan-500 to-cyan-700" />
+        <QuickActionCard title="Analytics" desc="Performance insights" icon="📈" onClick={onViewAnalytics} bg="from-emerald-500 to-emerald-700" />
       </div>
     </motion.div>
   );
@@ -342,11 +412,11 @@ function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter
           </div>
 
           <div className="bg-white rounded-2xl p-5 shadow-lg border border-slate-100">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Status</h3>
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Filter by Status</h3>
             <div className="space-y-2">
               <FilterButton label="All Leads" count={stats.total} active={statusFilter === 'all'} onClick={() => onFilterChange('all')} />
               {leadStatusOptions.map(s => (
-                <FilterButton key={s.value} label={s.label} count={leads.filter((l: Lead) => l.status === s.value).length} active={statusFilter === s.value} onClick={() => onFilterChange(s.value)} dot={STATUS_CONFIG[s.value].dot} />
+                <FilterButton key={s.value} label={s.label} active={statusFilter === s.value} onClick={() => onFilterChange(s.value)} dot={STATUS_CONFIG[s.value].dot} />
               ))}
             </div>
           </div>
@@ -389,6 +459,189 @@ function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter
   );
 }
 
+// ============ SCHEDULE VIEW - KANBAN ============
+function ScheduleView({ leads, onStatusChange, onViewDetails, onToggleStar, starredLeads, templates }: any) {
+  const columns: { status: LeadStatus; title: string; color: string }[] = [
+    { status: 'new', title: 'New Leads', color: 'slate' },
+    { status: 'working', title: 'Working', color: 'amber' },
+    { status: 'circle-back', title: 'Circle Back', color: 'cyan' },
+    { status: 'approval', title: 'Approved', color: 'emerald' },
+    { status: 'dead', title: 'Dead', color: 'red' },
+  ];
+
+  const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
+
+  const handleDragStart = (lead: Lead) => setDraggedLead(lead);
+  const handleDragEnd = () => setDraggedLead(null);
+
+  const handleDrop = (status: LeadStatus) => {
+    if (draggedLead && draggedLead.status !== status) {
+      onStatusChange(draggedLead.id, status);
+    }
+    setDraggedLead(null);
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="px-6">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-slate-900">Lead Schedule</h2>
+        <p className="text-slate-500">Drag and drop leads between columns to update their status</p>
+      </div>
+
+      <div className="flex gap-4 overflow-x-auto pb-6" style={{ minHeight: 'calc(100vh - 200px)' }}>
+        {columns.map((col) => {
+          const colLeads = leads.filter((l: Lead) => l.status === col.status);
+          
+          return (
+            <div
+              key={col.status}
+              className={`flex-shrink-0 w-80 bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden`}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleDrop(col.status)}
+            >
+              {/* Column Header */}
+              <div className={`px-4 py-3 bg-gradient-to-r ${STATUS_CONFIG[col.status].gradient} text-white`}>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold">{col.title}</h3>
+                  <span className="bg-white/20 px-2 py-0.5 rounded-full text-sm font-medium">{colLeads.length}</span>
+                </div>
+              </div>
+
+              {/* Column Content */}
+              <div className="p-3 space-y-3 max-h-[600px] overflow-y-auto">
+                {colLeads.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 text-sm">
+                    Drop leads here
+                  </div>
+                ) : (
+                  colLeads.map((lead: Lead) => (
+                    <motion.div
+                      key={lead.id}
+                      layout
+                      draggable
+                      onDragStart={() => handleDragStart(lead)}
+                      onDragEnd={handleDragEnd}
+                      className={`bg-slate-50 rounded-xl p-3 cursor-grab active:cursor-grabbing border border-slate-200 hover:border-slate-300 transition-all ${
+                        draggedLead?.id === lead.id ? 'opacity-50' : ''
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <h4 className="font-semibold text-slate-900 text-sm truncate">{lead.formData.fullName}</h4>
+                        <button onClick={() => onToggleStar(lead.id)} className="text-lg flex-shrink-0">
+                          {starredLeads.has(lead.id) ? '⭐' : '☆'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-2">{lead.formData.vehicleType} • {lead.formData.phone}</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => onViewDetails(lead)}
+                          className="text-xs text-primary-600 hover:text-primary-800 font-medium"
+                        >
+                          View Details
+                        </button>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </motion.div>
+  );
+}
+
+// ============ ANALYTICS VIEW ============
+function AnalyticsView({ leads, stats, approvalRate }: any) {
+  const conversionRate = stats.total > 0 ? Math.round(((stats.approval + stats.working) / stats.total) * 100) : 0;
+  const deadRate = stats.total > 0 ? Math.round((stats.dead / stats.total) * 100) : 0;
+
+  const deadReasons = leads
+    .filter((l: Lead) => l.status === 'dead' && l.deadReason)
+    .reduce((acc: Record<string, number>, l: Lead) => {
+      acc[l.deadReason!] = (acc[l.deadReason!] || 0) + 1;
+      return acc;
+    }, {});
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="max-w-6xl mx-auto px-6">
+      <div className="mb-8">
+        <h2 className="text-2xl font-bold text-slate-900">Analytics</h2>
+        <p className="text-slate-500">Performance insights for your leads</p>
+      </div>
+
+      {/* Key Metrics */}
+      <div className="grid md:grid-cols-4 gap-6 mb-8">
+        {[
+          { label: 'Total Leads', value: stats.total, icon: '📊', color: 'primary' },
+          { label: 'Approval Rate', value: `${approvalRate}%`, icon: '✅', color: 'emerald' },
+          { label: 'Conversion Rate', value: `${conversionRate}%`, icon: '📈', color: 'amber' },
+          { label: 'Dead Rate', value: `${deadRate}%`, icon: '❌', color: 'red' },
+        ].map((metric) => (
+          <motion.div
+            key={metric.label}
+            whileHover={{ y: -4 }}
+            className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-3xl">{metric.icon}</span>
+            </div>
+            <p className="text-3xl font-bold text-slate-900 mb-1">{metric.value}</p>
+            <p className="text-sm text-slate-500">{metric.label}</p>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Pipeline Distribution */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100">
+          <h3 className="font-bold text-slate-900 mb-4">Pipeline Distribution</h3>
+          <div className="space-y-3">
+            {leadStatusOptions.map((s) => {
+              const count = leads.filter((l: Lead) => l.status === s.value).length;
+              const pct = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
+              
+              return (
+                <div key={s.value}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-slate-700">{s.label}</span>
+                    <span className="text-slate-500">{count} ({pct}%)</span>
+                  </div>
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${pct}%` }}
+                      transition={{ duration: 0.8, delay: 0.2 }}
+                      className={`h-full bg-gradient-to-r ${STATUS_CONFIG[s.value].gradient}`}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100">
+          <h3 className="font-bold text-slate-900 mb-4">Dead Lead Reasons</h3>
+          {Object.keys(deadReasons).length === 0 ? (
+            <p className="text-slate-400 text-center py-8">No dead lead data yet</p>
+          ) : (
+            <div className="space-y-2">
+              {Object.entries(deadReasons).map(([reason, count]) => (
+                <div key={reason} className="flex items-center justify-between p-3 bg-red-50 rounded-xl">
+                  <span className="text-sm text-red-800 capitalize">{reason.replace(/-/g, ' ')}</span>
+                  <span className="text-sm font-bold text-red-600">{count as number}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 // ============ LEAD CARD ============
 function LeadCard({ lead, hasLicense, isStarred, onToggleStar, onStatusChange, onViewDetails, onViewLicense, onSendEmail }: any) {
   const { formData } = lead;
@@ -407,17 +660,13 @@ function LeadCard({ lead, hasLicense, isStarred, onToggleStar, onStatusChange, o
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* License button - opens immediately */}
             {hasLicense && (
               <button
                 onClick={onViewLicense}
                 className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-100 transition-colors"
                 title="View License"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
+                🪪
               </button>
             )}
             <button onClick={onToggleStar} className="text-2xl hover:scale-110 transition-transform">
@@ -429,33 +678,15 @@ function LeadCard({ lead, hasLicense, isStarred, onToggleStar, onStatusChange, o
         {/* Contact */}
         <div className="space-y-1.5 mb-4 text-sm">
           <a href={`tel:${formData.phone}`} className="flex items-center gap-2 text-slate-700 hover:text-primary-600">
-            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-            <span className="font-medium">{formData.phone}</span>
+            📞 <span className="font-medium">{formData.phone}</span>
           </a>
-          <p className="text-slate-500 truncate text-xs">{formData.email}</p>
+          <p className="text-slate-500 truncate text-xs">✉️ {formData.email}</p>
         </div>
 
         {/* Info */}
         <div className="bg-slate-50 rounded-xl p-3 mb-4 text-xs space-y-1.5">
           <div className="flex justify-between"><span className="text-slate-500">Vehicle</span><span className="font-semibold text-slate-800">{formData.vehicleType}</span></div>
           <div className="flex justify-between"><span className="text-slate-500">Budget</span><span className="font-semibold text-slate-800">{formData.paymentType === 'finance' ? formData.financeBudget : formData.cashBudget}</span></div>
-          <div className="flex justify-between"><span className="text-slate-500">Credit</span><span className="font-semibold text-slate-800">{formData.creditRating || 'Cash'}</span></div>
-        </div>
-
-        {/* Status buttons */}
-        <div className="grid grid-cols-3 gap-1.5 mb-3">
-          {leadStatusOptions.slice(0, 3).map(opt => (
-            <button key={opt.value} onClick={() => onStatusChange(opt.value)} className={`px-2 py-2 text-xs font-bold rounded-lg transition-all ${lead.status === opt.value ? `${STATUS_CONFIG[opt.value].bg} ${STATUS_CONFIG[opt.value].text} border ${STATUS_CONFIG[opt.value].border}` : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-              {opt.label.split(' ')[0]}
-            </button>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-1.5 mb-4">
-          {leadStatusOptions.slice(3).map(opt => (
-            <button key={opt.value} onClick={() => onStatusChange(opt.value)} className={`px-2 py-2 text-xs font-bold rounded-lg transition-all ${lead.status === opt.value ? `${STATUS_CONFIG[opt.value].bg} ${STATUS_CONFIG[opt.value].text} border ${STATUS_CONFIG[opt.value].border}` : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-              {opt.label.split(' ')[0]}
-            </button>
-          ))}
         </div>
 
         {/* Actions */}
@@ -464,7 +695,7 @@ function LeadCard({ lead, hasLicense, isStarred, onToggleStar, onStatusChange, o
             Details
           </Button>
           <Button size="sm" variant="secondary" onClick={onSendEmail} className="text-xs">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+            ✉️
           </Button>
         </div>
       </div>
@@ -473,9 +704,20 @@ function LeadCard({ lead, hasLicense, isStarred, onToggleStar, onStatusChange, o
 }
 
 // ============ LEAD DETAIL POPUP ============
-function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onClose, onViewLicense, onSendEmail }: any) {
+function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClose, onViewLicense, onSendEmail }: any) {
   const { formData } = lead;
+  const [notes, setNotes] = useState(lead.notes || '');
+  const [selectedDeadReason, setSelectedDeadReason] = useState(lead.deadReason || '');
   const config = STATUS_CONFIG[lead.status];
+
+  const handleSaveNotes = () => {
+    onSaveNotes(lead.id, notes);
+  };
+
+  const handleDeadReasonChange = (reason: string) => {
+    setSelectedDeadReason(reason);
+    onStatusChange(lead.id, 'dead', reason);
+  };
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -492,7 +734,7 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onClose, onViewLice
         </div>
         <div className="flex gap-2">
           <a href={`tel:${formData.phone}`}><Button variant="primary" size="sm">📞 Call</Button></a>
-          <Button variant="secondary" size="sm" onClick={onSendEmail}>📧 Email</Button>
+          <Button variant="secondary" size="sm" onClick={onSendEmail}>✉️ Email</Button>
           {licenseUrl && <Button variant="secondary" size="sm" onClick={onViewLicense}>🪪 License</Button>}
         </div>
       </div>
@@ -519,15 +761,43 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onClose, onViewLice
         </div>
       </div>
 
-      {/* Status */}
+      {/* Status Update */}
       <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm mb-6">
         <h3 className="text-sm font-bold text-slate-400 uppercase mb-4">Update Status</h3>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
           {leadStatusOptions.map(opt => (
             <button key={opt.value} onClick={() => onStatusChange(lead.id, opt.value)} className={`px-4 py-3 rounded-xl font-bold text-sm transition-all ${lead.status === opt.value ? `${STATUS_CONFIG[opt.value].bg} ${STATUS_CONFIG[opt.value].text} border-2 ${STATUS_CONFIG[opt.value].border} scale-105 shadow-md` : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
               {opt.label}
             </button>
           ))}
+        </div>
+
+        {/* Dead Reason Selector */}
+        {lead.status === 'dead' && (
+          <div className="mt-4 p-4 bg-red-50 rounded-xl">
+            <label className="block text-sm font-semibold text-red-800 mb-2">Dead Lead Reason</label>
+            <Select
+              value={selectedDeadReason}
+              onChange={(e) => handleDeadReasonChange(e.target.value)}
+              options={[{ value: '', label: 'Select reason...' }, ...deadReasonOptions]}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Notes */}
+      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <h3 className="text-sm font-bold text-slate-400 uppercase mb-4">Notes</h3>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Add notes about this lead..."
+          className="w-full h-32 p-4 rounded-xl border border-slate-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none resize-none"
+        />
+        <div className="mt-3 flex justify-end">
+          <Button variant="primary" size="sm" onClick={handleSaveNotes}>
+            💾 Save Notes
+          </Button>
         </div>
       </div>
     </div>
@@ -545,19 +815,6 @@ function DetailRow({ label, value }: { label: string; value?: string }) {
 
 // ============ TEMPLATES VIEW ============
 function TemplatesView({ templates, setTemplates }: { templates: EmailTemplate[]; setTemplates: (t: EmailTemplate[]) => void }) {
-  const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
-  const [newTemplate, setNewTemplate] = useState(false);
-
-  const saveTemplate = (template: EmailTemplate) => {
-    if (templates.find(t => t.id === template.id)) {
-      setTemplates(templates.map(t => t.id === template.id ? template : t));
-    } else {
-      setTemplates([...templates, template]);
-    }
-    setEditingTemplate(null);
-    setNewTemplate(false);
-  };
-
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="max-w-6xl mx-auto px-6">
       <div className="flex items-center justify-between mb-8">
@@ -565,13 +822,12 @@ function TemplatesView({ templates, setTemplates }: { templates: EmailTemplate[]
           <h2 className="text-2xl font-bold text-slate-900">Email Templates</h2>
           <p className="text-slate-500 mt-1">Send emails directly to clients</p>
         </div>
-        <Button variant="primary" onClick={() => setNewTemplate(true)}>+ New Template</Button>
       </div>
 
       <div className="bg-primary-50 border border-primary-200 rounded-2xl p-5 mb-8">
-        <h3 className="font-bold text-primary-900 mb-3">Variables</h3>
+        <h3 className="font-bold text-primary-900 mb-3">Available Variables</h3>
         <div className="flex flex-wrap gap-2">
-          {['{{name}}', '{{email}}', '{{phone}}', '{{vehicle}}', '{{budget}}', '{{urgency}}', '{{credit}}'].map(v => (
+          {['{{name}}', '{{email}}', '{{phone}}', '{{vehicle}}', '{{budget}}'].map(v => (
             <code key={v} className="px-3 py-1.5 bg-white rounded-lg text-sm font-mono text-primary-700 border border-primary-200">{v}</code>
           ))}
         </div>
@@ -580,57 +836,15 @@ function TemplatesView({ templates, setTemplates }: { templates: EmailTemplate[]
       <div className="grid md:grid-cols-2 gap-6">
         {templates.map(t => (
           <div key={t.id} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <span className={`inline-block px-2 py-0.5 text-xs font-bold rounded-full mb-2 ${t.category === 'approval' ? 'bg-emerald-100 text-emerald-700' : t.category === 'reminder' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{t.category}</span>
-                <h3 className="font-bold text-slate-900 text-lg">{t.name}</h3>
-                <p className="text-sm text-slate-500 mt-1">{t.subject}</p>
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => setEditingTemplate(t)}>Edit</Button>
-            </div>
+            <h3 className="font-bold text-slate-900 text-lg mb-2">{t.name}</h3>
+            <p className="text-sm text-slate-500 mb-4">{t.subject}</p>
             <div className="bg-slate-50 rounded-xl p-4 max-h-32 overflow-y-auto">
               <pre className="text-xs text-slate-600 whitespace-pre-wrap font-sans">{t.body}</pre>
             </div>
           </div>
         ))}
       </div>
-
-      <Modal isOpen={!!editingTemplate || newTemplate} onClose={() => { setEditingTemplate(null); setNewTemplate(false); }} title={editingTemplate ? 'Edit Template' : 'New Template'} size="lg">
-        <TemplateEditor template={editingTemplate || undefined} onSave={saveTemplate} onCancel={() => { setEditingTemplate(null); setNewTemplate(false); }} />
-      </Modal>
     </motion.div>
-  );
-}
-
-function TemplateEditor({ template, onSave, onCancel }: { template?: EmailTemplate; onSave: (t: EmailTemplate) => void; onCancel: () => void }) {
-  const [name, setName] = useState(template?.name || '');
-  const [subject, setSubject] = useState(template?.subject || '');
-  const [body, setBody] = useState(template?.body || '');
-  const [category, setCategory] = useState(template?.category || 'custom');
-
-  const handleSave = () => {
-    onSave({
-      id: template?.id || `template-${Date.now()}`,
-      name, subject, body,
-      category: category as any,
-      createdAt: template?.createdAt || new Date().toISOString(),
-    });
-  };
-
-  return (
-    <div className="space-y-5">
-      <Input label="Template Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Welcome Email" />
-      <Select label="Category" options={[{ value: 'follow-up', label: 'Follow-up' }, { value: 'approval', label: 'Approval' }, { value: 'reminder', label: 'Reminder' }, { value: 'custom', label: 'Custom' }]} value={category} onChange={(e) => setCategory(e.target.value)} />
-      <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g., Thanks for your interest, {{name}}!" />
-      <div>
-        <label className="block text-sm font-semibold text-slate-700 mb-2">Email Body</label>
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={10} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none resize-none" />
-      </div>
-      <div className="flex gap-3 justify-end">
-        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-        <Button variant="primary" onClick={handleSave}>Save</Button>
-      </div>
-    </div>
   );
 }
 
@@ -651,8 +865,6 @@ function EmailComposer({ lead, templates, onClose }: { lead: Lead; templates: Em
         '{{phone}}': lead.formData.phone,
         '{{vehicle}}': lead.formData.vehicleType,
         '{{budget}}': lead.formData.paymentType === 'finance' ? lead.formData.financeBudget || '' : lead.formData.cashBudget || '',
-        '{{urgency}}': lead.formData.urgency,
-        '{{credit}}': lead.formData.creditRating || 'N/A',
       };
       let subj = template.subject;
       let bod = template.body;
@@ -673,22 +885,14 @@ function EmailComposer({ lead, templates, onClose }: { lead: Lead; templates: Em
       const res = await fetch('/api/admin/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          toEmail: lead.formData.email,
-          toName: lead.formData.fullName,
-          subject,
-          body,
-        }),
+        body: JSON.stringify({ toEmail: lead.formData.email, toName: lead.formData.fullName, subject, body }),
       });
       if (res.ok) {
         setSent(true);
         setTimeout(onClose, 2000);
-      } else {
-        alert('Failed to send email. Check console.');
       }
     } catch (e) {
       console.error(e);
-      alert('Error sending email');
     } finally {
       setIsSending(false);
     }
@@ -698,7 +902,7 @@ function EmailComposer({ lead, templates, onClose }: { lead: Lead; templates: Em
     return (
       <div className="text-center py-10">
         <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+          <span className="text-3xl">✅</span>
         </div>
         <h3 className="text-xl font-bold text-slate-900">Email Sent!</h3>
         <p className="text-slate-500 mt-2">Email sent to {lead.formData.email}</p>
@@ -729,8 +933,7 @@ function EmailComposer({ lead, templates, onClose }: { lead: Lead; templates: Em
       <div className="flex gap-3 justify-end">
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" onClick={sendEmail} isLoading={isSending} disabled={!subject || !body}>
-          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-          Send Email
+          ✉️ Send Email
         </Button>
       </div>
     </div>
@@ -738,31 +941,57 @@ function EmailComposer({ lead, templates, onClose }: { lead: Lead; templates: Em
 }
 
 // ============ SHOWCASE VIEW ============
-function ShowcaseView({ vehicles, onRefresh }: { vehicles: ShowcaseVehicle[]; onRefresh: () => void }) {
+function ShowcaseView({ vehicles, onRefresh, onDelete }: { vehicles: ShowcaseVehicle[]; onRefresh: () => void; onDelete: (id: string) => void }) {
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+
+  const handleDelete = async (id: string) => {
+    setIsDeleting(id);
+    await onDelete(id);
+    setIsDeleting(null);
+  };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="max-w-6xl mx-auto px-6">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Vehicle Showcase</h2>
-          <p className="text-slate-500 mt-1">Featured vehicles on homepage</p>
+          <p className="text-slate-500 mt-1">Featured vehicles on homepage ({vehicles.length} vehicles)</p>
         </div>
-        <Button variant="primary" onClick={onRefresh}>Refresh</Button>
+        <Button variant="secondary" onClick={onRefresh}>🔄 Refresh</Button>
       </div>
 
       {vehicles.length === 0 ? (
         <div className="text-center py-20 bg-white rounded-2xl shadow-lg">
-          <p className="text-xl text-slate-400">No vehicles</p>
+          <p className="text-xl text-slate-400 mb-4">No vehicles in showcase</p>
+          <p className="text-slate-500">The showcase section will be hidden on the homepage until you add vehicles.</p>
         </div>
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {vehicles.map(v => (
             <div key={v.id} className="bg-white rounded-2xl shadow-lg overflow-hidden border border-slate-100">
               <div className="aspect-video bg-slate-100">
-                {v.imageUrl ? <img src={v.imageUrl} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><svg className="w-12 h-12 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></div>}
+                {v.imageUrl ? (
+                  <img src={v.imageUrl} alt={`${v.year} ${v.make} ${v.model}`} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <span className="text-4xl">🚗</span>
+                  </div>
+                )}
               </div>
               <div className="p-5">
                 <h3 className="font-bold text-lg text-slate-900">{v.year} {v.make} {v.model}</h3>
                 {v.price && <p className="text-primary-600 font-bold">{v.price}</p>}
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleDelete(v.id)}
+                    isLoading={isDeleting === v.id}
+                    className="flex-1 text-red-600 hover:bg-red-50"
+                  >
+                    🗑️ Remove
+                  </Button>
+                </div>
               </div>
             </div>
           ))}
@@ -788,29 +1017,9 @@ function FilterButton({ label, count, active, onClick, dot }: { label: string; c
 function QuickActionCard({ title, desc, icon, onClick, bg }: any) {
   return (
     <motion.button whileHover={{ scale: 1.02, y: -4 }} onClick={onClick} className={`bg-gradient-to-br ${bg} text-white rounded-2xl p-6 text-left shadow-xl hover:shadow-2xl transition-shadow w-full`}>
-      <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center mb-4">{icon}</div>
+      <div className="text-4xl mb-4">{icon}</div>
       <h3 className="font-bold text-xl mb-1">{title}</h3>
       <p className="text-sm opacity-80">{desc}</p>
     </motion.button>
   );
 }
-
-// Weather Backgrounds
-function SunshineBackground() {
-  return <div className="absolute inset-0 bg-gradient-to-br from-amber-400 via-orange-500 to-yellow-400" />;
-}
-function CloudyBackground() {
-  return <div className="absolute inset-0 bg-gradient-to-br from-slate-500 via-slate-600 to-slate-700" />;
-}
-function RainyBackground() {
-  return <div className="absolute inset-0 bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900" />;
-}
-
-// Icons
-const PlusIcon = () => <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>;
-const BoltIcon = () => <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>;
-const CheckCircleIcon = () => <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-const XCircleIcon = () => <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-const ClipboardIcon = () => <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>;
-const MailIcon = () => <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>;
-const ImageIcon = () => <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;

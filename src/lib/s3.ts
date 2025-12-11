@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
+  DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Lead, LeadStatus, DeadReason, ShowcaseVehicle, MAX_SHOWCASE_VEHICLES } from './validation';
@@ -337,6 +338,7 @@ export async function addShowcaseVehicle(
     ...vehicle,
     id,
     imageKey,
+    ctaText: vehicle.ctaText || 'Contact Us',
     createdAt: new Date().toISOString(),
   };
   
@@ -378,9 +380,21 @@ export async function deleteShowcaseVehicle(vehicleId: string): Promise<boolean>
   
   if (index === -1) return false;
   
+  const imageKey = vehicles[index].imageKey;
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+
   // Remove from array
   vehicles.splice(index, 1);
   await saveShowcaseVehicles(vehicles);
+
+  if (imageKey) {
+    try {
+      await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: imageKey }));
+    } catch (err) {
+      console.error('Error deleting showcase image:', err);
+    }
+  }
   
   return true;
 }
