@@ -1,7 +1,7 @@
 'use client';
 
-import { motion, useAnimation, useDragControls } from 'framer-motion';
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Lead, LeadStatus } from '@/lib/validation';
 
 interface FuturisticPipelineProps {
@@ -12,604 +12,699 @@ interface FuturisticPipelineProps {
   onToggleStar: (id: string) => void;
 }
 
-// Node types for the customizable system
-interface PipelineNode {
+// Pipeline stage definition
+interface PipelineStage {
   id: string;
-  type: 'stage' | 'custom' | 'archive';
   label: string;
+  statusId: LeadStatus | 'dead';
+  deadReason?: string;
   x: number;
   y: number;
   width: number;
   height: number;
-  color: string;
-  statusId?: LeadStatus | 'dead';
-  deadReason?: string;
-  emoji?: string;
-  description?: string;
 }
 
-interface Connection {
-  from: string;
-  to: string;
-}
+// Preset configurations
+const PRESETS = {
+  simple: {
+    name: 'Simple',
+    description: 'Basic 3-stage funnel',
+    stages: [
+      { id: 'new', label: 'New', statusId: 'new' as LeadStatus, x: 15, y: 45, width: 280, height: 200 },
+      { id: 'working', label: 'Working', statusId: 'working' as LeadStatus, x: 45, y: 45, width: 280, height: 200 },
+      { id: 'done', label: 'Done', statusId: 'approval' as LeadStatus, x: 75, y: 45, width: 280, height: 200 },
+    ]
+  },
+  medium: {
+    name: 'Standard',
+    description: '5-stage with follow-ups',
+    stages: [
+      { id: 'new', label: 'New Leads', statusId: 'new' as LeadStatus, x: 10, y: 45, width: 240, height: 180 },
+      { id: 'engaged', label: 'Engaged', statusId: 'working' as LeadStatus, x: 30, y: 25, width: 220, height: 160 },
+      { id: 'followup', label: 'Follow Up', statusId: 'circle-back' as LeadStatus, x: 30, y: 65, width: 220, height: 160 },
+      { id: 'approved', label: 'Approved', statusId: 'approval' as LeadStatus, x: 55, y: 45, width: 240, height: 180 },
+      { id: 'archive', label: 'Archive', statusId: 'dead' as LeadStatus, x: 80, y: 45, width: 180, height: 160 },
+    ]
+  },
+  advanced: {
+    name: 'Advanced',
+    description: 'Full funnel with predictions',
+    stages: [
+      { id: 'inbox', label: 'Inbox', statusId: 'new' as LeadStatus, x: 8, y: 40, width: 200, height: 220 },
+      { id: 'hot', label: 'Hot Leads', statusId: 'working' as LeadStatus, x: 25, y: 20, width: 180, height: 140 },
+      { id: 'warm', label: 'Warm Leads', statusId: 'working' as LeadStatus, x: 25, y: 50, width: 180, height: 140 },
+      { id: 'cold', label: 'Cold Leads', statusId: 'circle-back' as LeadStatus, x: 25, y: 75, width: 180, height: 120 },
+      { id: 'negotiating', label: 'Negotiating', statusId: 'working' as LeadStatus, x: 45, y: 35, width: 200, height: 160 },
+      { id: 'closing', label: 'Closing', statusId: 'approval' as LeadStatus, x: 65, y: 35, width: 200, height: 160 },
+      { id: 'won', label: 'Won', statusId: 'approval' as LeadStatus, x: 85, y: 25, width: 160, height: 130 },
+      { id: 'lost', label: 'Lost', statusId: 'dead' as LeadStatus, x: 85, y: 60, width: 160, height: 130 },
+    ]
+  }
+};
 
-// Pre-made node templates
+// Node templates with visual preview
 const NODE_TEMPLATES = [
-  { type: 'stage', label: 'New Stage', color: '#3b82f6', emoji: '📥', description: 'Fresh leads' },
-  { type: 'stage', label: 'Hot Lead', color: '#ef4444', emoji: '🔥', description: 'High priority' },
-  { type: 'stage', label: 'Warm Lead', color: '#f59e0b', emoji: '☀️', description: 'Good potential' },
-  { type: 'stage', label: 'Follow Up', color: '#06b6d4', emoji: '📞', description: 'Needs contact' },
-  { type: 'stage', label: 'Negotiating', color: '#8b5cf6', emoji: '🤝', description: 'In discussion' },
-  { type: 'stage', label: 'Approved', color: '#22c55e', emoji: '✅', description: 'Deal closed' },
-  { type: 'stage', label: 'On Hold', color: '#64748b', emoji: '⏸️', description: 'Waiting' },
-  { type: 'archive', label: 'Not Interested', color: '#dc2626', emoji: '❌', description: 'Declined' },
-  { type: 'archive', label: 'Lost', color: '#991b1b', emoji: '💨', description: 'Gone cold' },
-];
-
-// Default pipeline layout
-const DEFAULT_NODES: PipelineNode[] = [
-  { id: 'new', type: 'stage', label: 'NEW INQUIRIES', x: 10, y: 40, width: 260, height: 180, color: '#3b82f6', statusId: 'new', emoji: '📥' },
-  { id: 'working', type: 'stage', label: 'ENGAGED', x: 32, y: 20, width: 220, height: 150, color: '#eab308', statusId: 'working', emoji: '💬' },
-  { id: 'circle-back', type: 'stage', label: 'FOLLOW UP', x: 32, y: 62, width: 220, height: 150, color: '#06b6d4', statusId: 'circle-back', emoji: '📞' },
-  { id: 'approval', type: 'stage', label: 'APPROVED', x: 56, y: 40, width: 240, height: 160, color: '#22c55e', statusId: 'approval', emoji: '✅' },
-  { id: 'archive', type: 'archive', label: 'ARCHIVE', x: 80, y: 40, width: 180, height: 200, color: '#ef4444', statusId: 'dead', emoji: '📁' },
-];
-
-const DEFAULT_CONNECTIONS: Connection[] = [
-  { from: 'new', to: 'working' },
-  { from: 'new', to: 'circle-back' },
-  { from: 'working', to: 'approval' },
-  { from: 'circle-back', to: 'approval' },
-  { from: 'approval', to: 'archive' },
+  { id: 'inbox', label: 'Inbox', icon: '📥', desc: 'Where new leads arrive', preview: 'blue' },
+  { id: 'hot', label: 'Hot Lead', icon: '🔥', desc: 'High priority, ready to buy', preview: 'yellow' },
+  { id: 'warm', label: 'Warm Lead', icon: '☀️', desc: 'Interested, needs nurturing', preview: 'yellow' },
+  { id: 'cold', label: 'Cold Lead', icon: '❄️', desc: 'Low engagement, revisit later', preview: 'blue' },
+  { id: 'followup', label: 'Follow Up', icon: '📞', desc: 'Scheduled for contact', preview: 'blue' },
+  { id: 'negotiating', label: 'Negotiating', icon: '🤝', desc: 'Discussing terms', preview: 'yellow' },
+  { id: 'approved', label: 'Approved', icon: '✅', desc: 'Deal closed successfully', preview: 'green' },
+  { id: 'onhold', label: 'On Hold', icon: '⏸️', desc: 'Waiting on external factors', preview: 'grey' },
+  { id: 'lost', label: 'Lost', icon: '❌', desc: 'Did not convert', preview: 'red' },
+  { id: 'custom', label: 'Custom Stage', icon: '⚡', desc: 'Create your own stage', preview: 'blue' },
 ];
 
 export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starredLeads, onToggleStar }: FuturisticPipelineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [zoom, setZoom] = useState(0.9);
+  
+  // Canvas state
+  const [zoom, setZoom] = useState(0.85);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [velocity, setVelocity] = useState({ x: 0, y: 0 });
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
-  const [lastMouse, setLastMouse] = useState({ x: 0, y: 0, time: 0 });
-  
-  const [editMode, setEditMode] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [nodes, setNodes] = useState<PipelineNode[]>(DEFAULT_NODES);
-  const [connections, setConnections] = useState<Connection[]>(DEFAULT_CONNECTIONS);
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
-  const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
-  const [editingNode, setEditingNode] = useState<PipelineNode | null>(null);
-  const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
+  const lastMouseRef = useRef({ x: 0, y: 0, time: 0 });
+  const animationRef = useRef<number>();
 
-  const getNodeLeads = (node: PipelineNode) => {
-    if (node.statusId === 'dead' && node.deadReason) {
-      return leads.filter(l => l.status === 'dead' && l.deadReason === node.deadReason);
+  // UI state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<'templates' | 'presets' | 'settings'>('templates');
+  const [mode, setMode] = useState<'node' | 'dragdrop'>('dragdrop');
+  const [stages, setStages] = useState<PipelineStage[]>(PRESETS.medium.stages);
+  const [selectedStage, setSelectedStage] = useState<string | null>(null);
+  const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
+  const [resizingStage, setResizingStage] = useState<string | null>(null);
+  const [flippedTemplate, setFlippedTemplate] = useState<string | null>(null);
+  const [showApprovalAnim, setShowApprovalAnim] = useState(false);
+
+  // Get leads for a stage
+  const getStageLeads = (stage: PipelineStage) => {
+    if (stage.statusId === 'dead') {
+      return stage.deadReason 
+        ? leads.filter(l => l.status === 'dead' && l.deadReason === stage.deadReason)
+        : leads.filter(l => l.status === 'dead');
     }
-    if (node.statusId === 'dead') {
-      return leads.filter(l => l.status === 'dead');
-    }
-    return leads.filter(l => l.status === node.statusId);
+    return leads.filter(l => l.status === stage.statusId);
   };
 
-  // Smooth momentum-based panning
+  // Smooth momentum physics for panning
   useEffect(() => {
-    if (!isDraggingCanvas && (Math.abs(velocity.x) > 0.5 || Math.abs(velocity.y) > 0.5)) {
-      const friction = 0.95;
-      const animate = () => {
+    const animate = () => {
+      if (!isDraggingCanvas && (Math.abs(velocity.x) > 0.1 || Math.abs(velocity.y) > 0.1)) {
         setPan(p => ({ x: p.x + velocity.x, y: p.y + velocity.y }));
-        setVelocity(v => ({ x: v.x * friction, y: v.y * friction }));
-      };
-      const frame = requestAnimationFrame(animate);
-      return () => cancelAnimationFrame(frame);
+        setVelocity(v => ({ x: v.x * 0.92, y: v.y * 0.92 }));
+        animationRef.current = requestAnimationFrame(animate);
+      }
+    };
+    
+    if (!isDraggingCanvas) {
+      animationRef.current = requestAnimationFrame(animate);
     }
+    
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
   }, [isDraggingCanvas, velocity]);
 
-  const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.node-card') || (e.target as HTMLElement).closest('.lead-item') || (e.target as HTMLElement).closest('.sidebar')) return;
+  // Canvas interaction handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('.stage-card') || target.closest('.lead-item') || target.closest('.sidebar') || target.closest('.resize-handle')) return;
+    
     setIsDraggingCanvas(true);
-    setLastMouse({ x: e.clientX, y: e.clientY, time: Date.now() });
+    lastMouseRef.current = { x: e.clientX, y: e.clientY, time: performance.now() };
     setVelocity({ x: 0, y: 0 });
-  };
+  }, []);
 
-  const handleCanvasMouseMove = (e: React.MouseEvent) => {
-    if (isDraggingCanvas) {
-      const dx = e.clientX - lastMouse.x;
-      const dy = e.clientY - lastMouse.y;
-      const dt = Math.max(1, Date.now() - lastMouse.time);
-      
-      setPan(p => ({ x: p.x + dx, y: p.y + dy }));
-      setVelocity({ x: dx / dt * 16, y: dy / dt * 16 });
-      setLastMouse({ x: e.clientX, y: e.clientY, time: Date.now() });
-    }
-  };
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDraggingCanvas) return;
+    
+    const now = performance.now();
+    const dt = Math.max(1, now - lastMouseRef.current.time);
+    const dx = e.clientX - lastMouseRef.current.x;
+    const dy = e.clientY - lastMouseRef.current.y;
+    
+    setPan(p => ({ x: p.x + dx, y: p.y + dy }));
+    setVelocity({ x: (dx / dt) * 16, y: (dy / dt) * 16 });
+    lastMouseRef.current = { x: e.clientX, y: e.clientY, time: now };
+  }, [isDraggingCanvas]);
 
-  const handleCanvasMouseUp = () => setIsDraggingCanvas(false);
+  const handleMouseUp = useCallback(() => {
+    setIsDraggingCanvas(false);
+  }, []);
 
-  const handleWheel = (e: React.WheelEvent) => {
+  const handleWheel = useCallback((e: React.WheelEvent) => {
     const delta = e.deltaY > 0 ? -0.05 : 0.05;
     setZoom(z => Math.max(0.3, Math.min(1.5, z + delta)));
-  };
+  }, []);
 
-  const handleDropOnNode = (nodeId: string) => {
-    if (draggedLead) {
-      const node = nodes.find(n => n.id === nodeId);
-      if (node?.statusId) {
-        if (node.statusId === 'dead' && node.deadReason) {
-          onStatusChange(draggedLead.id, 'dead', node.deadReason);
-        } else if (node.statusId !== 'dead') {
-          onStatusChange(draggedLead.id, node.statusId);
-        }
-      }
-      setDraggedLead(null);
+  // Drop lead on stage
+  const handleDropOnStage = (stageId: string) => {
+    if (!draggedLead) return;
+    
+    const stage = stages.find(s => s.id === stageId);
+    if (!stage) return;
+    
+    if (stage.statusId === 'approval') {
+      setShowApprovalAnim(true);
+      setTimeout(() => setShowApprovalAnim(false), 1500);
     }
+    
+    if (stage.statusId === 'dead' && stage.deadReason) {
+      onStatusChange(draggedLead.id, 'dead', stage.deadReason);
+    } else {
+      onStatusChange(draggedLead.id, stage.statusId as LeadStatus);
+    }
+    setDraggedLead(null);
   };
 
-  // Node editing
-  const addNode = (template: typeof NODE_TEMPLATES[0]) => {
-    const newNode: PipelineNode = {
-      id: `custom-${Date.now()}`,
-      type: template.type as 'stage' | 'custom' | 'archive',
+  // Add new stage from template
+  const addStage = (template: typeof NODE_TEMPLATES[0]) => {
+    const newStage: PipelineStage = {
+      id: `stage-${Date.now()}`,
       label: template.label,
+      statusId: 'new',
       x: 50,
       y: 50,
-      width: 200,
-      height: 140,
-      color: template.color,
-      emoji: template.emoji,
-      description: template.description,
+      width: 220,
+      height: 160,
     };
-    setNodes([...nodes, newNode]);
-    setSidebarOpen(false);
+    setStages([...stages, newStage]);
   };
 
-  const updateNode = (nodeId: string, updates: Partial<PipelineNode>) => {
-    setNodes(nodes.map(n => n.id === nodeId ? { ...n, ...updates } : n));
+  // Resize stage
+  const handleResize = (stageId: string, dw: number, dh: number) => {
+    setStages(stages.map(s => {
+      if (s.id !== stageId) return s;
+      return {
+        ...s,
+        width: Math.max(150, Math.min(400, s.width + dw)),
+        height: Math.max(120, Math.min(350, s.height + dh)),
+      };
+    }));
   };
 
-  const deleteNode = (nodeId: string) => {
-    setNodes(nodes.filter(n => n.id !== nodeId));
-    setConnections(connections.filter(c => c.from !== nodeId && c.to !== nodeId));
-    setSelectedNode(null);
+  // Move stage
+  const handleStageMove = (stageId: string, dx: number, dy: number) => {
+    setStages(stages.map(s => {
+      if (s.id !== stageId) return s;
+      return { ...s, x: s.x + dx, y: s.y + dy };
+    }));
   };
 
-  const addConnection = (fromId: string, toId: string) => {
-    if (!connections.find(c => c.from === fromId && c.to === toId)) {
-      setConnections([...connections, { from: fromId, to: toId }]);
-    }
-    setConnectingFrom(null);
-  };
-
-  // Get node center for connection lines
-  const getNodeCenter = (nodeId: string) => {
-    const node = nodes.find(n => n.id === nodeId);
-    if (!node) return { x: 0, y: 0 };
-    return { x: node.x + node.width / 200 * 50, y: node.y + node.height / 200 * 50 };
+  // Apply preset
+  const applyPreset = (presetKey: keyof typeof PRESETS) => {
+    setStages(PRESETS[presetKey].stages);
   };
 
   return (
-    <div className="h-full bg-[#08090d] relative overflow-hidden">
-      {/* Animated Grid Background */}
-      <div className="absolute inset-0 opacity-40" style={{
+    <div className="h-full bg-slate-950 relative overflow-hidden">
+      {/* Subtle grid background */}
+      <div className="absolute inset-0" style={{
         backgroundImage: `
-          radial-gradient(circle at 50% 50%, rgba(59,130,246,0.1) 0%, transparent 60%),
-          linear-gradient(rgba(59,130,246,0.08) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(59,130,246,0.08) 1px, transparent 1px)
+          radial-gradient(circle at 50% 50%, rgba(30,64,175,0.06) 0%, transparent 50%),
+          linear-gradient(rgba(148,163,184,0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(148,163,184,0.04) 1px, transparent 1px)
         `,
-        backgroundSize: '100% 100%, 60px 60px, 60px 60px',
+        backgroundSize: '100% 100%, 50px 50px, 50px 50px',
       }} />
 
+      {/* Approval celebration animation */}
+      <AnimatePresence>
+        {showApprovalAnim && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.5 }}
+            className="absolute inset-0 z-50 flex items-center justify-center pointer-events-none"
+          >
+            <div className="text-8xl">✅</div>
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: [1, 1.5, 0] }}
+              transition={{ duration: 1.5 }}
+              className="absolute w-64 h-64 rounded-full border-4 border-primary-400"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-50 px-6 py-4 flex items-center justify-between bg-gradient-to-b from-[#08090d] via-[#08090d]/90 to-transparent">
-        <div className="flex items-center gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-white">Lead Pipeline</h1>
-            <p className="text-xs text-slate-500">
-              {editMode ? 'Edit mode: Drag nodes to reposition' : 'Drag to explore • Scroll to zoom'}
-            </p>
-          </div>
+      <div className="absolute top-0 left-0 right-0 z-40 px-6 py-4 flex items-center justify-between bg-gradient-to-b from-slate-950 to-transparent">
+        <div>
+          <h1 className="text-xl font-bold text-white">Lead Pipeline</h1>
+          <p className="text-xs text-slate-500">
+            {mode === 'node' ? 'Node Mode: Predict & route leads' : 'Drag & Drop: Move leads between stages'}
+          </p>
         </div>
         
         <div className="flex items-center gap-3">
-          {/* Zoom Controls */}
-          <div className="flex items-center gap-1 bg-white/5 backdrop-blur-sm rounded-xl p-1 border border-white/10">
-            <button onClick={() => setZoom(z => Math.max(0.3, z - 0.1))} className="w-8 h-8 rounded-lg hover:bg-white/10 text-white flex items-center justify-center transition-colors">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>
+          {/* Mode Toggle */}
+          <div className="flex bg-slate-900/80 rounded-xl p-1 border border-slate-800">
+            <button
+              onClick={() => setMode('dragdrop')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                mode === 'dragdrop' ? 'bg-primary-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Drag & Drop
             </button>
-            <span className="text-sm text-slate-300 w-12 text-center font-mono">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom(z => Math.min(1.5, z + 0.1))} className="w-8 h-8 rounded-lg hover:bg-white/10 text-white flex items-center justify-center transition-colors">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            <button
+              onClick={() => setMode('node')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                mode === 'node' ? 'bg-primary-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Node System
             </button>
           </div>
 
-          {/* Edit Mode Toggle */}
-          <button
-            onClick={() => { setEditMode(!editMode); if (!editMode) setSidebarOpen(true); }}
-            className={`px-4 h-9 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
-              editMode 
-                ? 'bg-primary-600 text-white' 
-                : 'bg-white/5 text-white hover:bg-white/10 border border-white/10'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-            {editMode ? 'Done Editing' : 'Edit Pipeline'}
-          </button>
+          {/* Zoom */}
+          <div className="flex items-center gap-1 bg-slate-900/80 rounded-xl p-1 border border-slate-800">
+            <button onClick={() => setZoom(z => Math.max(0.3, z - 0.1))} className="w-7 h-7 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>
+            </button>
+            <span className="text-xs text-slate-400 w-10 text-center font-mono">{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom(z => Math.min(1.5, z + 0.1))} className="w-7 h-7 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            </button>
+          </div>
 
-          <button onClick={() => { setZoom(0.9); setPan({ x: 0, y: 0 }); }} className="px-4 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm border border-white/10 transition-all">
+          <button onClick={() => { setZoom(0.85); setPan({ x: 0, y: 0 }); }} className="px-3 h-8 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-white text-xs border border-slate-800 transition-all">
             Reset
           </button>
         </div>
       </div>
 
-      {/* Edit Sidebar */}
+      {/* Canva-style Side Tab */}
       <motion.div
+        className="absolute left-0 top-1/2 -translate-y-1/2 z-50"
         initial={false}
-        animate={{ x: sidebarOpen && editMode ? 0 : -320 }}
-        className="sidebar absolute top-16 left-0 bottom-0 w-80 bg-[#0d1117]/95 backdrop-blur-xl border-r border-white/10 z-40 flex flex-col"
       >
-        <div className="p-4 border-b border-white/10">
-          <h2 className="text-white font-semibold mb-1">Node Templates</h2>
-          <p className="text-xs text-slate-500">Click to add to canvas</p>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {NODE_TEMPLATES.map((template, i) => (
-            <motion.button
-              key={i}
-              onClick={() => addNode(template)}
-              whileHover={{ scale: 1.02, x: 4 }}
-              whileTap={{ scale: 0.98 }}
-              className="w-full flex items-center gap-3 p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 transition-all text-left"
-            >
-              <div 
-                className="w-10 h-10 rounded-lg flex items-center justify-center text-lg"
-                style={{ backgroundColor: `${template.color}20` }}
-              >
-                {template.emoji}
-              </div>
-              <div>
-                <div className="text-white text-sm font-medium">{template.label}</div>
-                <div className="text-slate-500 text-xs">{template.description}</div>
-              </div>
-              <svg className="w-4 h-4 text-slate-600 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </motion.button>
-          ))}
-        </div>
+        {/* Tab Handle */}
+        <motion.button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="absolute left-0 top-1/2 -translate-y-1/2 w-6 h-20 bg-slate-900 hover:bg-slate-800 border border-slate-700 border-l-0 rounded-r-xl flex items-center justify-center transition-colors"
+          animate={{ x: sidebarOpen ? 280 : 0 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        >
+          <motion.svg
+            className="w-4 h-4 text-slate-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            animate={{ rotate: sidebarOpen ? 180 : 0 }}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </motion.svg>
+        </motion.button>
 
-        <div className="p-4 border-t border-white/10">
-          <p className="text-xs text-slate-500 text-center">
-            Drag nodes to reposition • Click to edit • Right-click to delete
-          </p>
-        </div>
+        {/* Sidebar Panel */}
+        <motion.div
+          className="sidebar absolute left-0 top-1/2 -translate-y-1/2 w-72 bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-r-2xl shadow-2xl flex flex-col overflow-hidden"
+          style={{ height: '70vh', maxHeight: 600 }}
+          initial={{ x: -280 }}
+          animate={{ x: sidebarOpen ? 0 : -280 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        >
+          {/* Sidebar Tabs */}
+          <div className="flex border-b border-slate-800">
+            {(['templates', 'presets', 'settings'] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setSidebarTab(tab)}
+                className={`flex-1 py-3 text-xs font-medium capitalize transition-colors ${
+                  sidebarTab === tab ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-500 hover:text-white'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab Content */}
+          <div className="flex-1 overflow-y-auto p-3">
+            {sidebarTab === 'templates' && (
+              <div className="space-y-2">
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-3">Click to add • Tap ℹ️ for details</p>
+                {NODE_TEMPLATES.map(template => (
+                  <motion.div
+                    key={template.id}
+                    className="relative"
+                    whileHover={{ scale: 1.02 }}
+                  >
+                    <AnimatePresence mode="wait">
+                      {flippedTemplate === template.id ? (
+                        <motion.div
+                          key="back"
+                          initial={{ rotateY: 90 }}
+                          animate={{ rotateY: 0 }}
+                          exit={{ rotateY: -90 }}
+                          className="p-3 rounded-xl bg-slate-800/50 border border-slate-700"
+                        >
+                          <p className="text-xs text-slate-300 mb-2">{template.desc}</p>
+                          <button
+                            onClick={() => setFlippedTemplate(null)}
+                            className="text-[10px] text-primary-400 hover:text-primary-300"
+                          >
+                            ← Back
+                          </button>
+                        </motion.div>
+                      ) : (
+                        <motion.button
+                          key="front"
+                          initial={{ rotateY: -90 }}
+                          animate={{ rotateY: 0 }}
+                          exit={{ rotateY: 90 }}
+                          onClick={() => addStage(template)}
+                          className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 hover:bg-slate-800/60 border border-slate-800 hover:border-slate-700 transition-all"
+                        >
+                          {/* Visual Preview */}
+                          <div className={`w-12 h-10 rounded-lg flex items-center justify-center text-lg ${
+                            template.preview === 'blue' ? 'bg-primary-900/50 border border-primary-700/30' :
+                            template.preview === 'yellow' ? 'bg-yellow-900/50 border border-yellow-700/30' :
+                            template.preview === 'green' ? 'bg-green-900/50 border border-green-700/30' :
+                            template.preview === 'red' ? 'bg-red-900/50 border border-red-700/30' :
+                            'bg-slate-800 border border-slate-700'
+                          }`}>
+                            {template.icon}
+                          </div>
+                          <div className="flex-1 text-left">
+                            <div className="text-sm text-white font-medium">{template.label}</div>
+                            <div className="text-[10px] text-slate-500 truncate">{template.desc}</div>
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setFlippedTemplate(template.id); }}
+                            className="w-6 h-6 rounded-full bg-slate-700/50 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white text-xs"
+                          >
+                            i
+                          </button>
+                        </motion.button>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+
+            {sidebarTab === 'presets' && (
+              <div className="space-y-3">
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-3">Quick setup layouts</p>
+                {Object.entries(PRESETS).map(([key, preset]) => (
+                  <motion.button
+                    key={key}
+                    onClick={() => applyPreset(key as keyof typeof PRESETS)}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="w-full p-4 rounded-xl bg-slate-800/30 hover:bg-slate-800/60 border border-slate-800 hover:border-primary-700/50 transition-all text-left"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-white font-medium">{preset.name}</span>
+                      <span className="text-[10px] text-slate-500">{preset.stages.length} stages</span>
+                    </div>
+                    <p className="text-xs text-slate-400">{preset.description}</p>
+                    {/* Mini preview */}
+                    <div className="flex gap-1 mt-3">
+                      {preset.stages.slice(0, 4).map((_, i) => (
+                        <div key={i} className="flex-1 h-1.5 rounded-full bg-primary-900/50" />
+                      ))}
+                      {preset.stages.length > 4 && (
+                        <span className="text-[9px] text-slate-600">+{preset.stages.length - 4}</span>
+                      )}
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            )}
+
+            {sidebarTab === 'settings' && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-xs text-slate-400 uppercase tracking-wider mb-2">Hotkeys</h3>
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between p-2 rounded-lg bg-slate-800/30">
+                      <span className="text-slate-400">Reset view</span>
+                      <kbd className="px-2 py-0.5 rounded bg-slate-700 text-slate-300 font-mono text-[10px]">R</kbd>
+                    </div>
+                    <div className="flex justify-between p-2 rounded-lg bg-slate-800/30">
+                      <span className="text-slate-400">Toggle mode</span>
+                      <kbd className="px-2 py-0.5 rounded bg-slate-700 text-slate-300 font-mono text-[10px]">M</kbd>
+                    </div>
+                    <div className="flex justify-between p-2 rounded-lg bg-slate-800/30">
+                      <span className="text-slate-400">Open sidebar</span>
+                      <kbd className="px-2 py-0.5 rounded bg-slate-700 text-slate-300 font-mono text-[10px]">S</kbd>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-xs text-slate-400 uppercase tracking-wider mb-2">Email Integration</h3>
+                  <p className="text-[10px] text-slate-500 mb-2">Setup email templates for each stage</p>
+                  <button className="w-full py-2 rounded-lg bg-primary-600/20 text-primary-400 text-xs hover:bg-primary-600/30 transition-colors border border-primary-600/30">
+                    Configure Templates →
+                  </button>
+                </div>
+                <div>
+                  <h3 className="text-xs text-slate-400 uppercase tracking-wider mb-2">Reminders</h3>
+                  <p className="text-[10px] text-slate-500 mb-2">Get follow-up reminders via email</p>
+                  <button className="w-full py-2 rounded-lg bg-slate-800/50 text-slate-400 text-xs hover:bg-slate-800 transition-colors border border-slate-700">
+                    Setup Reminders →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </motion.div>
       </motion.div>
 
       {/* Canvas */}
       <div
         ref={containerRef}
         className={`absolute inset-0 ${isDraggingCanvas ? 'cursor-grabbing' : 'cursor-grab'}`}
-        onMouseDown={handleCanvasMouseDown}
-        onMouseMove={handleCanvasMouseMove}
-        onMouseUp={handleCanvasMouseUp}
-        onMouseLeave={handleCanvasMouseUp}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
       >
         <motion.div
           className="absolute w-full h-full"
-          style={{
-            x: pan.x,
-            y: pan.y,
-            scale: zoom,
-            transformOrigin: 'center center',
-          }}
+          style={{ x: pan.x, y: pan.y, scale: zoom, transformOrigin: 'center' }}
         >
-          {/* Connection Lines */}
+          {/* Connection lines */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
             <defs>
-              <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-                <polygon points="0 0, 8 3, 0 6" fill="rgba(59,130,246,0.5)" />
+              <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="rgba(59,130,246,0.4)" />
               </marker>
             </defs>
-            
-            {connections.map((conn, i) => {
-              const from = getNodeCenter(conn.from);
-              const to = getNodeCenter(conn.to);
-              const midX = (from.x + to.x) / 2;
-              const midY = (from.y + to.y) / 2;
-              
+            {stages.map((stage, i) => {
+              const nextStage = stages[i + 1];
+              if (!nextStage) return null;
               return (
-                <motion.path
-                  key={i}
-                  d={`M ${from.x}% ${from.y}% Q ${midX}% ${from.y}%, ${midX}% ${midY}% T ${to.x}% ${to.y}%`}
-                  fill="none"
-                  stroke="rgba(59,130,246,0.3)"
+                <motion.line
+                  key={`${stage.id}-${nextStage.id}`}
+                  x1={`${stage.x + 5}%`}
+                  y1={`${stage.y}%`}
+                  x2={`${nextStage.x - 5}%`}
+                  y2={`${nextStage.y}%`}
+                  stroke="rgba(59,130,246,0.2)"
                   strokeWidth="2"
-                  strokeDasharray="8 4"
-                  markerEnd="url(#arrow)"
-                  initial={{ pathLength: 0, opacity: 0 }}
-                  animate={{ pathLength: 1, opacity: 1 }}
+                  strokeDasharray="6 4"
+                  markerEnd="url(#arrowBlue)"
+                  initial={{ pathLength: 0 }}
+                  animate={{ pathLength: 1 }}
                   transition={{ duration: 0.8, delay: i * 0.1 }}
                 />
               );
             })}
-
-            {/* Connection in progress */}
-            {connectingFrom && (
-              <line
-                x1={`${getNodeCenter(connectingFrom).x}%`}
-                y1={`${getNodeCenter(connectingFrom).y}%`}
-                x2="50%"
-                y2="50%"
-                stroke="rgba(59,130,246,0.5)"
-                strokeWidth="2"
-                strokeDasharray="4 4"
-              />
-            )}
           </svg>
 
-          {/* Nodes */}
-          {nodes.map((node) => (
-            <NodeCard
-              key={node.id}
-              node={node}
-              leads={getNodeLeads(node)}
-              isSelected={selectedNode === node.id}
+          {/* Stage Cards */}
+          {stages.map((stage) => (
+            <StageCard
+              key={stage.id}
+              stage={stage}
+              leads={getStageLeads(stage)}
+              isSelected={selectedStage === stage.id}
               isDropTarget={!!draggedLead}
-              editMode={editMode}
-              connectingFrom={connectingFrom}
-              onSelect={() => setSelectedNode(selectedNode === node.id ? null : node.id)}
-              onDrop={() => handleDropOnNode(node.id)}
+              mode={mode}
+              onSelect={() => setSelectedStage(selectedStage === stage.id ? null : stage.id)}
+              onDrop={() => handleDropOnStage(stage.id)}
               onDragLead={setDraggedLead}
               onViewLead={onViewDetails}
               onToggleStar={onToggleStar}
               starredLeads={starredLeads}
-              onEdit={() => setEditingNode(node)}
-              onDelete={() => deleteNode(node.id)}
-              onStartConnect={() => setConnectingFrom(node.id)}
-              onConnect={() => connectingFrom && addConnection(connectingFrom, node.id)}
-              onMove={(x, y) => updateNode(node.id, { x, y })}
+              onMove={(dx, dy) => handleStageMove(stage.id, dx, dy)}
+              onResize={(dw, dh) => handleResize(stage.id, dw, dh)}
             />
           ))}
         </motion.div>
       </div>
 
-      {/* Node Editor Modal */}
-      {editingNode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setEditingNode(null)}>
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-[#0d1117] rounded-2xl border border-white/10 p-6 w-full max-w-md shadow-2xl"
-          >
-            <h2 className="text-xl font-bold text-white mb-4">Edit Node</h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm text-slate-400 mb-1 block">Label</label>
-                <input
-                  value={editingNode.label}
-                  onChange={(e) => setEditingNode({ ...editingNode, label: e.target.value })}
-                  className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white focus:border-primary-500 outline-none"
-                />
-              </div>
-              
-              <div>
-                <label className="text-sm text-slate-400 mb-1 block">Emoji</label>
-                <input
-                  value={editingNode.emoji || ''}
-                  onChange={(e) => setEditingNode({ ...editingNode, emoji: e.target.value })}
-                  className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white focus:border-primary-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm text-slate-400 mb-1 block">Color</label>
-                <div className="flex gap-2">
-                  {['#3b82f6', '#22c55e', '#eab308', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316', '#ec4899'].map(c => (
-                    <button
-                      key={c}
-                      onClick={() => setEditingNode({ ...editingNode, color: c })}
-                      className={`w-8 h-8 rounded-lg transition-all ${editingNode.color === c ? 'ring-2 ring-white ring-offset-2 ring-offset-[#0d1117]' : ''}`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setEditingNode(null)} className="flex-1 py-2 rounded-xl bg-white/5 text-white hover:bg-white/10 transition-colors">
-                Cancel
-              </button>
-              <button
-                onClick={() => { updateNode(editingNode.id, editingNode); setEditingNode(null); }}
-                className="flex-1 py-2 rounded-xl bg-primary-600 text-white hover:bg-primary-500 transition-colors"
-              >
-                Save
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
       {/* Bottom Stats */}
-      <div className="absolute bottom-0 left-0 right-0 z-40 px-6 py-3 bg-gradient-to-t from-[#08090d] to-transparent">
+      <div className="absolute bottom-0 left-0 right-0 z-40 px-6 py-3 bg-gradient-to-t from-slate-950 to-transparent">
         <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center gap-6 text-slate-400">
-            <span>Total: <span className="text-white font-medium">{leads.length}</span></span>
-            <span>Nodes: <span className="text-primary-400 font-medium">{nodes.length}</span></span>
+          <div className="flex items-center gap-6 text-slate-500">
+            <span>Total: <span className="text-white">{leads.length}</span></span>
+            <span>Stages: <span className="text-primary-400">{stages.length}</span></span>
+            <span>Mode: <span className="text-yellow-400 capitalize">{mode}</span></span>
           </div>
-          <span className="text-slate-600">
-            {editMode ? 'Click node to edit • Drag to move' : 'Drag leads between stages'}
-          </span>
+          <span className="text-slate-600">Scroll to zoom • Drag canvas to pan</span>
         </div>
       </div>
     </div>
   );
 }
 
-// Node Card Component
-function NodeCard({
-  node,
+// Stage Card Component
+function StageCard({
+  stage,
   leads,
   isSelected,
   isDropTarget,
-  editMode,
-  connectingFrom,
+  mode,
   onSelect,
   onDrop,
   onDragLead,
   onViewLead,
   onToggleStar,
   starredLeads,
-  onEdit,
-  onDelete,
-  onStartConnect,
-  onConnect,
   onMove,
+  onResize,
 }: {
-  node: PipelineNode;
+  stage: PipelineStage;
   leads: Lead[];
   isSelected: boolean;
   isDropTarget: boolean;
-  editMode: boolean;
-  connectingFrom: string | null;
+  mode: 'node' | 'dragdrop';
   onSelect: () => void;
   onDrop: () => void;
   onDragLead: (lead: Lead | null) => void;
   onViewLead: (lead: Lead) => void;
   onToggleStar: (id: string) => void;
   starredLeads: Set<string>;
-  onEdit: () => void;
-  onDelete: () => void;
-  onStartConnect: () => void;
-  onConnect: () => void;
-  onMove: (x: number, y: number) => void;
+  onMove: (dx: number, dy: number) => void;
+  onResize: (dw: number, dh: number) => void;
 }) {
   const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isResizing, setIsResizing] = useState(false);
+  const lastPos = useRef({ x: 0, y: 0 });
 
   const handleDragStart = (e: React.MouseEvent) => {
-    if (!editMode) return;
+    if (isResizing) return;
     e.stopPropagation();
     setIsDragging(true);
-    setDragOffset({ x: e.clientX, y: e.clientY });
+    lastPos.current = { x: e.clientX, y: e.clientY };
   };
 
   const handleDrag = (e: React.MouseEvent) => {
-    if (!isDragging || !editMode) return;
-    const dx = (e.clientX - dragOffset.x) / 10;
-    const dy = (e.clientY - dragOffset.y) / 10;
-    onMove(node.x + dx, node.y + dy);
-    setDragOffset({ x: e.clientX, y: e.clientY });
+    if (!isDragging) return;
+    const dx = (e.clientX - lastPos.current.x) * 0.05;
+    const dy = (e.clientY - lastPos.current.y) * 0.05;
+    onMove(dx, dy);
+    lastPos.current = { x: e.clientX, y: e.clientY };
   };
 
-  const handleDragEnd = () => setIsDragging(false);
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsResizing(true);
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handleResizeMove = (e: React.MouseEvent) => {
+    if (!isResizing) return;
+    const dw = e.clientX - lastPos.current.x;
+    const dh = e.clientY - lastPos.current.y;
+    onResize(dw, dh);
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handleEnd = () => {
+    setIsDragging(false);
+    setIsResizing(false);
+  };
 
   return (
     <motion.div
-      className="node-card absolute"
-      style={{ left: `${node.x}%`, top: `${node.y}%`, transform: 'translate(-50%, -50%)' }}
-      initial={{ opacity: 0, scale: 0.8 }}
+      className="stage-card absolute"
+      style={{ left: `${stage.x}%`, top: `${stage.y}%`, transform: 'translate(-50%, -50%)' }}
+      initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
-      onMouseDown={handleDragStart}
-      onMouseMove={handleDrag}
-      onMouseUp={handleDragEnd}
-      onMouseLeave={handleDragEnd}
+      onMouseMove={(e) => { handleDrag(e); handleResizeMove(e); }}
+      onMouseUp={handleEnd}
+      onMouseLeave={handleEnd}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
-      onContextMenu={(e) => { e.preventDefault(); if (editMode) onDelete(); }}
     >
       <motion.div
-        onClick={editMode ? onEdit : onSelect}
+        onClick={onSelect}
+        onMouseDown={handleDragStart}
         className={`
-          relative rounded-2xl overflow-hidden backdrop-blur-xl cursor-pointer
-          border transition-all duration-200
-          ${isSelected ? 'ring-2 ring-primary-400' : ''}
-          ${isDropTarget ? 'ring-2 ring-white/30' : ''}
-          ${editMode ? 'hover:ring-2 hover:ring-white/20' : ''}
-          ${connectingFrom && connectingFrom !== node.id ? 'ring-2 ring-green-400/50 cursor-crosshair' : ''}
+          relative rounded-2xl overflow-hidden backdrop-blur-sm cursor-move
+          bg-slate-900/90 border transition-all duration-200
+          ${isSelected ? 'border-primary-500 ring-2 ring-primary-500/20' : 'border-slate-800 hover:border-slate-700'}
+          ${isDropTarget ? 'border-yellow-500/50 ring-2 ring-yellow-500/20' : ''}
         `}
-        style={{
-          width: node.width,
-          height: node.height,
-          borderColor: `${node.color}40`,
-          background: `linear-gradient(135deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.8) 100%)`,
-          boxShadow: `0 0 30px ${node.color}15, inset 0 1px 0 rgba(255,255,255,0.05)`,
-        }}
-        whileHover={{ scale: editMode ? 1.02 : 1.01 }}
-        onClick={() => { if (connectingFrom && connectingFrom !== node.id) onConnect(); }}
+        style={{ width: stage.width, height: stage.height }}
+        whileHover={{ scale: 1.01 }}
       >
-        {/* Accent line */}
-        <div className="absolute top-0 left-0 right-0 h-1" style={{ backgroundColor: node.color }} />
-
         {/* Header */}
-        <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {node.emoji && <span className="text-lg">{node.emoji}</span>}
-            <span className="text-[10px] font-semibold tracking-wider uppercase" style={{ color: node.color }}>
-              {node.label}
-            </span>
-          </div>
-          <span className="text-xl font-bold text-white">{leads.length}</span>
+        <div className="px-4 py-3 border-b border-slate-800/50 flex items-center justify-between bg-slate-900/50">
+          <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">{stage.label}</span>
+          <span className="text-lg font-bold text-primary-400">{leads.length}</span>
         </div>
 
-        {/* Edit mode controls */}
-        {editMode && (
-          <div className="absolute top-2 right-2 flex gap-1">
-            <button 
-              onClick={(e) => { e.stopPropagation(); onStartConnect(); }}
-              className="w-6 h-6 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/60 hover:text-white text-xs"
-              title="Connect to another node"
-            >
-              →
-            </button>
-          </div>
-        )}
-
         {/* Leads */}
-        <div className="p-2 overflow-y-auto" style={{ maxHeight: node.height - 60 }}>
+        <div className="p-2 overflow-y-auto" style={{ maxHeight: stage.height - 56 }}>
           {leads.length === 0 ? (
-            <div className="flex items-center justify-center h-12 text-slate-600 text-xs">
-              {editMode ? 'Custom stage' : 'Drop leads here'}
+            <div className="flex items-center justify-center h-16 text-slate-600 text-xs">
+              {mode === 'node' ? 'Predict & drop' : 'Drop leads here'}
             </div>
           ) : (
-            <div className="space-y-1">
-              {leads.slice(0, 5).map((lead) => (
+            <div className="space-y-1.5">
+              {leads.slice(0, Math.floor((stage.height - 56) / 44)).map((lead) => (
                 <motion.div
                   key={lead.id}
-                  draggable={!editMode}
+                  draggable
                   onDragStart={() => onDragLead(lead)}
                   onDragEnd={() => onDragLead(null)}
-                  onClick={(e) => { e.stopPropagation(); if (!editMode) onViewLead(lead); }}
-                  className="lead-item group flex items-center gap-2 p-2 rounded-xl bg-white/5 hover:bg-white/10 cursor-grab active:cursor-grabbing transition-all"
+                  onClick={(e) => { e.stopPropagation(); onViewLead(lead); }}
+                  className="lead-item group flex items-center gap-2 p-2 rounded-xl bg-slate-800/50 hover:bg-slate-800 cursor-grab active:cursor-grabbing transition-all border border-transparent hover:border-slate-700"
                   whileHover={{ x: 2 }}
                 >
-                  <div 
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
-                    style={{ backgroundColor: `${node.color}20`, color: node.color }}
-                  >
+                  <div className="w-8 h-8 rounded-lg bg-primary-900/50 border border-primary-800/30 flex items-center justify-center text-primary-300 text-xs font-bold flex-shrink-0">
                     {lead.formData.fullName.charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-white text-xs font-medium truncate">{lead.formData.fullName}</div>
                     <div className="text-slate-500 text-[10px] truncate">{lead.formData.vehicleType}</div>
                   </div>
-                  <button 
+                  <button
                     onClick={(e) => { e.stopPropagation(); onToggleStar(lead.id); }}
-                    className="opacity-0 group-hover:opacity-100 text-xs transition-opacity"
+                    className="opacity-0 group-hover:opacity-100 text-yellow-400 text-xs transition-opacity"
                   >
-                    {starredLeads.has(lead.id) ? '⭐' : '☆'}
+                    {starredLeads.has(lead.id) ? '★' : '☆'}
                   </button>
                 </motion.div>
               ))}
-              {leads.length > 5 && (
-                <div className="text-center text-xs text-slate-500 py-1">+{leads.length - 5} more</div>
+              {leads.length > Math.floor((stage.height - 56) / 44) && (
+                <div className="text-center text-[10px] text-slate-500 py-1">
+                  +{leads.length - Math.floor((stage.height - 56) / 44)} more
+                </div>
               )}
             </div>
           )}
+        </div>
+
+        {/* Resize handle */}
+        <div
+          className="resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize opacity-0 hover:opacity-100 transition-opacity"
+          onMouseDown={handleResizeStart}
+        >
+          <svg className="w-full h-full text-slate-600" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M22 22H20V20H22V22ZM22 18H20V16H22V18ZM18 22H16V20H18V22ZM22 14H20V12H22V14ZM18 18H16V16H18V18ZM14 22H12V20H14V22Z" />
+          </svg>
         </div>
       </motion.div>
     </motion.div>
