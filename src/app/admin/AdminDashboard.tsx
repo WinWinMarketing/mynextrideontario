@@ -13,7 +13,7 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type TabType = 'dashboard' | 'leads' | 'pipeline' | 'templates' | 'showcase';
+type TabType = 'dashboard' | 'leads' | 'pipeline' | 'templates' | 'showcase' | 'settings';
 
 export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
