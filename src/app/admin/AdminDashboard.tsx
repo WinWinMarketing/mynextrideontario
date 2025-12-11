@@ -7,7 +7,7 @@ import { Lead, LeadStatus, deadReasonOptions, leadStatusOptions, ShowcaseVehicle
 import { formatDate } from '@/lib/utils';
 import { DEFAULT_TEMPLATES, EmailTemplate } from '@/lib/email';
 import { Logo, LogoIcon } from '@/components/Logo';
-import { FlowPipeline } from './pipeline';
+import { FuturisticPipeline } from './FuturisticPipeline';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -211,7 +211,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
           )}
           {activeTab === 'pipeline' && (
             <motion.div key="pipeline" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-[calc(100vh-64px)]">
-              <FlowPipeline
+              <FuturisticPipeline
                 leads={leads}
                 onStatusChange={updateStatus}
                 onViewDetails={setDetailModal}
