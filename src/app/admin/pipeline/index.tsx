@@ -4,11 +4,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Lead, LeadStatus } from '@/lib/validation';
 import { 
-  PipelineStage, NodeConnection, TextLabel, WorkspaceProfile, WorkspaceSettings, EmailTemplate,
-  STAGE_COLORS, DEFAULT_AUTOMATION, DEFAULT_CONTACT_SETTINGS, DEFAULT_WORKSPACE_SETTINGS, DEFAULT_EMAIL_TEMPLATES,
-  MAX_PROFILES, STORAGE_KEY, ACTIVE_PROFILE_KEY, MEETING_TYPES, FOLLOW_UP_METHODS
+  PipelineStage, NodeConnection, TextLabel, WorkspaceProfile, EmailTemplate,
+  STAGE_COLORS, DEFAULT_AUTOMATION, DEFAULT_EMAIL_TEMPLATES,
+  MAX_PROFILES, STORAGE_KEY, ACTIVE_PROFILE_KEY, MEETING_TYPES, FOLLOW_UP_METHODS, EMOJI_BANK, StageColor
 } from './types';
-import { ALL_PRESETS } from './presets';
+import { ALL_PRESETS, Preset } from './presets';
 
 interface FuturisticPipelineProps {
   leads: Lead[];
@@ -19,8 +19,8 @@ interface FuturisticPipelineProps {
 }
 
 export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starredLeads, onToggleStar }: FuturisticPipelineProps) {
-  // ============ STATE ============
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   
   // Workspace state
   const [profiles, setProfiles] = useState<WorkspaceProfile[]>([]);
@@ -29,9 +29,9 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [profileName, setProfileName] = useState('');
   
   // Canvas state
-  const [zoom, setZoom] = useState(0.55);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
+  const [zoom, setZoom] = useState(0.75);
+  const [pan, setPan] = useState({ x: 50, y: 50 });
+  const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const lastPos = useRef({ x: 0, y: 0 });
   
   // Pipeline state
@@ -45,8 +45,17 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [editingStage, setEditingStage] = useState<string | null>(null);
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
-  const [showPresets, setShowPresets] = useState(true);
-  const [showTemplates, setShowTemplates] = useState(false);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  
+  // Sidebar state
+  const [sidebarTab, setSidebarTab] = useState<'presets' | 'custom' | 'templates'>('presets');
+  const [presetPreview, setPresetPreview] = useState<Preset | null>(null);
+  
+  // Custom node builder state
+  const [customIcon, setCustomIcon] = useState('⭐');
+  const [customColor, setCustomColor] = useState<StageColor>('blue');
+  const [customLabel, setCustomLabel] = useState('New Stage');
+  const [customType, setCustomType] = useState<'stage' | 'label'>('stage');
 
   // ============ LOAD/SAVE ============
   useEffect(() => {
@@ -64,10 +73,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       }
     } else {
       // Load default preset
-      const defaultPreset = ALL_PRESETS[0];
-      setStages(defaultPreset.stages);
-      setConnections(defaultPreset.connections);
-      setLabels(defaultPreset.labels);
+      applyPreset(ALL_PRESETS[0]);
     }
   }, []);
 
@@ -90,19 +96,17 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     const now = new Date().toISOString();
     
     if (activeProfileId) {
-      // Update existing
       const updated = profiles.map(p => 
         p.id === activeProfileId ? {
           ...p,
           updatedAt: now,
           stages, connections, labels, emailTemplates,
-          settings: { zoom, panX: pan.x, panY: pan.y, showGrid: true, showConnections: true, defaultStageWidth: 340, defaultStageHeight: 320 }
+          settings: { zoom, panX: pan.x, panY: pan.y, showGrid: true, showConnections: true, defaultStageWidth: 280, defaultStageHeight: 240 }
         } : p
       );
       setProfiles(updated);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     } else if (name) {
-      // Create new
       if (profiles.length >= MAX_PROFILES) {
         alert(`Maximum ${MAX_PROFILES} profiles reached. Contact developer to increase limit.`);
         return;
@@ -114,7 +118,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         createdAt: now,
         updatedAt: now,
         stages, connections, labels, emailTemplates,
-        settings: { zoom, panX: pan.x, panY: pan.y, showGrid: true, showConnections: true, defaultStageWidth: 340, defaultStageHeight: 320 }
+        settings: { zoom, panX: pan.x, panY: pan.y, showGrid: true, showConnections: true, defaultStageWidth: 280, defaultStageHeight: 240 }
       };
       
       const updated = [...profiles, newProfile];
@@ -168,57 +172,125 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   // ============ CANVAS ============
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.stage-node') || (e.target as HTMLElement).closest('.sidebar')) return;
-    setIsDragging(true);
+    
+    if (connectingFrom) {
+      // Cancel connection if clicking empty space
+      setConnectingFrom(null);
+      return;
+    }
+    
+    setIsDraggingCanvas(true);
     lastPos.current = { x: e.clientX, y: e.clientY };
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
+    // Track mouse for connection line
+    if (canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      setMousePos({
+        x: (e.clientX - rect.left - pan.x) / zoom,
+        y: (e.clientY - rect.top - pan.y) / zoom
+      });
+    }
+    
+    if (!isDraggingCanvas) return;
     const dx = e.clientX - lastPos.current.x;
     const dy = e.clientY - lastPos.current.y;
     setPan(p => ({ x: p.x + dx, y: p.y + dy }));
     lastPos.current = { x: e.clientX, y: e.clientY };
   };
 
-  const handleCanvasMouseUp = () => setIsDragging(false);
+  const handleCanvasMouseUp = () => setIsDraggingCanvas(false);
   
   const handleWheel = (e: React.WheelEvent) => {
-    const delta = e.deltaY > 0 ? -0.05 : 0.05;
-    setZoom(z => Math.max(0.2, Math.min(1.5, z + delta)));
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.08 : 0.08;
+    setZoom(z => Math.max(0.3, Math.min(2, z + delta)));
+  };
+
+  // ============ FIT VIEW ============
+  const fitView = () => {
+    if (stages.length === 0) {
+      setZoom(0.75);
+      setPan({ x: 50, y: 50 });
+      return;
+    }
+
+    // Find bounds of all stages
+    const xs = stages.map(s => s.x);
+    const ys = stages.map(s => s.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    
+    // Calculate center
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    
+    // Calculate needed zoom to fit all
+    const rangeX = maxX - minX + 400;
+    const rangeY = maxY - minY + 400;
+    
+    const containerWidth = containerRef.current?.clientWidth || 1200;
+    const containerHeight = containerRef.current?.clientHeight || 800;
+    
+    const zoomX = containerWidth / rangeX;
+    const zoomY = containerHeight / rangeY;
+    const newZoom = Math.min(zoomX, zoomY, 1.2) * 0.85;
+    
+    setZoom(Math.max(0.4, Math.min(1.2, newZoom)));
+    setPan({
+      x: containerWidth / 2 - centerX * newZoom,
+      y: containerHeight / 2 - centerY * newZoom + 50
+    });
   };
 
   // ============ STAGES ============
   const handleStageMove = (stageId: string, dx: number, dy: number) => {
     setStages(prev => prev.map(s => s.id === stageId ? {
       ...s,
-      x: Math.max(2, Math.min(95, s.x + dx * 0.08 / zoom)),
-      y: Math.max(5, Math.min(92, s.y + dy * 0.08 / zoom)),
+      x: s.x + dx / zoom,
+      y: s.y + dy / zoom,
     } : s));
   };
 
   const handleStageResize = (stageId: string, dw: number, dh: number) => {
     setStages(prev => prev.map(s => s.id === stageId ? {
       ...s,
-      width: Math.max(200, Math.min(500, s.width + dw)),
-      height: Math.max(200, Math.min(500, s.height + dh)),
+      width: Math.max(180, Math.min(450, s.width + dw)),
+      height: Math.max(160, Math.min(450, s.height + dh)),
     } : s));
   };
 
   const addStage = () => {
     const newStage: PipelineStage = {
       id: `stage-${Date.now()}`,
-      label: 'New Stage',
+      label: customLabel,
       statusId: 'working',
-      x: 50, y: 50,
-      width: 360, height: 340,
-      color: 'blue',
-      icon: '⭐',
+      x: 400 + stages.length * 50, 
+      y: 200 + stages.length * 30,
+      width: 280, 
+      height: 240,
+      color: customColor,
+      icon: customIcon,
       contactMethods: [],
       automationSettings: DEFAULT_AUTOMATION,
     };
     setStages([...stages, newStage]);
     setSelectedStage(newStage.id);
-    setEditingStage(newStage.id);
+  };
+
+  const addLabel = () => {
+    const newLabel: TextLabel = {
+      id: `label-${Date.now()}`,
+      text: customLabel || 'Section Title',
+      x: 400,
+      y: 100,
+      fontSize: 20,
+      color: '#94a3b8',
+    };
+    setLabels([...labels, newLabel]);
   };
 
   const deleteStage = (id: string) => {
@@ -228,10 +300,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   };
 
   // ============ CONNECTIONS ============
-  const startConnection = (stageId: string) => {
+  const startConnection = (stageId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     if (connectingFrom === stageId) {
       setConnectingFrom(null);
     } else if (connectingFrom) {
+      // Complete connection
       const exists = connections.some(c => c.fromStageId === connectingFrom && c.toStageId === stageId);
       if (!exists && connectingFrom !== stageId) {
         const newConn: NodeConnection = {
@@ -256,14 +330,22 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   };
 
   // ============ PRESETS ============
-  const applyPreset = (preset: typeof ALL_PRESETS[0]) => {
+  const applyPreset = (preset: Preset) => {
     setStages(preset.stages);
     setConnections(preset.connections);
     setLabels(preset.labels);
     setEmailTemplates(preset.emailTemplates);
-    setZoom(0.5);
-    setPan({ x: 0, y: 0 });
-    setShowPresets(false);
+    setPresetPreview(null);
+    setTimeout(() => fitView(), 100);
+  };
+
+  // ============ RUN NODE ============
+  const runNode = (stageId: string) => {
+    const stage = stages.find(s => s.id === stageId);
+    if (!stage) return;
+    
+    const stageLeads = getStageLeads(stage);
+    alert(`🚀 Running automation for "${stage.label}"\n\n${stageLeads.length} leads will be processed.\n\nAutomation: ${stage.followUpMethod || 'None configured'}\nEmail Template: ${stage.emailTemplateId || 'None'}`);
   };
 
   // ============ EXPORT ============
@@ -292,370 +374,554 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     URL.revokeObjectURL(url);
   };
 
-  // Get connection path
-  const getPath = (from: PipelineStage, to: PipelineStage) => {
-    const fromX = from.x + 5;
-    const fromY = from.y;
-    const toX = to.x - 5;
-    const toY = to.y;
-    const midX = (fromX + toX) / 2;
-    return `M ${fromX}% ${fromY}% C ${midX}% ${fromY}%, ${midX}% ${toY}%, ${toX}% ${toY}%`;
+  // Get stage position for connection
+  const getStageCenter = (stage: PipelineStage, anchor: 'left' | 'right') => {
+    const x = anchor === 'right' ? stage.x + stage.width : stage.x;
+    const y = stage.y + stage.height / 2;
+    return { x, y };
   };
 
   const activeProfile = profiles.find(p => p.id === activeProfileId);
   const deadCount = leads.filter(l => l.status === 'dead').length;
 
   return (
-    <div className="h-full bg-slate-950 relative overflow-hidden">
-      {/* Grid */}
-      <div className="absolute inset-0 opacity-50" style={{
-        backgroundImage: 'linear-gradient(rgba(148,163,184,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.08) 1px, transparent 1px)',
-        backgroundSize: '60px 60px',
-      }} />
-
-      {/* Header */}
-      <header className="absolute top-0 left-0 right-0 z-40 px-6 py-4 bg-gradient-to-b from-slate-950 via-slate-950/95 to-transparent">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-                <span className="text-3xl">🚀</span>
-                Pipeline Workspace
-              </h1>
-              <p className="text-sm text-slate-500">
-                {activeProfile ? `Profile: ${activeProfile.name}` : 'No profile selected'} • {stages.length} stages • {leads.length} leads
-              </p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            {/* Zoom */}
-            <div className="flex items-center gap-2 bg-slate-900/90 rounded-xl px-3 py-2 border border-slate-700/50">
-              <button onClick={() => setZoom(z => Math.max(0.2, z - 0.1))} className="text-slate-400 hover:text-white">−</button>
-              <span className="text-sm text-slate-400 w-14 text-center">{Math.round(zoom * 100)}%</span>
-              <button onClick={() => setZoom(z => Math.min(1.5, z + 0.1))} className="text-slate-400 hover:text-white">+</button>
-            </div>
-
-            {/* Fit View */}
-            <button
-              onClick={() => { setZoom(0.5); setPan({ x: 0, y: 0 }); }}
-              className="px-4 py-2 rounded-xl bg-slate-900/90 border border-slate-700/50 text-slate-400 hover:text-white text-sm"
-            >
-              Fit View
-            </button>
-
-            {/* Save */}
-            <button
-              onClick={() => activeProfileId ? saveProfile() : setShowProfilesSidebar(true)}
-              className="px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/30 text-sm font-medium"
-            >
-              💾 Save
-            </button>
-
-            {/* Export Dead */}
-            {deadCount > 0 && (
-              <button onClick={exportDeadLeads} className="px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/50 text-red-400 hover:bg-red-500/30 text-sm">
-                📥 Export Dead ({deadCount})
-              </button>
-            )}
-
-            {/* Profiles */}
-            <button
-              onClick={() => setShowProfilesSidebar(!showProfilesSidebar)}
-              className="px-4 py-2 rounded-xl bg-primary-500/20 border border-primary-500/50 text-primary-400 hover:bg-primary-500/30 text-sm font-medium"
-            >
-              👤 Profiles
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Left Sidebar - Presets & Templates */}
-      <motion.div
-        className="absolute left-0 top-20 bottom-20 z-30 w-80 bg-slate-900/95 border-r border-slate-800 rounded-r-2xl overflow-hidden flex flex-col"
-        initial={{ x: -320 }}
-        animate={{ x: showPresets ? 0 : -280 }}
-      >
-        {/* Toggle */}
-        <button
-          onClick={() => setShowPresets(!showPresets)}
-          className="absolute -right-8 top-1/2 -translate-y-1/2 w-8 h-20 bg-slate-800 rounded-r-xl flex items-center justify-center text-slate-400 hover:text-white"
-        >
-          {showPresets ? '◀' : '▶'}
-        </button>
-
+    <div className="h-full bg-slate-950 relative overflow-hidden flex">
+      {/* LEFT SIDEBAR */}
+      <div className="w-80 bg-slate-900/95 border-r border-slate-800 flex flex-col z-40 flex-shrink-0">
         {/* Tabs */}
         <div className="flex border-b border-slate-800">
-          <button
-            onClick={() => setShowTemplates(false)}
-            className={`flex-1 py-3 text-sm font-medium ${!showTemplates ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-500'}`}
-          >
-            📊 Presets
-          </button>
-          <button
-            onClick={() => setShowTemplates(true)}
-            className={`flex-1 py-3 text-sm font-medium ${showTemplates ? 'text-primary-400 border-b-2 border-primary-400' : 'text-slate-500'}`}
-          >
-            ✉️ Templates
-          </button>
+          {[
+            { id: 'presets', label: '📊 Presets' },
+            { id: 'custom', label: '⚡ Custom' },
+            { id: 'templates', label: '✉️ Templates' },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setSidebarTab(tab.id as any)}
+              className={`flex-1 py-3 text-xs font-medium transition-all ${
+                sidebarTab === tab.id 
+                  ? 'text-primary-400 border-b-2 border-primary-400 bg-slate-800/50' 
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 scrollbar-custom">
-          {!showTemplates ? (
-            <div className="space-y-3">
-              <button
-                onClick={addStage}
-                className="w-full p-4 rounded-xl bg-gradient-to-r from-primary-500/20 to-purple-500/20 border border-primary-500/50 text-left hover:from-primary-500/30 hover:to-purple-500/30"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">⚡</span>
-                  <div>
-                    <div className="text-sm font-semibold text-white">Add Custom Node</div>
-                    <div className="text-xs text-slate-400">Create your own stage</div>
-                  </div>
-                </div>
-              </button>
-
-              <div className="text-xs text-slate-500 uppercase tracking-wider mt-4 mb-2">Quick Presets</div>
-              
+        <div className="flex-1 overflow-y-auto p-3 scrollbar-custom">
+          {sidebarTab === 'presets' && (
+            <div className="space-y-2">
               {ALL_PRESETS.map(preset => (
-                <button
+                <div
                   key={preset.id}
-                  onClick={() => applyPreset(preset)}
-                  className="w-full p-4 rounded-xl bg-slate-800/50 border border-slate-700/50 text-left hover:border-slate-600 transition-all"
+                  className="relative"
+                  onMouseEnter={() => setPresetPreview(preset)}
+                  onMouseLeave={() => setPresetPreview(null)}
                 >
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="text-2xl">{preset.icon}</span>
-                    <div>
-                      <div className="text-sm font-semibold text-white">{preset.name}</div>
-                      <div className="text-xs text-slate-500">{preset.stages.length} stages</div>
+                  <button
+                    onClick={() => applyPreset(preset)}
+                    className="w-full p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 text-left hover:border-primary-500/50 hover:bg-slate-800 transition-all group"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xl">{preset.icon}</span>
+                      <span className="text-sm font-semibold text-white">{preset.name}</span>
+                      <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ${
+                        preset.complexity === 'simple' ? 'bg-green-500/20 text-green-400' :
+                        preset.complexity === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                        'bg-purple-500/20 text-purple-400'
+                      }`}>
+                        {preset.complexity}
+                      </span>
                     </div>
-                  </div>
-                  <p className="text-xs text-slate-400 line-clamp-2">{preset.description}</p>
-                </button>
+                    <p className="text-[11px] text-slate-400 line-clamp-2">{preset.description}</p>
+                    <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-500">
+                      <span>{preset.stages.length} stages</span>
+                      <span>•</span>
+                      <span>{preset.connections.length} connections</span>
+                    </div>
+                  </button>
+                </div>
               ))}
             </div>
-          ) : (
-            <div className="space-y-3">
-              {emailTemplates.map(template => (
-                <div key={template.id} className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/50">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-lg">{template.category === 'welcome' ? '👋' : template.category === 'follow-up' ? '🔄' : template.category === 'closing' ? '🎯' : '✉️'}</span>
-                    <div className="text-sm font-medium text-white">{template.name}</div>
+          )}
+
+          {sidebarTab === 'custom' && (
+            <div className="space-y-4">
+              {/* Type selector */}
+              <div>
+                <label className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 block">Create Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setCustomType('stage')}
+                    className={`p-3 rounded-lg text-xs font-medium transition-all ${
+                      customType === 'stage' 
+                        ? 'bg-primary-500/20 border-primary-500/50 text-primary-400 border' 
+                        : 'bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600'
+                    }`}
+                  >
+                    📦 Stage Node
+                  </button>
+                  <button
+                    onClick={() => setCustomType('label')}
+                    className={`p-3 rounded-lg text-xs font-medium transition-all ${
+                      customType === 'label' 
+                        ? 'bg-primary-500/20 border-primary-500/50 text-primary-400 border' 
+                        : 'bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600'
+                    }`}
+                  >
+                    🏷️ Text Label
+                  </button>
+                </div>
+              </div>
+
+              {/* Name */}
+              <div>
+                <label className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 block">
+                  {customType === 'stage' ? 'Stage Name' : 'Label Text'}
+                </label>
+                <input
+                  value={customLabel}
+                  onChange={(e) => setCustomLabel(e.target.value)}
+                  placeholder={customType === 'stage' ? 'e.g., Hot Leads' : 'e.g., Dead Leads Section'}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:border-primary-500 outline-none"
+                />
+              </div>
+
+              {customType === 'stage' && (
+                <>
+                  {/* Icon */}
+                  <div>
+                    <label className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 block">Icon</label>
+                    <div className="grid grid-cols-10 gap-1 max-h-28 overflow-y-auto p-1 bg-slate-800/50 rounded-lg">
+                      {EMOJI_BANK.map(emoji => (
+                        <button
+                          key={emoji}
+                          onClick={() => setCustomIcon(emoji)}
+                          className={`w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-700 transition-all ${
+                            customIcon === emoji ? 'bg-primary-500/30 ring-1 ring-primary-500' : ''
+                          }`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="text-xs text-slate-400 mb-2">Subject: {template.subject}</div>
-                  <div className="text-xs text-slate-500 line-clamp-3 bg-slate-900/50 p-2 rounded">{template.body.slice(0, 150)}...</div>
+
+                  {/* Color */}
+                  <div>
+                    <label className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 block">Color</label>
+                    <div className="grid grid-cols-6 gap-1.5">
+                      {STAGE_COLORS.slice(0, 6).map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => setCustomColor(c.id)}
+                          className={`h-8 rounded-lg bg-gradient-to-br ${c.bg} border-2 transition-all ${
+                            customColor === c.id ? `${c.border} scale-110` : 'border-transparent hover:scale-105'
+                          }`}
+                          title={c.name}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Create button */}
+              <button
+                onClick={customType === 'stage' ? addStage : addLabel}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 text-white font-medium text-sm hover:from-primary-400 hover:to-primary-500 transition-all shadow-lg shadow-primary-500/20"
+              >
+                + Create {customType === 'stage' ? 'Stage' : 'Label'}
+              </button>
+
+              {/* Quick presets */}
+              <div className="pt-4 border-t border-slate-800">
+                <label className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 block">Quick Add</label>
+                <div className="space-y-1.5">
+                  {[
+                    { label: 'New Leads', icon: '📥', color: 'blue' as StageColor },
+                    { label: 'Hot Leads', icon: '🔥', color: 'orange' as StageColor },
+                    { label: 'Follow Up', icon: '📞', color: 'cyan' as StageColor },
+                    { label: 'Qualified', icon: '✅', color: 'green' as StageColor },
+                    { label: 'Meeting Set', icon: '📅', color: 'purple' as StageColor },
+                    { label: 'Dead Leads', icon: '💀', color: 'red' as StageColor },
+                  ].map(q => (
+                    <button
+                      key={q.label}
+                      onClick={() => {
+                        setCustomLabel(q.label);
+                        setCustomIcon(q.icon);
+                        setCustomColor(q.color);
+                        setCustomType('stage');
+                      }}
+                      className="w-full flex items-center gap-2 p-2 rounded-lg bg-slate-800/40 hover:bg-slate-800 text-left transition-all text-xs"
+                    >
+                      <span>{q.icon}</span>
+                      <span className="text-slate-300">{q.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {sidebarTab === 'templates' && (
+            <div className="space-y-2">
+              {emailTemplates.map(template => (
+                <div key={template.id} className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/50">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm">
+                      {template.category === 'welcome' ? '👋' : 
+                       template.category === 'follow-up' ? '🔄' : 
+                       template.category === 'closing' ? '🎯' : 
+                       template.category === 're-engagement' ? '🔁' : '✉️'}
+                    </span>
+                    <span className="text-xs font-medium text-white">{template.name}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mb-1">{template.subject}</p>
+                  <div className="text-[10px] text-slate-600 line-clamp-2 bg-slate-900/50 p-1.5 rounded">
+                    {template.body.slice(0, 80)}...
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
-      </motion.div>
-
-      {/* Canvas */}
-      <div
-        ref={containerRef}
-        className={`absolute inset-0 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-        onMouseDown={handleCanvasMouseDown}
-        onMouseMove={handleCanvasMouseMove}
-        onMouseUp={handleCanvasMouseUp}
-        onMouseLeave={handleCanvasMouseUp}
-        onWheel={handleWheel}
-      >
-        <div
-          className="absolute w-[200%] h-[200%]"
-          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: 'center' }}
-        >
-          {/* Labels */}
-          {labels.map(label => (
-            <div
-              key={label.id}
-              className="absolute pointer-events-none select-none font-bold"
-              style={{ left: `${label.x}%`, top: `${label.y}%`, fontSize: label.fontSize, color: label.color, transform: 'translate(-50%, -50%)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
-            >
-              {label.text}
-            </div>
-          ))}
-
-          {/* Connections SVG */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
-            <defs>
-              <marker id="arrowhead" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto">
-                <polygon points="0 0, 12 5, 0 10" fill="#3b82f6" />
-              </marker>
-              <marker id="arrowhead-gray" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto">
-                <polygon points="0 0, 12 5, 0 10" fill="#64748b" />
-              </marker>
-            </defs>
-            
-            {connections.map(conn => {
-              const from = stages.find(s => s.id === conn.fromStageId);
-              const to = stages.find(s => s.id === conn.toStageId);
-              if (!from || !to) return null;
-              
-              const isSelected = selectedStage === conn.fromStageId || selectedStage === conn.toStageId;
-              
-              return (
-                <g key={conn.id}>
-                  <path
-                    d={getPath(from, to)}
-                    fill="none"
-                    stroke={conn.style === 'dashed' ? '#64748b' : '#3b82f6'}
-                    strokeWidth={isSelected ? 4 : 3}
-                    strokeDasharray={conn.style === 'dashed' ? '12 8' : 'none'}
-                    markerEnd={conn.style === 'dashed' ? 'url(#arrowhead-gray)' : 'url(#arrowhead)'}
-                    opacity={isSelected ? 1 : 0.7}
-                  />
-                  {conn.label && (
-                    <text
-                      x={`${(from.x + to.x) / 2}%`}
-                      y={`${(from.y + to.y) / 2 - 2}%`}
-                      fill="#94a3b8"
-                      fontSize="14"
-                      fontWeight="500"
-                      textAnchor="middle"
-                    >
-                      {conn.label}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-
-            {/* Connecting preview */}
-            {connectingFrom && (
-              <line
-                x1={`${stages.find(s => s.id === connectingFrom)?.x || 50}%`}
-                y1={`${stages.find(s => s.id === connectingFrom)?.y || 50}%`}
-                x2="50%"
-                y2="50%"
-                stroke="#fbbf24"
-                strokeWidth="3"
-                strokeDasharray="10 6"
-              />
-            )}
-          </svg>
-
-          {/* Stage Nodes */}
-          {stages.map(stage => (
-            <StageNode
-              key={stage.id}
-              stage={stage}
-              leads={getStageLeads(stage)}
-              isSelected={selectedStage === stage.id}
-              isEditing={editingStage === stage.id}
-              isConnecting={connectingFrom === stage.id}
-              isDropTarget={!!draggedLead}
-              zoom={zoom}
-              emailTemplates={emailTemplates}
-              onSelect={() => setSelectedStage(selectedStage === stage.id ? null : stage.id)}
-              onEdit={() => setEditingStage(editingStage === stage.id ? null : stage.id)}
-              onMove={handleStageMove}
-              onResize={handleStageResize}
-              onDelete={() => deleteStage(stage.id)}
-              onConnect={() => startConnection(stage.id)}
-              onDrop={() => handleDropOnStage(stage.id)}
-              onDragLead={setDraggedLead}
-              onViewLead={onViewDetails}
-              onToggleStar={onToggleStar}
-              starredLeads={starredLeads}
-              onUpdateStage={(updates) => setStages(prev => prev.map(s => s.id === stage.id ? { ...s, ...updates } : s))}
-            />
-          ))}
-        </div>
       </div>
 
-      {/* Profiles Sidebar (Right) */}
+      {/* MAIN CANVAS */}
+      <div className="flex-1 relative">
+        {/* Grid */}
+        <div className="absolute inset-0 opacity-40" style={{
+          backgroundImage: 'linear-gradient(rgba(148,163,184,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.1) 1px, transparent 1px)',
+          backgroundSize: '40px 40px',
+        }} />
+
+        {/* Header */}
+        <header className="absolute top-0 left-0 right-0 z-30 px-4 py-3 bg-gradient-to-b from-slate-950 via-slate-950/95 to-transparent">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-bold text-white flex items-center gap-2">
+                <span className="text-xl">🚀</span>
+                Pipeline
+              </h1>
+              <span className="text-xs text-slate-500">
+                {stages.length} stages • {connections.length} connections • {leads.length} leads
+              </span>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              {/* Zoom */}
+              <div className="flex items-center gap-1 bg-slate-900/90 rounded-lg px-2 py-1.5 border border-slate-700/50">
+                <button onClick={() => setZoom(z => Math.max(0.3, z - 0.15))} className="text-slate-400 hover:text-white px-1">−</button>
+                <span className="text-xs text-slate-400 w-10 text-center">{Math.round(zoom * 100)}%</span>
+                <button onClick={() => setZoom(z => Math.min(2, z + 0.15))} className="text-slate-400 hover:text-white px-1">+</button>
+              </div>
+
+              <button onClick={fitView} className="px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-700/50 text-slate-400 hover:text-white text-xs">
+                ⊡ Fit
+              </button>
+
+              <button onClick={() => activeProfileId ? saveProfile() : setShowProfilesSidebar(true)} className="px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/30 text-xs font-medium">
+                💾 Save
+              </button>
+
+              {deadCount > 0 && (
+                <button onClick={exportDeadLeads} className="px-3 py-1.5 rounded-lg bg-red-500/20 border border-red-500/50 text-red-400 hover:bg-red-500/30 text-xs">
+                  📥 Export ({deadCount})
+                </button>
+              )}
+
+              <button onClick={() => setShowProfilesSidebar(!showProfilesSidebar)} className="px-3 py-1.5 rounded-lg bg-primary-500/20 border border-primary-500/50 text-primary-400 hover:bg-primary-500/30 text-xs font-medium">
+                👤 Profiles
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Canvas */}
+        <div
+          ref={containerRef}
+          className={`absolute inset-0 ${isDraggingCanvas ? 'cursor-grabbing' : connectingFrom ? 'cursor-crosshair' : 'cursor-grab'}`}
+          onMouseDown={handleCanvasMouseDown}
+          onMouseMove={handleCanvasMouseMove}
+          onMouseUp={handleCanvasMouseUp}
+          onMouseLeave={() => { handleCanvasMouseUp(); setConnectingFrom(null); }}
+          onWheel={handleWheel}
+        >
+          <div
+            ref={canvasRef}
+            className="absolute"
+            style={{ 
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: '0 0',
+              width: '4000px',
+              height: '3000px',
+            }}
+          >
+            {/* Labels */}
+            {labels.map(label => (
+              <div
+                key={label.id}
+                className="absolute pointer-events-none select-none font-bold"
+                style={{ 
+                  left: label.x, 
+                  top: label.y, 
+                  fontSize: label.fontSize, 
+                  color: label.color,
+                  textShadow: '0 2px 10px rgba(0,0,0,0.5)'
+                }}
+              >
+                {label.text}
+              </div>
+            ))}
+
+            {/* Connection Lines SVG */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
+              <defs>
+                <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+                  <polygon points="0 0, 10 4, 0 8" fill="#3b82f6" />
+                </marker>
+                <marker id="arrow-yellow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+                  <polygon points="0 0, 10 4, 0 8" fill="#fbbf24" />
+                </marker>
+              </defs>
+              
+              {/* Existing connections */}
+              {connections.map(conn => {
+                const from = stages.find(s => s.id === conn.fromStageId);
+                const to = stages.find(s => s.id === conn.toStageId);
+                if (!from || !to) return null;
+                
+                const start = getStageCenter(from, 'right');
+                const end = getStageCenter(to, 'left');
+                const midX = (start.x + end.x) / 2;
+                
+                const isSelected = selectedStage === conn.fromStageId || selectedStage === conn.toStageId;
+                
+                return (
+                  <g key={conn.id}>
+                    <path
+                      d={`M ${start.x} ${start.y} C ${midX} ${start.y}, ${midX} ${end.y}, ${end.x} ${end.y}`}
+                      fill="none"
+                      stroke={isSelected ? '#60a5fa' : '#3b82f6'}
+                      strokeWidth={isSelected ? 3 : 2}
+                      strokeDasharray={conn.style === 'dashed' ? '8 4' : 'none'}
+                      markerEnd="url(#arrow)"
+                      opacity={isSelected ? 1 : 0.8}
+                    />
+                    {conn.label && (
+                      <text
+                        x={midX}
+                        y={(start.y + end.y) / 2 - 8}
+                        fill="#94a3b8"
+                        fontSize="11"
+                        fontWeight="500"
+                        textAnchor="middle"
+                      >
+                        {conn.label}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+
+              {/* Active connection line (while connecting) */}
+              {connectingFrom && (
+                <line
+                  x1={getStageCenter(stages.find(s => s.id === connectingFrom)!, 'right').x}
+                  y1={getStageCenter(stages.find(s => s.id === connectingFrom)!, 'right').y}
+                  x2={mousePos.x}
+                  y2={mousePos.y}
+                  stroke="#fbbf24"
+                  strokeWidth="2"
+                  strokeDasharray="6 4"
+                  markerEnd="url(#arrow-yellow)"
+                />
+              )}
+            </svg>
+
+            {/* Stage Nodes */}
+            {stages.map(stage => (
+              <StageNode
+                key={stage.id}
+                stage={stage}
+                leads={getStageLeads(stage)}
+                isSelected={selectedStage === stage.id}
+                isEditing={editingStage === stage.id}
+                isConnecting={connectingFrom === stage.id}
+                isDropTarget={!!draggedLead}
+                zoom={zoom}
+                emailTemplates={emailTemplates}
+                onSelect={() => setSelectedStage(selectedStage === stage.id ? null : stage.id)}
+                onEdit={() => setEditingStage(editingStage === stage.id ? null : stage.id)}
+                onMove={handleStageMove}
+                onResize={handleStageResize}
+                onDelete={() => deleteStage(stage.id)}
+                onConnect={(e) => startConnection(stage.id, e)}
+                onDrop={() => handleDropOnStage(stage.id)}
+                onDragLead={setDraggedLead}
+                onViewLead={onViewDetails}
+                onToggleStar={onToggleStar}
+                starredLeads={starredLeads}
+                onUpdateStage={(updates) => setStages(prev => prev.map(s => s.id === stage.id ? { ...s, ...updates } : s))}
+                onRun={() => runNode(stage.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Connection helper */}
+        {connectingFrom && (
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-yellow-500/20 border border-yellow-500/50 rounded-xl backdrop-blur-sm">
+            <p className="text-yellow-400 text-sm flex items-center gap-2">
+              <span className="animate-pulse">🔗</span>
+              Click another node to connect, or click empty space to cancel
+            </p>
+          </div>
+        )}
+
+        {/* Footer */}
+        <footer className="absolute bottom-0 left-0 right-0 z-30 px-4 py-2 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent">
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-3 text-slate-500">
+              {activeProfile && <span className="text-primary-400">{activeProfile.name}</span>}
+              <span>Scroll to zoom</span>
+              <span>•</span>
+              <span>Drag canvas to pan</span>
+              <span>•</span>
+              <span>Click + to connect nodes</span>
+            </div>
+          </div>
+        </footer>
+
+        {/* Preset Preview Popup */}
+        <AnimatePresence>
+          {presetPreview && (
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              className="absolute left-80 top-20 z-50 w-80 bg-slate-900 border border-slate-700 rounded-2xl p-4 shadow-2xl ml-4"
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-2xl">{presetPreview.icon}</span>
+                <div>
+                  <h3 className="text-sm font-bold text-white">{presetPreview.name}</h3>
+                  <p className="text-[10px] text-slate-500">{presetPreview.complexity} complexity</p>
+                </div>
+              </div>
+              
+              <p className="text-xs text-slate-400 mb-3">{presetPreview.description}</p>
+              
+              {/* Mini diagram */}
+              <div className="bg-slate-950 rounded-lg p-3 mb-3">
+                <div className="flex items-center gap-1 flex-wrap">
+                  {presetPreview.stages.slice(0, 5).map((s, i) => (
+                    <div key={s.id} className="flex items-center">
+                      <div className={`px-2 py-1 rounded text-[10px] font-medium bg-gradient-to-br ${STAGE_COLORS.find(c => c.id === s.color)?.bg || 'from-slate-600 to-slate-700'}`}>
+                        {s.icon} {s.label.slice(0, 8)}
+                      </div>
+                      {i < Math.min(presetPreview.stages.length - 1, 4) && (
+                        <span className="text-slate-600 mx-0.5">→</span>
+                      )}
+                    </div>
+                  ))}
+                  {presetPreview.stages.length > 5 && (
+                    <span className="text-[10px] text-slate-500">+{presetPreview.stages.length - 5}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                <div className="bg-slate-800/50 rounded p-2">
+                  <span className="text-slate-500">Stages:</span>
+                  <span className="text-white ml-1">{presetPreview.stages.length}</span>
+                </div>
+                <div className="bg-slate-800/50 rounded p-2">
+                  <span className="text-slate-500">Connections:</span>
+                  <span className="text-white ml-1">{presetPreview.connections.length}</span>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* PROFILES SIDEBAR (Right) */}
       <AnimatePresence>
         {showProfilesSidebar && (
           <motion.div
             initial={{ x: 400 }}
             animate={{ x: 0 }}
             exit={{ x: 400 }}
-            className="absolute right-0 top-0 bottom-0 w-96 bg-slate-900/98 border-l border-slate-800 z-50 flex flex-col"
+            className="absolute right-0 top-0 bottom-0 w-80 bg-slate-900/98 border-l border-slate-800 z-50 flex flex-col"
           >
-            <div className="p-6 border-b border-slate-800">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-white">👤 Workspace Profiles</h2>
-                <button onClick={() => setShowProfilesSidebar(false)} className="text-slate-400 hover:text-white text-xl">×</button>
+            <div className="p-4 border-b border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-sm font-bold text-white">👤 Profiles ({profiles.length}/{MAX_PROFILES})</h2>
+                <button onClick={() => setShowProfilesSidebar(false)} className="text-slate-400 hover:text-white">×</button>
               </div>
-              <p className="text-sm text-slate-500">Save up to {MAX_PROFILES} pipeline configurations</p>
+              <p className="text-[10px] text-slate-500">Save pipeline configurations</p>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {profiles.map(profile => (
                 <div
                   key={profile.id}
-                  className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                  className={`p-3 rounded-xl border cursor-pointer transition-all ${
                     activeProfileId === profile.id
                       ? 'bg-primary-500/20 border-primary-500/50'
                       : 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600'
                   }`}
                   onClick={() => loadProfile(profile.id)}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-semibold text-white">{profile.name}</div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-white">{profile.name}</span>
                     <button
                       onClick={(e) => { e.stopPropagation(); deleteProfile(profile.id); }}
-                      className="text-red-400 hover:text-red-300 text-xs"
+                      className="text-red-400 hover:text-red-300 text-[10px]"
                     >
                       Delete
                     </button>
                   </div>
-                  <div className="text-xs text-slate-500">
-                    {profile.stages.length} stages • Updated {new Date(profile.updatedAt).toLocaleDateString()}
+                  <div className="text-[10px] text-slate-500">
+                    {profile.stages.length} stages • {new Date(profile.updatedAt).toLocaleDateString()}
                   </div>
-                  {activeProfileId === profile.id && (
-                    <div className="mt-2 text-xs text-primary-400">✓ Active</div>
-                  )}
                 </div>
               ))}
 
               {profiles.length < MAX_PROFILES && (
-                <div className="p-4 rounded-xl border border-dashed border-slate-700">
+                <div className="p-3 rounded-xl border border-dashed border-slate-700">
                   <input
                     type="text"
                     value={profileName}
                     onChange={(e) => setProfileName(e.target.value)}
                     placeholder="New profile name..."
-                    className="w-full bg-transparent text-white text-sm mb-3 outline-none"
+                    className="w-full bg-transparent text-white text-xs mb-2 outline-none"
                   />
                   <button
                     onClick={() => { if (profileName.trim()) { saveProfile(profileName.trim()); setProfileName(''); } }}
                     disabled={!profileName.trim()}
-                    className="w-full py-2 rounded-lg bg-primary-500/20 text-primary-400 text-sm font-medium hover:bg-primary-500/30 disabled:opacity-50"
+                    className="w-full py-1.5 rounded-lg bg-primary-500/20 text-primary-400 text-xs font-medium hover:bg-primary-500/30 disabled:opacity-50"
                   >
-                    + Create Profile
+                    + Create
                   </button>
                 </div>
               )}
 
               {profiles.length >= MAX_PROFILES && (
-                <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-center">
-                  <p className="text-sm text-yellow-400">Maximum {MAX_PROFILES} profiles reached</p>
-                  <p className="text-xs text-slate-500 mt-1">Contact developer for more</p>
+                <div className="p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-center">
+                  <p className="text-[10px] text-yellow-400">Max {MAX_PROFILES} profiles</p>
+                  <p className="text-[10px] text-slate-500">Contact developer for more</p>
                 </div>
               )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Footer */}
-      <footer className="absolute bottom-0 left-0 right-0 z-40 px-6 py-3 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent">
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-4 text-slate-500">
-            <span>Stages: <span className="text-primary-400 font-medium">{stages.length}</span></span>
-            <span>Connections: <span className="text-blue-400 font-medium">{connections.length}</span></span>
-            <span>Leads: <span className="text-white font-medium">{leads.length}</span></span>
-            {connectingFrom && <span className="text-yellow-400 animate-pulse">🔗 Click another node to connect</span>}
-          </div>
-          <div className="text-slate-600 text-xs">
-            Scroll to zoom • Drag to pan • Click nodes to select
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }
@@ -675,18 +941,19 @@ interface StageNodeProps {
   onMove: (id: string, dx: number, dy: number) => void;
   onResize: (id: string, dw: number, dh: number) => void;
   onDelete: () => void;
-  onConnect: () => void;
+  onConnect: (e: React.MouseEvent) => void;
   onDrop: () => void;
   onDragLead: (lead: Lead | null) => void;
   onViewLead: (lead: Lead) => void;
   onToggleStar: (id: string) => void;
   starredLeads: Set<string>;
   onUpdateStage: (updates: Partial<PipelineStage>) => void;
+  onRun: () => void;
 }
 
 function StageNode({
   stage, leads, isSelected, isEditing, isConnecting, isDropTarget, zoom, emailTemplates,
-  onSelect, onEdit, onMove, onResize, onDelete, onConnect, onDrop, onDragLead, onViewLead, onToggleStar, starredLeads, onUpdateStage
+  onSelect, onEdit, onMove, onResize, onDelete, onConnect, onDrop, onDragLead, onViewLead, onToggleStar, starredLeads, onUpdateStage, onRun
 }: StageNodeProps) {
   const [isDragging, setIsDragging] = useState(false);
   const lastPos = useRef({ x: 0, y: 0 });
@@ -694,13 +961,18 @@ function StageNode({
   const colorConfig = STAGE_COLORS.find(c => c.id === stage.color) || STAGE_COLORS[0];
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.lead-card') || (e.target as HTMLElement).closest('.resize-handle') || (e.target as HTMLElement).closest('.edit-panel')) return;
+    if ((e.target as HTMLElement).closest('.lead-card') || 
+        (e.target as HTMLElement).closest('.resize-handle') || 
+        (e.target as HTMLElement).closest('.edit-panel') ||
+        (e.target as HTMLElement).closest('.connect-btn')) return;
     e.stopPropagation();
     setIsDragging(true);
     lastPos.current = { x: e.clientX, y: e.clientY };
     
     const handleMove = (moveE: MouseEvent) => {
-      onMove(stage.id, moveE.clientX - lastPos.current.x, moveE.clientY - lastPos.current.y);
+      const dx = moveE.clientX - lastPos.current.x;
+      const dy = moveE.clientY - lastPos.current.y;
+      onMove(stage.id, dx, dy);
       lastPos.current = { x: moveE.clientX, y: moveE.clientY };
     };
     const handleUp = () => {
@@ -728,62 +1000,68 @@ function StageNode({
     window.addEventListener('mouseup', handleUp);
   };
 
-  const visibleLeads = Math.floor((stage.height - 100) / 60);
+  const visibleLeads = Math.floor((stage.height - 90) / 50);
   const template = emailTemplates.find(t => t.id === stage.emailTemplateId);
 
   return (
     <div
       className="stage-node absolute"
-      style={{ left: `${stage.x}%`, top: `${stage.y}%`, transform: 'translate(-50%, -50%)', zIndex: isSelected ? 100 : 1 }}
+      style={{ left: stage.x, top: stage.y, zIndex: isSelected ? 100 : 1 }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
+      {/* Left connection point */}
+      <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-slate-700 border border-slate-600" />
+      
       <motion.div
         onClick={onSelect}
         onMouseDown={handleMouseDown}
         onDoubleClick={onEdit}
         className={`
-          relative rounded-3xl overflow-hidden backdrop-blur-xl
+          relative rounded-2xl overflow-hidden backdrop-blur-xl
           bg-gradient-to-br ${colorConfig.bg}
-          border-2 transition-all duration-200
-          ${isSelected ? `${colorConfig.border} ring-4 ring-${stage.color}-500/30` : 'border-slate-700/60 hover:border-slate-600'}
-          ${isConnecting ? 'ring-4 ring-yellow-400/50' : ''}
-          ${isDropTarget ? 'ring-4 ring-green-400/50 scale-[1.02]' : ''}
+          border-2 transition-all duration-150
+          ${isSelected ? `${colorConfig.border} ring-2 ring-${stage.color}-500/30` : 'border-slate-700/60 hover:border-slate-600'}
+          ${isConnecting ? 'ring-2 ring-yellow-400/50' : ''}
+          ${isDropTarget ? 'ring-2 ring-green-400/50' : ''}
           ${isDragging ? 'cursor-grabbing shadow-2xl' : 'cursor-grab'}
         `}
         style={{ width: stage.width, height: stage.height }}
-        initial={{ opacity: 0, scale: 0.9 }}
+        initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
       >
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-700/40 bg-slate-900/50 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">{stage.icon}</span>
-            <div>
-              <div className="text-base font-bold text-white">{stage.label}</div>
-              <div className="text-xs text-slate-500 flex items-center gap-2">
+        <div className="px-3 py-2.5 border-b border-slate-700/40 bg-slate-900/60 flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xl flex-shrink-0">{stage.icon}</span>
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-white truncate">{stage.label}</div>
+              <div className="text-[10px] text-slate-500 flex items-center gap-1">
                 {stage.followUpMethod && <span>{FOLLOW_UP_METHODS.find(f => f.id === stage.followUpMethod)?.icon}</span>}
                 {stage.meetingType && <span>{MEETING_TYPES.find(m => m.id === stage.meetingType)?.icon}</span>}
                 {template && <span title={template.name}>✉️</span>}
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className={`px-3 py-1.5 rounded-xl bg-slate-900/80 ${colorConfig.border} ${colorConfig.text} text-lg font-bold`}>
+          <div className="flex items-center gap-1">
+            <button onClick={(e) => { e.stopPropagation(); onRun(); }} className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 flex items-center justify-center text-xs" title="Run automation">
+              ▶
+            </button>
+            <div className={`px-2 py-1 rounded-lg bg-slate-900/80 ${colorConfig.border} ${colorConfig.text} text-sm font-bold`}>
               {leads.length}
             </div>
           </div>
         </div>
 
         {/* Leads */}
-        <div className="p-3 overflow-hidden" style={{ height: stage.height - 80 }}>
+        <div className="p-2 overflow-hidden" style={{ height: stage.height - 70 }}>
           {leads.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full">
-              <div className="text-5xl mb-3">📥</div>
-              <div className="text-sm text-slate-500">Drop leads here</div>
+              <div className="text-3xl mb-1">📥</div>
+              <div className="text-[10px] text-slate-500">Drop leads here</div>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1">
               {leads.slice(0, visibleLeads).map(lead => (
                 <div
                   key={lead.id}
@@ -791,40 +1069,37 @@ function StageNode({
                   onDragStart={() => onDragLead(lead)}
                   onDragEnd={() => onDragLead(null)}
                   onClick={(e) => { e.stopPropagation(); onViewLead(lead); }}
-                  className="lead-card flex items-center gap-3 p-3 rounded-xl bg-slate-800/60 hover:bg-slate-800 cursor-grab active:cursor-grabbing transition-all border border-transparent hover:border-slate-700"
+                  className="lead-card flex items-center gap-2 p-2 rounded-lg bg-slate-800/70 hover:bg-slate-800 cursor-grab active:cursor-grabbing transition-all border border-transparent hover:border-slate-700"
                 >
-                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${colorConfig.bg} ${colorConfig.border} flex items-center justify-center ${colorConfig.text} text-sm font-bold`}>
+                  <div className={`w-7 h-7 rounded-lg bg-gradient-to-br ${colorConfig.bg} ${colorConfig.border} flex items-center justify-center ${colorConfig.text} text-[10px] font-bold flex-shrink-0`}>
                     {lead.formData.fullName.charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white font-medium truncate">{lead.formData.fullName}</div>
-                    <div className="text-xs text-slate-500 truncate">{lead.formData.vehicleType || lead.formData.phone}</div>
+                    <div className="text-xs text-white font-medium truncate">{lead.formData.fullName}</div>
+                    <div className="text-[10px] text-slate-500 truncate">{lead.formData.phone}</div>
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); onToggleStar(lead.id); }}
-                    className="text-lg"
+                    className="text-sm flex-shrink-0"
                   >
                     {starredLeads.has(lead.id) ? '⭐' : '☆'}
                   </button>
                 </div>
               ))}
               {leads.length > visibleLeads && (
-                <div className="text-center text-xs text-slate-500 py-2">+{leads.length - visibleLeads} more</div>
+                <div className="text-center text-[10px] text-slate-500 py-1">+{leads.length - visibleLeads} more</div>
               )}
             </div>
           )}
         </div>
 
-        {/* Connection Points */}
-        <div
-          className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-800 border-2 border-slate-600 cursor-pointer hover:border-primary-400 hover:bg-primary-500/30"
-        />
+        {/* Right connection button */}
         <button
-          onClick={(e) => { e.stopPropagation(); onConnect(); }}
-          className={`absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs transition-all ${
+          onClick={onConnect}
+          className={`connect-btn absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs transition-all ${
             isConnecting
-              ? 'bg-yellow-500 border-yellow-400 text-white'
-              : 'bg-primary-500/30 border-primary-400/60 text-primary-400 hover:bg-primary-500/50'
+              ? 'bg-yellow-500 border-yellow-400 text-white scale-110'
+              : 'bg-primary-500/30 border-primary-400/60 text-primary-400 hover:bg-primary-500/50 hover:scale-110'
           }`}
         >
           +
@@ -832,19 +1107,19 @@ function StageNode({
 
         {/* Resize Handle */}
         <div
-          className="resize-handle absolute bottom-1 right-1 w-6 h-6 cursor-se-resize opacity-50 hover:opacity-100"
+          className="resize-handle absolute bottom-1 right-1 w-4 h-4 cursor-se-resize opacity-40 hover:opacity-100"
           onMouseDown={handleResize}
         >
-          <svg className="w-full h-full text-slate-500" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M22 22H20V20H22V22ZM22 18H20V16H22V18ZM18 22H16V20H18V22ZM22 14H20V12H22V14ZM18 18H16V16H18V18ZM14 22H12V20H14V22Z" />
+          <svg className="w-full h-full text-slate-400" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M22 22H20V20H22V22ZM22 18H20V16H22V18ZM18 22H16V20H18V22Z" />
           </svg>
         </div>
 
         {/* Controls (when selected) */}
         {isSelected && (
-          <div className="absolute -top-12 left-0 right-0 flex items-center justify-center gap-2">
-            <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs hover:bg-slate-700">✏️ Edit</button>
-            <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs hover:bg-red-500/30">🗑️ Delete</button>
+          <div className="absolute -top-10 left-0 right-0 flex items-center justify-center gap-1">
+            <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="px-2 py-1 rounded-lg bg-slate-800 text-white text-[10px] hover:bg-slate-700">✏️ Edit</button>
+            <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="px-2 py-1 rounded-lg bg-red-500/20 text-red-400 text-[10px] hover:bg-red-500/30">🗑️</button>
           </div>
         )}
       </motion.div>
@@ -854,16 +1129,16 @@ function StageNode({
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="edit-panel absolute top-full left-0 mt-4 w-80 bg-slate-900 border border-slate-700 rounded-2xl p-4 z-50 shadow-2xl"
+          className="edit-panel absolute top-full left-0 mt-2 w-72 bg-slate-900 border border-slate-700 rounded-xl p-3 z-50 shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="text-sm font-semibold text-white mb-4">Edit Stage</div>
+          <div className="text-xs font-semibold text-white mb-3">Edit Stage</div>
           
-          <div className="space-y-3">
+          <div className="space-y-2">
             <input
               value={stage.label}
               onChange={(e) => onUpdateStage({ label: e.target.value })}
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+              className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-xs"
               placeholder="Stage name"
             />
             
@@ -872,7 +1147,7 @@ function StageNode({
                 <button
                   key={c.id}
                   onClick={() => onUpdateStage({ color: c.id })}
-                  className={`h-8 rounded-lg bg-gradient-to-br ${c.bg} border-2 ${stage.color === c.id ? c.border : 'border-transparent'}`}
+                  className={`h-6 rounded-lg bg-gradient-to-br ${c.bg} border ${stage.color === c.id ? c.border : 'border-transparent'}`}
                 />
               ))}
             </div>
@@ -880,9 +1155,9 @@ function StageNode({
             <select
               value={stage.followUpMethod || ''}
               onChange={(e) => onUpdateStage({ followUpMethod: e.target.value as any || undefined })}
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+              className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-xs"
             >
-              <option value="">No follow-up method</option>
+              <option value="">No follow-up</option>
               {FOLLOW_UP_METHODS.map(f => (
                 <option key={f.id} value={f.id}>{f.icon} {f.label}</option>
               ))}
@@ -891,9 +1166,9 @@ function StageNode({
             <select
               value={stage.meetingType || ''}
               onChange={(e) => onUpdateStage({ meetingType: e.target.value as any || undefined })}
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+              className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-xs"
             >
-              <option value="">No meeting type</option>
+              <option value="">No meeting</option>
               {MEETING_TYPES.map(m => (
                 <option key={m.id} value={m.id}>{m.icon} {m.label}</option>
               ))}
@@ -902,9 +1177,9 @@ function StageNode({
             <select
               value={stage.emailTemplateId || ''}
               onChange={(e) => onUpdateStage({ emailTemplateId: e.target.value || undefined })}
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+              className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-xs"
             >
-              <option value="">No email template</option>
+              <option value="">No template</option>
               {emailTemplates.map(t => (
                 <option key={t.id} value={t.id}>✉️ {t.name}</option>
               ))}
