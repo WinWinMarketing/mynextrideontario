@@ -7,7 +7,8 @@ import { Lead, LeadStatus, deadReasonOptions, leadStatusOptions, ShowcaseVehicle
 import { formatDate } from '@/lib/utils';
 import { DEFAULT_TEMPLATES, EmailTemplate } from '@/lib/email';
 import { Logo, LogoIcon } from '@/components/Logo';
-import { FuturisticPipeline } from './FuturisticPipeline';
+import { FuturisticPipeline } from './pipeline';
+import { UploadLeads } from './components/UploadLeads';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -29,6 +30,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [templates] = useState<EmailTemplate[]>(DEFAULT_TEMPLATES);
   const [showcase, setShowcase] = useState<ShowcaseVehicle[]>([]);
   const [showcaseEnabled, setShowcaseEnabled] = useState(true);
+  const [showUploadLeads, setShowUploadLeads] = useState(false);
 
   const fetchLeads = useCallback(async () => {
     setIsLoading(true);
