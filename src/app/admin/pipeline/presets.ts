@@ -815,6 +815,112 @@ export const ALL_PRESETS: Preset[] = [
   },
 ];
 
+// ========================================
+// HOURGLASS FLOW: Centered branching layout
+// ========================================
+const HOURGLASS_PRESET: Preset = {
+  id: 'hourglass-flow',
+  name: '🔷 Hourglass Flow',
+  description: 'Elegant centered layout with New Lead in the middle branching outward like an hourglass. Clear visual hierarchy, easy to follow from center outward.',
+  icon: '🔷',
+  complexity: 'standard',
+  category: 'sales',
+  estimatedSetupTime: '15 minutes',
+  features: [
+    'Centered New Lead focus',
+    'Branching visual flow',
+    'Clean hourglass shape',
+    'Dead leads on left',
+    'Won deals on right',
+    'Easy to understand at a glance',
+  ],
+  stages: [
+    // CENTER - New Lead (the focal point)
+    stage('new-lead', '📥 NEW LEAD', 'new', 1200, 800, '📥', 'blue', { 
+      w: 500, h: 500, desc: 'All new leads start here',
+      inlineActions: [
+        smsAction('sms-welcome', 'Welcome SMS', 'Hi {{name}}, thanks for your interest! I\'ll be in touch shortly. - My Next Ride Ontario', true),
+        emailAction('email-welcome', 'Welcome Email', 'Welcome to My Next Ride!', 'Hi {{name}},\n\nThank you for reaching out! We\'re excited to help you find your perfect vehicle.\n\nI\'ll call you within the hour.\n\nBest,\nMy Next Ride Ontario', true),
+      ]
+    }),
+
+    // UPPER LEFT BRANCH - Contact attempts (fan out upward left)
+    stage('call-1', '📞 Call #1', 'working', 600, 400, '📞', 'cyan', { 
+      w: 380, h: 340,
+      inlineActions: [smsAction('sms-c1', 'Intro SMS', 'Hi {{name}}, tried calling. When\'s good to chat?')]
+    }),
+    stage('call-2', '📞 Call #2', 'working', 200, 200, '📞', 'yellow', { w: 360, h: 320 }),
+    stage('call-3', '📞 Call #3', 'working', 200, 600, '📞', 'orange', { w: 360, h: 320 }),
+
+    // UPPER RIGHT BRANCH - Engaged/Qualification (fan out upward right)  
+    stage('engaged', '🔥 Engaged', 'working', 1800, 400, '🔥', 'orange', { 
+      w: 400, h: 360,
+      inlineActions: [noteAction('note-engaged', 'Engagement Notes', 'Interest level: _____\nTimeline: _____\nBudget: _____')]
+    }),
+    stage('qualified', '✅ Qualified', 'working', 2200, 200, '✅', 'green', { w: 380, h: 340 }),
+    stage('meeting-set', '📅 Meeting Set', 'working', 2200, 600, '📅', 'purple', { w: 380, h: 340 }),
+
+    // LOWER LEFT BRANCH - Dead leads (fan out downward left)
+    stage('dead-no-response', '📵 No Response', 'dead', 200, 1000, '📵', 'red', { w: 360, h: 320, dead: 'no-contact' }),
+    stage('dead-not-interested', '👎 Not Interested', 'dead', 200, 1400, '👎', 'red', { w: 360, h: 320, dead: 'not-interested' }),
+    stage('dead-other', '💀 Other', 'dead', 600, 1200, '💀', 'slate', { w: 360, h: 320, dead: 'declined' }),
+
+    // LOWER RIGHT BRANCH - Closing/Won (fan out downward right)
+    stage('proposal', '📋 Proposal', 'approval', 1800, 1200, '📋', 'emerald', { 
+      w: 400, h: 360,
+      inlineActions: [emailAction('email-proposal', 'Send Proposal', 'Your Vehicle Proposal', 'Hi {{name}},\n\nAttached is your personalized proposal...\n\nBest,\nMy Next Ride Ontario')]
+    }),
+    stage('negotiation', '💬 Negotiation', 'approval', 2200, 1000, '💬', 'yellow', { w: 380, h: 340 }),
+    stage('won', '🏆 WON!', 'approval', 2200, 1400, '🏆', 'emerald', { 
+      w: 420, h: 400,
+      inlineActions: [
+        smsAction('sms-congrats', 'Congrats SMS', '🎉 Congrats {{name}}! Enjoy your new vehicle!', true),
+        emailAction('email-congrats', 'Congrats Email', 'Congratulations!', 'Hi {{name}},\n\n🎉 Congratulations on your new vehicle!\n\nThank you for choosing us.\n\nBest,\nMy Next Ride Ontario', true),
+      ]
+    }),
+  ],
+  messageNodes: [
+    msg('msg-welcome', 'email', '✉️ Auto Welcome', '✉️', 1200, 400, 'blue', 'Automatic welcome email', { auto: true, linked: ['new-lead'] }),
+    msg('msg-follow', 'sms', '💬 Follow-up', '💬', 600, 800, 'cyan', 'Follow-up SMS after no answer', { auto: true, delay: delay(24, 'hours') }),
+    msg('msg-proposal', 'email', '📋 Proposal Email', '📋', 1800, 800, 'emerald', 'Send proposal details', { linked: ['proposal'] }),
+  ],
+  connections: [
+    // From center outward - upper branches
+    conn('new-lead', 'call-1'),
+    conn('new-lead', 'engaged'),
+    conn('call-1', 'call-2'),
+    conn('call-1', 'call-3'),
+    conn('engaged', 'qualified'),
+    conn('engaged', 'meeting-set'),
+    
+    // From center outward - lower branches  
+    conn('new-lead', 'dead-other', 'stage', 'stage', { dashed: true }),
+    conn('call-3', 'dead-no-response', 'stage', 'stage', { dashed: true }),
+    conn('call-2', 'dead-not-interested', 'stage', 'stage', { dashed: true }),
+    
+    conn('new-lead', 'proposal'),
+    conn('qualified', 'proposal'),
+    conn('meeting-set', 'proposal'),
+    conn('proposal', 'negotiation'),
+    conn('negotiation', 'won'),
+    
+    // Message connections
+    conn('new-lead', 'msg-welcome', 'stage', 'message'),
+    conn('call-1', 'msg-follow', 'stage', 'message'),
+    conn('proposal', 'msg-proposal', 'stage', 'message'),
+  ],
+  labels: [
+    lbl('lbl-center', '⭐ START HERE', 1200, 700, 32, '#3b82f6'),
+    lbl('lbl-contact', 'CONTACT', 400, 100, 28, '#06b6d4'),
+    lbl('lbl-qualify', 'QUALIFY', 2000, 100, 28, '#22c55e'),
+    lbl('lbl-dead', 'DEAD LEADS', 200, 850, 24, '#ef4444'),
+    lbl('lbl-close', 'CLOSING', 2000, 850, 28, '#10b981'),
+  ],
+};
+
+// Add hourglass to presets array
+ALL_PRESETS.push(HOURGLASS_PRESET);
+
 export const PRESET_CATEGORIES = [
   { id: 'all', label: 'All Presets', icon: '📁' },
   { id: 'automotive', label: 'Automotive', icon: '🚗' },
