@@ -1,85 +1,335 @@
-// Node Templates Library - Custom Node is FIRST
-import { NodeTemplate, TemplateCategory, DEFAULT_CONTACT_SETTINGS } from './types';
-import { LeadStatus } from '@/lib/validation';
+// Comprehensive Templates Library
+export interface MessageTemplate {
+  id: string;
+  category: 'email' | 'sms' | 'call' | 'meeting' | 'notification';
+  useCase: string;
+  name: string;
+  subject?: string;
+  message: string;
+  icon: string;
+  timing?: string;
+}
 
-// Template Categories - Custom is first
-export const TEMPLATE_CATEGORIES: { id: TemplateCategory; label: string; icon: string; description: string }[] = [
-  { id: 'custom', label: 'Custom', icon: '⚡', description: 'Build your own' },
-  { id: 'lead-stages', label: 'Lead Stages', icon: '📊', description: 'Basic pipeline stages' },
-  { id: 'communication', label: 'Communication', icon: '💬', description: 'Contact actions' },
-  { id: 'automation', label: 'Automation', icon: '⚙️', description: 'Auto-triggered actions' },
-  { id: 'conditionals', label: 'Conditionals', icon: '🔀', description: 'Branching logic' },
-  { id: 'advanced', label: 'Advanced', icon: '🚀', description: 'Power user nodes' },
+// ============ EMAIL TEMPLATES ============
+export const EMAIL_TEMPLATES: MessageTemplate[] = [
+  // Welcome / First Contact
+  { id: 'email-welcome-1', category: 'email', useCase: 'First Contact', name: 'Welcome - Warm', icon: '👋',
+    subject: 'Welcome to My Next Ride Ontario, {{name}}!',
+    message: `Hi {{name}},
+
+Thank you for reaching out! I'm excited to help you find your perfect vehicle.
+
+I noticed you're interested in a {{vehicle}}. With access to 17 lenders and a wide dealer network, we'll find options that fit your budget.
+
+I'll review your application and reach out within 24 hours with personalized options.
+
+Best regards,
+My Next Ride Ontario` },
+  
+  { id: 'email-welcome-2', category: 'email', useCase: 'First Contact', name: 'Welcome - Professional', icon: '💼',
+    subject: 'Your Vehicle Search - {{name}}',
+    message: `Dear {{name}},
+
+Thank you for your inquiry. We've received your application and our team is reviewing it now.
+
+Based on your requirements for a {{vehicle}}, we'll identify suitable options from our network.
+
+Expect to hear from us within 24 hours.
+
+Professional regards,
+My Next Ride Ontario Team` },
+
+  // Follow Up
+  { id: 'email-followup-24h', category: 'email', useCase: 'Follow Up', name: 'Follow Up - 24 Hours', icon: '🔄', timing: '24h',
+    subject: 'Quick update on your vehicle search',
+    message: `Hi {{name}},
+
+Just following up on my previous message about your vehicle search.
+
+I've been looking into options for the {{vehicle}} you mentioned and have a few possibilities.
+
+Would you have a few minutes for a quick call this week?
+
+Best,
+My Next Ride Ontario` },
+
+  { id: 'email-followup-48h', category: 'email', useCase: 'Follow Up', name: 'Follow Up - 48 Hours', icon: '📧', timing: '48h',
+    subject: 'Still looking for your {{vehicle}}?',
+    message: `Hey {{name}},
+
+I wanted to check back in - are you still searching for a {{vehicle}}?
+
+I have some new options that just came in that might be perfect for you.
+
+Let me know if you'd like to discuss!
+
+Cheers,
+My Next Ride Ontario` },
+
+  { id: 'email-followup-1week', category: 'email', useCase: 'Follow Up', name: 'Follow Up - 1 Week', icon: '📅', timing: '1 week',
+    subject: 'Checking in, {{name}}',
+    message: `Hi {{name}},
+
+It's been about a week since we connected. I wanted to see if anything has changed with your vehicle search.
+
+The market moves fast, and I may have new options that weren't available before.
+
+Would love to catch up when you have a moment.
+
+Best,
+My Next Ride Ontario` },
+
+  // Gentle Reminder
+  { id: 'email-gentle-1', category: 'email', useCase: 'Gentle Reminder', name: 'Gentle Check-In', icon: '💭',
+    subject: 'Just checking in...',
+    message: `Hi {{name}},
+
+Hope all is well! I just wanted to touch base and see how your vehicle search is going.
+
+No pressure at all - just wanted you to know I'm here if you need anything.
+
+Take care,
+My Next Ride Ontario` },
+
+  { id: 'email-gentle-2', category: 'email', useCase: 'Gentle Reminder', name: 'Still Here to Help', icon: '🤝',
+    subject: 'Still here when you need us',
+    message: `Hey {{name}},
+
+I know things can get busy, so I just wanted to send a quick note.
+
+Whenever you're ready to continue your vehicle search, I'm here to help. No rush!
+
+Best wishes,
+My Next Ride Ontario` },
+
+  // Closing / Ready to Buy
+  { id: 'email-closing-1', category: 'email', useCase: 'Closing', name: 'Found Your Match!', icon: '🎯',
+    subject: 'Great news about your {{vehicle}}!',
+    message: `Hi {{name}},
+
+I have some exciting news! I've found a {{vehicle}} that matches exactly what you're looking for.
+
+Here are the details:
+- Vehicle: {{vehicle}}
+- Financing: Options starting from {{budget}}/month
+- Down Payment: Flexible
+
+Can we schedule a call or meeting to discuss next steps?
+
+Best,
+My Next Ride Ontario` },
+
+  { id: 'email-closing-2', category: 'email', useCase: 'Closing', name: 'Ready to Move Forward', icon: '🏆',
+    subject: 'Let\'s get you into your new vehicle!',
+    message: `{{name}},
+
+Everything is lined up and ready to go!
+
+I have your {{vehicle}} secured and the financing approved. All we need is to set up a time for you to come see it.
+
+When works best for you? I can make myself available.
+
+Let's make this happen!
+My Next Ride Ontario` },
+
+  // Re-engagement
+  { id: 'email-reengage-1', category: 'email', useCase: 'Re-engagement', name: 'Been a While', icon: '🔁',
+    subject: 'It\'s been a while, {{name}}!',
+    message: `Hi {{name}},
+
+It's been some time since we last connected about your vehicle search.
+
+I wanted to reach out because:
+- The market has new inventory
+- There may be better financing now
+- I have some options I think you'd love
+
+If you're still interested, I'd love to reconnect. No pressure!
+
+Best,
+My Next Ride Ontario` },
+
+  { id: 'email-reengage-2', category: 'email', useCase: 'Re-engagement', name: 'New Opportunities', icon: '✨',
+    subject: 'New options available, {{name}}',
+    message: `Hey {{name}},
+
+Just wanted to let you know we have some exciting new inventory that might be perfect for you.
+
+Things change fast in this market, and something that wasn't possible before might be now.
+
+Worth a quick chat?
+
+Cheers,
+My Next Ride Ontario` },
+
+  // Post Purchase
+  { id: 'email-postsale-1week', category: 'email', useCase: 'Post Purchase', name: '1 Week Check-In', icon: '🎉', timing: '1 week',
+    subject: 'How\'s your new {{vehicle}}?',
+    message: `Hi {{name}},
+
+Congratulations again on your new {{vehicle}}! 🎉
+
+I wanted to check in and see how everything is going. Any questions about your vehicle?
+
+If you ever need anything - service recommendations, questions about features - I'm always here to help.
+
+Enjoy the ride!
+My Next Ride Ontario` },
+
+  { id: 'email-postsale-1month', category: 'email', useCase: 'Post Purchase', name: '1 Month Check-In', icon: '📆', timing: '1 month',
+    subject: 'One month with your {{vehicle}}!',
+    message: `Hey {{name}},
+
+Can you believe it's been a month already?
+
+Just checking in to see how you're enjoying your {{vehicle}}. By now you've probably discovered all the features!
+
+If you have any friends or family looking for a vehicle, I'd love to help them too. 
+
+Drive safe!
+My Next Ride Ontario` },
+
+  { id: 'email-postsale-1year', category: 'email', useCase: 'Post Purchase', name: '1 Year Anniversary', icon: '🎂', timing: '1 year',
+    subject: 'Happy 1 Year Anniversary, {{name}}!',
+    message: `Hi {{name}},
+
+Happy anniversary with your {{vehicle}}! 🎂
+
+It's been a whole year already. I hope it's been treating you well!
+
+If you're ever thinking about upgrading, trading in, or know someone who needs a vehicle, I'm always here.
+
+Thank you for being a valued customer!
+
+Best,
+My Next Ride Ontario` },
 ];
 
-// Helper for contact methods
-const cm = (types: any[], overrides = {}) => types.map(type => ({
-  id: type, type, enabled: true, settings: { ...DEFAULT_CONTACT_SETTINGS, ...overrides },
-}));
+// ============ SMS TEMPLATES ============
+export const SMS_TEMPLATES: MessageTemplate[] = [
+  // First Contact
+  { id: 'sms-intro-1', category: 'sms', useCase: 'First Contact', name: 'Introduction', icon: '👋',
+    message: `Hi {{name}}, this is from My Next Ride Ontario! I saw your application for a {{vehicle}} and wanted to reach out. When's a good time to chat?` },
 
-// CUSTOM NODE - FIRST IN LIST (opens builder when clicked)
-export const CUSTOM_TEMPLATE: NodeTemplate = {
-  id: 'custom',
-  label: 'Custom Node',
-  icon: '⚡',
-  description: 'Create your own stage with custom colors, icons, and contact methods. Full control!',
-  category: 'custom',
-  preview: 'purple',
-  defaultStatusId: 'working' as LeadStatus,
-  contactMethods: [],
-  suggestedConnections: [],
+  { id: 'sms-intro-2', category: 'sms', useCase: 'First Contact', name: 'Quick Hello', icon: '📱',
+    message: `Hey {{name}}! Thanks for your inquiry. I have some great options for you. Can I call you today?` },
+
+  // Follow Up
+  { id: 'sms-followup-1', category: 'sms', useCase: 'Follow Up', name: 'Quick Check', icon: '🔄',
+    message: `Hi {{name}}, just checking in on your vehicle search. Any questions I can help with?` },
+
+  { id: 'sms-followup-2', category: 'sms', useCase: 'Follow Up', name: 'Missed Call', icon: '📞',
+    message: `Hey {{name}}, tried calling earlier. Let me know when you're free to chat about your {{vehicle}}!` },
+
+  { id: 'sms-followup-3', category: 'sms', useCase: 'Follow Up', name: 'Gentle Nudge', icon: '💭',
+    message: `{{name}}, still interested in finding your perfect vehicle? I'm here when you're ready 🚗` },
+
+  // Urgent
+  { id: 'sms-urgent-1', category: 'sms', useCase: 'Urgent', name: 'Hot Deal', icon: '🔥',
+    message: `{{name}}! Found something perfect for you - won't last long! Can you call me ASAP?` },
+
+  { id: 'sms-urgent-2', category: 'sms', useCase: 'Urgent', name: 'Time Sensitive', icon: '⚡',
+    message: `Hey {{name}}, I have a {{vehicle}} that just came in - exactly what you wanted. Available today!` },
+
+  // Meeting
+  { id: 'sms-meeting-confirm', category: 'sms', useCase: 'Meeting', name: 'Confirm Appointment', icon: '📅',
+    message: `Hi {{name}}, confirming our meeting tomorrow. Looking forward to showing you some great options!` },
+
+  { id: 'sms-meeting-reminder', category: 'sms', useCase: 'Meeting', name: 'Reminder', icon: '🔔',
+    message: `Reminder: We have an appointment today! See you soon 🚗` },
+
+  // Post Sale
+  { id: 'sms-postsale-thanks', category: 'sms', useCase: 'Post Sale', name: 'Thank You', icon: '🎉',
+    message: `{{name}}, congrats on your new ride! 🎉 If you ever need anything, don't hesitate to reach out!` },
+
+  { id: 'sms-postsale-referral', category: 'sms', useCase: 'Post Sale', name: 'Ask Referral', icon: '🤝',
+    message: `Hey {{name}}! How's the {{vehicle}} treating you? If you know anyone looking for a car, send them my way! 🙏` },
+];
+
+// ============ CALL SCRIPTS ============
+export const CALL_TEMPLATES: MessageTemplate[] = [
+  { id: 'call-intro', category: 'call', useCase: 'First Contact', name: 'Introduction Script', icon: '📞',
+    message: `"Hi {{name}}, this is [Your Name] from My Next Ride Ontario. I'm calling about your application for a {{vehicle}}. Do you have a few minutes to chat about what you're looking for?"` },
+
+  { id: 'call-followup', category: 'call', useCase: 'Follow Up', name: 'Follow Up Script', icon: '🔄',
+    message: `"Hey {{name}}, it's [Your Name] from My Next Ride. Just following up on our conversation about the {{vehicle}}. Have you had a chance to think it over?"` },
+
+  { id: 'call-qualify', category: 'call', useCase: 'Qualification', name: 'Qualifying Questions', icon: '✅',
+    message: `Key questions to ask:
+• What's your timeline for getting a vehicle?
+• Do you have a trade-in?
+• What's most important - price, features, or brand?
+• Have you been pre-approved anywhere else?` },
+
+  { id: 'call-objection', category: 'call', useCase: 'Objection Handling', name: 'Common Objections', icon: '💪',
+    message: `"Just looking" → "No problem! What would make you ready to move forward?"
+"Price too high" → "Let me see what creative financing options we have"
+"Need to think" → "Of course! What specific concerns can I address?"` },
+
+  { id: 'call-close', category: 'call', useCase: 'Closing', name: 'Closing Script', icon: '🎯',
+    message: `"{{name}}, based on everything we discussed, I think this {{vehicle}} is perfect for you. The financing works, the features match what you need. What do you say we get the paperwork started today?"` },
+];
+
+// ============ MEETING TEMPLATES ============
+export const MEETING_TEMPLATES: MessageTemplate[] = [
+  { id: 'meeting-video-invite', category: 'meeting', useCase: 'Video Call', name: 'Video Call Invite', icon: '📹',
+    message: `Hi {{name}}, I'd love to show you some options via video call. Here's my calendar link: [LINK]. Pick a time that works for you!` },
+
+  { id: 'meeting-office-invite', category: 'meeting', useCase: 'Office Visit', name: 'Office Visit Invite', icon: '🏢',
+    message: `{{name}}, would you like to come by our office? I can have several vehicles ready for you to look at. What time works best?` },
+
+  { id: 'meeting-testdrive', category: 'meeting', useCase: 'Test Drive', name: 'Test Drive Setup', icon: '🚗',
+    message: `Ready for a test drive, {{name}}? I've got the {{vehicle}} all set up. Just let me know when you can come by!` },
+
+  { id: 'meeting-phone', category: 'meeting', useCase: 'Phone Call', name: 'Schedule Call', icon: '📱',
+    message: `Let's set up a call, {{name}}. I'm free [TIME OPTIONS]. What works for you?` },
+
+  { id: 'meeting-prep', category: 'meeting', useCase: 'Preparation', name: 'What to Bring', icon: '📋',
+    message: `For your visit, please bring:
+• Driver's license
+• Proof of income (if financing)
+• Trade-in info (if applicable)
+• Down payment (if ready to purchase)
+
+See you soon!` },
+];
+
+// ============ NOTIFICATION TEMPLATES ============
+export const NOTIFICATION_TEMPLATES: MessageTemplate[] = [
+  { id: 'notif-call-reminder', category: 'notification', useCase: 'Reminder', name: 'Call Lead', icon: '📞',
+    message: `Time to call {{name}} - {{phone}}` },
+
+  { id: 'notif-followup-due', category: 'notification', useCase: 'Reminder', name: 'Follow Up Due', icon: '🔔',
+    message: `Follow up with {{name}} - been {{days}} days since last contact` },
+
+  { id: 'notif-meeting-reminder', category: 'notification', useCase: 'Reminder', name: 'Meeting Soon', icon: '📅',
+    message: `Meeting with {{name}} in 1 hour` },
+
+  { id: 'notif-hot-lead', category: 'notification', useCase: 'Alert', name: 'Hot Lead Alert', icon: '🔥',
+    message: `HOT LEAD: {{name}} just submitted an application - respond immediately!` },
+
+  { id: 'notif-email-opened', category: 'notification', useCase: 'Alert', name: 'Email Opened', icon: '👁️',
+    message: `{{name}} opened your email - good time to follow up!` },
+
+  { id: 'notif-no-response', category: 'notification', useCase: 'Alert', name: 'No Response', icon: '⚠️',
+    message: `{{name}} hasn't responded in 3 days - try different approach` },
+];
+
+// ============ ALL TEMPLATES ============
+export const ALL_TEMPLATES = {
+  email: EMAIL_TEMPLATES,
+  sms: SMS_TEMPLATES,
+  call: CALL_TEMPLATES,
+  meeting: MEETING_TEMPLATES,
+  notification: NOTIFICATION_TEMPLATES,
 };
 
-// ALL TEMPLATES
-export const ALL_TEMPLATES: NodeTemplate[] = [
-  // CUSTOM - Always first
-  CUSTOM_TEMPLATE,
-
-  // LEAD STAGES
-  { id: 'inbox', label: 'Inbox', icon: '📥', description: 'Entry point for new leads', category: 'lead-stages', preview: 'blue', defaultStatusId: 'new' as LeadStatus, contactMethods: cm(['email']), suggestedConnections: ['hot-lead', 'warm-lead'] },
-  { id: 'hot-lead', label: 'Hot Lead', icon: '🔥', description: 'High priority, ready to buy', category: 'lead-stages', preview: 'orange', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['phone', 'text'], { tone: 'urgent', goal: 'closing' }), suggestedConnections: ['closing'] },
-  { id: 'warm-lead', label: 'Warm Lead', icon: '☀️', description: 'Interested, needs nurturing', category: 'lead-stages', preview: 'yellow', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email', 'phone']), suggestedConnections: ['hot-lead', 'negotiating'] },
-  { id: 'cold-lead', label: 'Cold Lead', icon: '❄️', description: 'Low engagement, revisit later', category: 'lead-stages', preview: 'cyan', defaultStatusId: 'circle-back' as LeadStatus, contactMethods: cm(['email'], { followUpStyle: 'gentle' }), suggestedConnections: ['warm-lead'] },
-  { id: 'negotiating', label: 'Negotiating', icon: '🤝', description: 'Discussing terms', category: 'lead-stages', preview: 'purple', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['phone', 'meeting'], { goal: 'closing' }), suggestedConnections: ['closing'] },
-  { id: 'closing', label: 'Closing', icon: '🎯', description: 'Final stage, deal almost done', category: 'lead-stages', preview: 'green', defaultStatusId: 'approval' as LeadStatus, contactMethods: cm(['phone', 'meeting'], { tone: 'urgent', goal: 'closing' }), suggestedConnections: ['won'] },
-  { id: 'won', label: 'Won!', icon: '🏆', description: 'Successfully converted!', category: 'lead-stages', preview: 'green', defaultStatusId: 'approval' as LeadStatus, contactMethods: cm(['email'], { tone: 'friendly', goal: 'relationship' }), suggestedConnections: [] },
-  { id: 'lost', label: 'Lost', icon: '❌', description: 'Did not convert', category: 'lead-stages', preview: 'red', defaultStatusId: 'dead' as LeadStatus, contactMethods: [], suggestedConnections: [] },
-  { id: 'on-hold', label: 'On Hold', icon: '⏸️', description: 'Waiting on external factors', category: 'lead-stages', preview: 'slate', defaultStatusId: 'circle-back' as LeadStatus, contactMethods: cm(['reminder']), suggestedConnections: ['warm-lead'] },
-
-  // COMMUNICATION
-  { id: 'send-email', label: 'Send Email', icon: '✉️', description: 'Trigger email sequence', category: 'communication', preview: 'blue', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email']), suggestedConnections: ['wait-response'] },
-  { id: 'phone-call', label: 'Phone Call', icon: '📞', description: 'Schedule a call', category: 'communication', preview: 'green', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['phone'], { timing: 'scheduled' }), suggestedConnections: ['follow-up'] },
-  { id: 'text-message', label: 'Text Message', icon: '💬', description: 'Send SMS', category: 'communication', preview: 'cyan', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['text'], { tone: 'friendly' }), suggestedConnections: ['wait-response'] },
-  { id: 'whatsapp', label: 'WhatsApp', icon: '📱', description: 'WhatsApp message', category: 'communication', preview: 'green', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['whatsapp'], { tone: 'casual' }), suggestedConnections: ['wait-response'] },
-  { id: 'meeting', label: 'Schedule Meeting', icon: '📅', description: 'In-person or virtual', category: 'communication', preview: 'purple', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['meeting'], { timing: 'scheduled' }), suggestedConnections: ['closing'] },
-  { id: 'manual-touch', label: 'Manual Touch', icon: '✋', description: 'Manual action required', category: 'communication', preview: 'yellow', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['manual']), suggestedConnections: [] },
-
-  // AUTOMATION
-  { id: 'auto-followup', label: 'Auto Follow-Up', icon: '🔄', description: 'Automatic follow-up after delay', category: 'automation', preview: 'blue', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email'], { timing: 'delayed', delay: 48 }), suggestedConnections: ['wait-response'] },
-  { id: 'reminder', label: 'Reminder', icon: '⏰', description: 'Task reminder for agent', category: 'automation', preview: 'yellow', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['reminder']), suggestedConnections: ['manual-touch'] },
-  { id: 'wait-response', label: 'Wait Response', icon: '⏳', description: 'Pause and wait for reply', category: 'automation', preview: 'slate', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['auto-followup', 'escalate'] },
-  { id: 'escalate', label: 'Escalate', icon: '📢', description: 'Escalate to manager', category: 'automation', preview: 'red', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['reminder'], { tone: 'urgent' }), suggestedConnections: ['manual-touch'] },
-  { id: 'drip', label: 'Drip Campaign', icon: '💧', description: 'Add to email drip', category: 'automation', preview: 'blue', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email'], { frequency: 'custom', timing: 'delayed' }), suggestedConnections: ['warm-lead'] },
-
-  // CONDITIONALS
-  { id: 'if-opened', label: 'If Opened', icon: '👁️', description: 'Branch if email opened', category: 'conditionals', preview: 'cyan', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['phone-call'] },
-  { id: 'if-clicked', label: 'If Clicked', icon: '👆', description: 'Branch if link clicked', category: 'conditionals', preview: 'green', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['hot-lead'] },
-  { id: 'if-replied', label: 'If Replied', icon: '💬', description: 'Branch if lead replied', category: 'conditionals', preview: 'green', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['negotiating'] },
-  { id: 'if-no-response', label: 'No Response', icon: '🔇', description: 'Branch if no reply', category: 'conditionals', preview: 'orange', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['auto-followup', 'cold-lead'] },
-  { id: 'delay', label: 'Delay', icon: '⏰', description: 'Wait specific time', category: 'conditionals', preview: 'slate', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: [] },
-  { id: 'ab-split', label: 'A/B Split', icon: '🔀', description: 'Split traffic for testing', category: 'conditionals', preview: 'purple', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: [] },
-
-  // ADVANCED
-  { id: 're-engage', label: 'Re-Engage', icon: '🔄', description: 'Win-back campaign', category: 'advanced', preview: 'purple', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email'], { followUpStyle: 'gentle', goal: 'nurturing' }), suggestedConnections: ['warm-lead'] },
-  { id: 'archive', label: 'Archive', icon: '📦', description: 'Archive for later', category: 'advanced', preview: 'slate', defaultStatusId: 'dead' as LeadStatus, contactMethods: [], suggestedConnections: ['re-engage'] },
-  { id: 'referral', label: 'Referral Ask', icon: '🎁', description: 'Ask for referrals', category: 'advanced', preview: 'green', defaultStatusId: 'approval' as LeadStatus, contactMethods: cm(['email'], { tone: 'friendly', goal: 'relationship' }), suggestedConnections: [] },
-  { id: 'upsell', label: 'Upsell', icon: '📈', description: 'Upsell opportunity', category: 'advanced', preview: 'yellow', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email', 'phone'], { goal: 'closing' }), suggestedConnections: ['closing'] },
-  { id: 'proposal', label: 'Proposal', icon: '📋', description: 'Send formal proposal', category: 'advanced', preview: 'indigo', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email']), suggestedConnections: ['closing'] },
-  { id: 'qualify', label: 'Qualification', icon: '✅', description: 'Qualify lead', category: 'advanced', preview: 'green', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['hot-lead', 'warm-lead', 'cold-lead'] },
-  { id: 'disqualify', label: 'Disqualified', icon: '🚫', description: 'Does not meet criteria', category: 'advanced', preview: 'red', defaultStatusId: 'dead' as LeadStatus, contactMethods: [], suggestedConnections: [] },
+export const TEMPLATE_CATEGORIES = [
+  { id: 'email', label: 'Email', icon: '✉️', count: EMAIL_TEMPLATES.length },
+  { id: 'sms', label: 'SMS', icon: '💬', count: SMS_TEMPLATES.length },
+  { id: 'call', label: 'Call Scripts', icon: '📞', count: CALL_TEMPLATES.length },
+  { id: 'meeting', label: 'Meeting', icon: '📅', count: MEETING_TEMPLATES.length },
+  { id: 'notification', label: 'Alerts', icon: '🔔', count: NOTIFICATION_TEMPLATES.length },
 ];
 
-// Get templates by category
-export function getTemplatesByCategory(category: TemplateCategory): NodeTemplate[] {
-  return ALL_TEMPLATES.filter(t => t.category === category);
-}
+export const USE_CASES = ['First Contact', 'Follow Up', 'Gentle Reminder', 'Urgent', 'Closing', 'Re-engagement', 'Post Purchase', 'Meeting', 'Qualification', 'Objection Handling', 'Reminder', 'Alert', 'Post Sale'];
