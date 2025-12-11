@@ -3,8 +3,26 @@ import { verifyAdminAndCreateSession } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { password } = body;
+    let password: string | null = null;
+
+    // Try JSON first
+    try {
+      const json = await request.json();
+      password = json?.password ?? null;
+    } catch {
+      // ignore JSON parse errors
+    }
+
+    // Fallback to form data if JSON missing/empty
+    if (!password) {
+      try {
+        const form = await request.formData();
+        const maybe = form.get('password');
+        if (typeof maybe === 'string') password = maybe;
+      } catch {
+        // ignore
+      }
+    }
 
     if (!password) {
       return NextResponse.json(
@@ -31,4 +49,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
 

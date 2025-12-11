@@ -31,10 +31,11 @@ export default function AdminPage() {
     setError(null);
 
     try {
+      const pwd = password.trim();
       const response = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password: pwd }),
       });
 
       if (response.ok) {
@@ -116,4 +117,5 @@ export default function AdminPage() {
   // Authenticated - show dashboard
   return <AdminDashboard onLogout={handleLogout} />;
 }
+
 
