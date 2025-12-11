@@ -1,607 +1,85 @@
-// Node Templates Library
-import { NodeTemplate, TemplateCategory } from './types';
+// Node Templates Library - Custom Node is FIRST
+import { NodeTemplate, TemplateCategory, DEFAULT_CONTACT_SETTINGS } from './types';
 import { LeadStatus } from '@/lib/validation';
 
-// Template Categories
+// Template Categories - Custom is first
 export const TEMPLATE_CATEGORIES: { id: TemplateCategory; label: string; icon: string; description: string }[] = [
+  { id: 'custom', label: 'Custom', icon: '⚡', description: 'Build your own' },
   { id: 'lead-stages', label: 'Lead Stages', icon: '📊', description: 'Basic pipeline stages' },
   { id: 'communication', label: 'Communication', icon: '💬', description: 'Contact actions' },
   { id: 'automation', label: 'Automation', icon: '⚙️', description: 'Auto-triggered actions' },
-  { id: 'segmentation', label: 'Segmentation', icon: '🎯', description: 'Lead categorization' },
   { id: 'conditionals', label: 'Conditionals', icon: '🔀', description: 'Branching logic' },
-  { id: 'contact-methods', label: 'Contact Methods', icon: '📞', description: 'Multi-channel outreach' },
-  { id: 'advanced', label: 'Advanced', icon: '⚡', description: 'Power user nodes' },
+  { id: 'advanced', label: 'Advanced', icon: '🚀', description: 'Power user nodes' },
 ];
 
-// Default contact method settings
-const defaultMethodSettings = {
-  timing: 'immediate' as const,
-  frequency: 'once' as const,
-  maxPerDay: 3,
-  followUpStyle: 'moderate' as const,
-  tone: 'professional' as const,
-  goal: 'nurturing' as const,
+// Helper for contact methods
+const cm = (types: any[], overrides = {}) => types.map(type => ({
+  id: type, type, enabled: true, settings: { ...DEFAULT_CONTACT_SETTINGS, ...overrides },
+}));
+
+// CUSTOM NODE - FIRST IN LIST (opens builder when clicked)
+export const CUSTOM_TEMPLATE: NodeTemplate = {
+  id: 'custom',
+  label: 'Custom Node',
+  icon: '⚡',
+  description: 'Create your own stage with custom colors, icons, and contact methods. Full control!',
+  category: 'custom',
+  preview: 'purple',
+  defaultStatusId: 'working' as LeadStatus,
+  contactMethods: [],
+  suggestedConnections: [],
 };
 
-// LEAD STAGE TEMPLATES
-export const LEAD_STAGE_TEMPLATES: NodeTemplate[] = [
-  {
-    id: 'inbox',
-    label: 'Inbox',
-    icon: '📥',
-    description: 'Where new leads arrive. First entry point for all incoming leads.',
-    category: 'lead-stages',
-    preview: 'blue',
-    defaultStatusId: 'new' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: defaultMethodSettings },
-    ],
-    suggestedConnections: ['hot-lead', 'warm-lead', 'qualify'],
-  },
-  {
-    id: 'hot-lead',
-    label: 'Hot Lead',
-    icon: '🔥',
-    description: 'High priority leads ready to buy. Immediate attention required.',
-    category: 'lead-stages',
-    preview: 'orange',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'phone', type: 'phone', enabled: true, settings: { ...defaultMethodSettings, timing: 'immediate' as const, tone: 'urgent' as const, goal: 'closing' as const } },
-      { id: 'email', type: 'email', enabled: true, settings: defaultMethodSettings },
-    ],
-    suggestedConnections: ['negotiating', 'closing'],
-  },
-  {
-    id: 'warm-lead',
-    label: 'Warm Lead',
-    icon: '☀️',
-    description: 'Interested leads that need nurturing. Good potential.',
-    category: 'lead-stages',
-    preview: 'yellow',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: defaultMethodSettings },
-      { id: 'phone', type: 'phone', enabled: true, settings: { ...defaultMethodSettings, timing: 'delayed' as const, delay: 24 } },
-    ],
-    suggestedConnections: ['hot-lead', 'negotiating', 'follow-up'],
-  },
-  {
-    id: 'cold-lead',
-    label: 'Cold Lead',
-    icon: '❄️',
-    description: 'Low engagement leads. Long-term nurture required.',
-    category: 'lead-stages',
-    preview: 'cyan',
-    defaultStatusId: 'circle-back' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: { ...defaultMethodSettings, timing: 'delayed' as const, delay: 72, followUpStyle: 'gentle' as const } },
-    ],
-    suggestedConnections: ['warm-lead', 'archive'],
-  },
-  {
-    id: 'negotiating',
-    label: 'Negotiating',
-    icon: '🤝',
-    description: 'Discussing terms and details. Active negotiation phase.',
-    category: 'lead-stages',
-    preview: 'purple',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'phone', type: 'phone', enabled: true, settings: { ...defaultMethodSettings, goal: 'closing' as const } },
-      { id: 'email', type: 'email', enabled: true, settings: defaultMethodSettings },
-      { id: 'meeting', type: 'meeting', enabled: true, settings: { ...defaultMethodSettings, timing: 'scheduled' as const } },
-    ],
-    suggestedConnections: ['closing', 'proposal'],
-  },
-  {
-    id: 'closing',
-    label: 'Closing',
-    icon: '🎯',
-    description: 'Final stage before conversion. Deal is almost done.',
-    category: 'lead-stages',
-    preview: 'green',
-    defaultStatusId: 'approval' as LeadStatus,
-    contactMethods: [
-      { id: 'phone', type: 'phone', enabled: true, settings: { ...defaultMethodSettings, tone: 'urgent' as const, goal: 'closing' as const } },
-      { id: 'meeting', type: 'meeting', enabled: true, settings: { ...defaultMethodSettings, timing: 'scheduled' as const } },
-    ],
-    suggestedConnections: ['won', 'lost'],
-  },
-  {
-    id: 'won',
-    label: 'Won',
-    icon: '🏆',
-    description: 'Successfully converted! Celebration time.',
-    category: 'lead-stages',
-    preview: 'green',
-    defaultStatusId: 'approval' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: { ...defaultMethodSettings, tone: 'friendly' as const, goal: 'relationship' as const } },
-    ],
-    suggestedConnections: [],
-  },
-  {
-    id: 'lost',
-    label: 'Lost',
-    icon: '❌',
-    description: 'Did not convert. Archive or re-engage later.',
-    category: 'lead-stages',
-    preview: 'red',
-    defaultStatusId: 'dead' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['cold-lead', 're-engage'],
-  },
-  {
-    id: 'on-hold',
-    label: 'On Hold',
-    icon: '⏸️',
-    description: 'Waiting on external factors. Temporary pause.',
-    category: 'lead-stages',
-    preview: 'grey',
-    defaultStatusId: 'circle-back' as LeadStatus,
-    contactMethods: [
-      { id: 'reminder', type: 'reminder', enabled: true, settings: { ...defaultMethodSettings, timing: 'scheduled' as const } },
-    ],
-    suggestedConnections: ['warm-lead', 'negotiating'],
-  },
-];
-
-// COMMUNICATION TEMPLATES
-export const COMMUNICATION_TEMPLATES: NodeTemplate[] = [
-  {
-    id: 'send-email',
-    label: 'Send Email',
-    icon: '✉️',
-    description: 'Trigger an email sequence or single email.',
-    category: 'communication',
-    preview: 'blue',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: defaultMethodSettings },
-    ],
-    suggestedConnections: ['follow-up', 'wait-response'],
-  },
-  {
-    id: 'phone-call',
-    label: 'Phone Call',
-    icon: '📞',
-    description: 'Schedule or trigger a phone call action.',
-    category: 'communication',
-    preview: 'green',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'phone', type: 'phone', enabled: true, settings: { ...defaultMethodSettings, timing: 'scheduled' as const } },
-    ],
-    suggestedConnections: ['follow-up', 'negotiating'],
-  },
-  {
-    id: 'text-message',
-    label: 'Text Message',
-    icon: '💬',
-    description: 'Send SMS/text message to lead.',
-    category: 'communication',
-    preview: 'cyan',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'text', type: 'text', enabled: true, settings: { ...defaultMethodSettings, tone: 'friendly' as const } },
-    ],
-    suggestedConnections: ['follow-up', 'wait-response'],
-  },
-  {
-    id: 'whatsapp',
-    label: 'WhatsApp',
-    icon: '📱',
-    description: 'Send WhatsApp message for instant engagement.',
-    category: 'communication',
-    preview: 'green',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'whatsapp', type: 'whatsapp', enabled: true, settings: { ...defaultMethodSettings, tone: 'casual' as const } },
-    ],
-    suggestedConnections: ['follow-up', 'wait-response'],
-  },
-  {
-    id: 'schedule-meeting',
-    label: 'Schedule Meeting',
-    icon: '📅',
-    description: 'Set up an in-person or virtual meeting.',
-    category: 'communication',
-    preview: 'purple',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'meeting', type: 'meeting', enabled: true, settings: { ...defaultMethodSettings, timing: 'scheduled' as const } },
-    ],
-    suggestedConnections: ['negotiating', 'closing'],
-  },
-  {
-    id: 'manual-touchpoint',
-    label: 'Manual Touch',
-    icon: '✋',
-    description: 'Manual action required from agent.',
-    category: 'communication',
-    preview: 'yellow',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'manual', type: 'manual', enabled: true, settings: defaultMethodSettings },
-    ],
-    suggestedConnections: ['follow-up', 'closing'],
-  },
-];
-
-// AUTOMATION TEMPLATES
-export const AUTOMATION_TEMPLATES: NodeTemplate[] = [
-  {
-    id: 'auto-follow-up',
-    label: 'Auto Follow-Up',
-    icon: '🔄',
-    description: 'Automatic follow-up after set delay.',
-    category: 'automation',
-    preview: 'blue',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: { ...defaultMethodSettings, timing: 'delayed' as const, delay: 48 } },
-    ],
-    suggestedConnections: ['wait-response', 'escalate'],
-  },
-  {
-    id: 'reminder',
-    label: 'Task Reminder',
-    icon: '⏰',
-    description: 'Create a reminder for agent action.',
-    category: 'automation',
-    preview: 'yellow',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'reminder', type: 'reminder', enabled: true, settings: { ...defaultMethodSettings, timing: 'scheduled' as const } },
-    ],
-    suggestedConnections: ['manual-touchpoint', 'phone-call'],
-  },
-  {
-    id: 'wait-response',
-    label: 'Wait for Response',
-    icon: '⏳',
-    description: 'Pause and wait for lead response.',
-    category: 'automation',
-    preview: 'grey',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['auto-follow-up', 'escalate', 'archive'],
-  },
-  {
-    id: 'escalate',
-    label: 'Escalate',
-    icon: '📢',
-    description: 'Escalate to manager or senior agent.',
-    category: 'automation',
-    preview: 'red',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'reminder', type: 'reminder', enabled: true, settings: { ...defaultMethodSettings, tone: 'urgent' as const } },
-    ],
-    suggestedConnections: ['manual-touchpoint', 'phone-call'],
-  },
-  {
-    id: 'drip-campaign',
-    label: 'Drip Campaign',
-    icon: '💧',
-    description: 'Add to automated drip email sequence.',
-    category: 'automation',
-    preview: 'blue',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: { ...defaultMethodSettings, frequency: 'custom' as const, timing: 'delayed' as const } },
-    ],
-    suggestedConnections: ['warm-lead', 'wait-response'],
-  },
-  {
-    id: 'score-check',
-    label: 'Lead Score Check',
-    icon: '📊',
-    description: 'Check lead score and route accordingly.',
-    category: 'automation',
-    preview: 'purple',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['hot-lead', 'warm-lead', 'cold-lead'],
-  },
-];
-
-// SEGMENTATION TEMPLATES
-export const SEGMENTATION_TEMPLATES: NodeTemplate[] = [
-  {
-    id: 'qualify',
-    label: 'Qualification',
-    icon: '✅',
-    description: 'Qualify leads based on criteria.',
-    category: 'segmentation',
-    preview: 'green',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['hot-lead', 'warm-lead', 'disqualify'],
-  },
-  {
-    id: 'disqualify',
-    label: 'Disqualified',
-    icon: '🚫',
-    description: 'Lead does not meet criteria.',
-    category: 'segmentation',
-    preview: 'red',
-    defaultStatusId: 'dead' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['archive', 're-engage'],
-  },
-  {
-    id: 'segment-budget',
-    label: 'Budget Segment',
-    icon: '💰',
-    description: 'Segment by budget level.',
-    category: 'segmentation',
-    preview: 'yellow',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['high-value', 'standard-value'],
-  },
-  {
-    id: 'segment-timeline',
-    label: 'Timeline Segment',
-    icon: '📆',
-    description: 'Segment by purchase timeline.',
-    category: 'segmentation',
-    preview: 'blue',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['hot-lead', 'warm-lead', 'cold-lead'],
-  },
-  {
-    id: 'segment-source',
-    label: 'Source Segment',
-    icon: '🔗',
-    description: 'Segment by lead source.',
-    category: 'segmentation',
-    preview: 'purple',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['qualify', 'score-check'],
-  },
-];
-
-// CONDITIONAL TEMPLATES
-export const CONDITIONAL_TEMPLATES: NodeTemplate[] = [
-  {
-    id: 'if-opened',
-    label: 'If Opened',
-    icon: '👁️',
-    description: 'Branch if email was opened.',
-    category: 'conditionals',
-    preview: 'cyan',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['follow-up', 'phone-call'],
-  },
-  {
-    id: 'if-clicked',
-    label: 'If Clicked',
-    icon: '👆',
-    description: 'Branch if link was clicked.',
-    category: 'conditionals',
-    preview: 'green',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['hot-lead', 'phone-call'],
-  },
-  {
-    id: 'if-replied',
-    label: 'If Replied',
-    icon: '💬',
-    description: 'Branch if lead replied.',
-    category: 'conditionals',
-    preview: 'green',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['hot-lead', 'negotiating'],
-  },
-  {
-    id: 'if-no-response',
-    label: 'If No Response',
-    icon: '🔇',
-    description: 'Branch if no response after delay.',
-    category: 'conditionals',
-    preview: 'orange',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['auto-follow-up', 'cold-lead', 'archive'],
-  },
-  {
-    id: 'delay-branch',
-    label: 'Delay Branch',
-    icon: '⏰',
-    description: 'Wait specific time then branch.',
-    category: 'conditionals',
-    preview: 'grey',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['follow-up', 'escalate'],
-  },
-  {
-    id: 'ab-split',
-    label: 'A/B Split',
-    icon: '🔀',
-    description: 'Split traffic for testing.',
-    category: 'conditionals',
-    preview: 'purple',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['send-email', 'text-message'],
-  },
-];
-
-// CONTACT METHOD TEMPLATES
-export const CONTACT_METHOD_TEMPLATES: NodeTemplate[] = [
-  {
-    id: 'multi-channel',
-    label: 'Multi-Channel',
-    icon: '📡',
-    description: 'Contact via multiple channels simultaneously.',
-    category: 'contact-methods',
-    preview: 'purple',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: defaultMethodSettings },
-      { id: 'phone', type: 'phone', enabled: true, settings: { ...defaultMethodSettings, timing: 'delayed' as const, delay: 2 } },
-      { id: 'text', type: 'text', enabled: true, settings: { ...defaultMethodSettings, timing: 'delayed' as const, delay: 1 } },
-    ],
-    suggestedConnections: ['wait-response', 'follow-up'],
-  },
-  {
-    id: 'email-then-call',
-    label: 'Email → Call',
-    icon: '📧➡️📞',
-    description: 'Send email, then follow up with call.',
-    category: 'contact-methods',
-    preview: 'blue',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: defaultMethodSettings },
-      { id: 'phone', type: 'phone', enabled: true, settings: { ...defaultMethodSettings, timing: 'delayed' as const, delay: 24 } },
-    ],
-    suggestedConnections: ['wait-response', 'negotiating'],
-  },
-  {
-    id: 'text-first',
-    label: 'Text First',
-    icon: '💬',
-    description: 'Start with text, then escalate.',
-    category: 'contact-methods',
-    preview: 'cyan',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'text', type: 'text', enabled: true, settings: { ...defaultMethodSettings, tone: 'friendly' as const } },
-    ],
-    suggestedConnections: ['phone-call', 'send-email'],
-  },
-  {
-    id: 'warm-intro',
-    label: 'Warm Intro',
-    icon: '👋',
-    description: 'Gentle first contact sequence.',
-    category: 'contact-methods',
-    preview: 'yellow',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: { ...defaultMethodSettings, tone: 'friendly' as const, followUpStyle: 'gentle' as const } },
-    ],
-    suggestedConnections: ['warm-lead', 'follow-up'],
-  },
-  {
-    id: 'urgency-push',
-    label: 'Urgency Push',
-    icon: '🚨',
-    description: 'High urgency multi-channel contact.',
-    category: 'contact-methods',
-    preview: 'red',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'phone', type: 'phone', enabled: true, settings: { ...defaultMethodSettings, tone: 'urgent' as const, goal: 'urgency' as const } },
-      { id: 'text', type: 'text', enabled: true, settings: { ...defaultMethodSettings, tone: 'urgent' as const, goal: 'urgency' as const } },
-      { id: 'email', type: 'email', enabled: true, settings: { ...defaultMethodSettings, tone: 'urgent' as const, goal: 'urgency' as const } },
-    ],
-    suggestedConnections: ['closing', 'negotiating'],
-  },
-];
-
-// ADVANCED TEMPLATES
-export const ADVANCED_TEMPLATES: NodeTemplate[] = [
-  {
-    id: 're-engage',
-    label: 'Re-Engage',
-    icon: '🔄',
-    description: 'Win-back campaign for lost leads.',
-    category: 'advanced',
-    preview: 'purple',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: { ...defaultMethodSettings, followUpStyle: 'gentle' as const, goal: 'nurturing' as const } },
-    ],
-    suggestedConnections: ['warm-lead', 'lost'],
-  },
-  {
-    id: 'archive',
-    label: 'Archive',
-    icon: '📦',
-    description: 'Archive lead for future reference.',
-    category: 'advanced',
-    preview: 'grey',
-    defaultStatusId: 'dead' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: ['re-engage'],
-  },
-  {
-    id: 'referral-ask',
-    label: 'Referral Ask',
-    icon: '🎁',
-    description: 'Ask for referrals from converted leads.',
-    category: 'advanced',
-    preview: 'green',
-    defaultStatusId: 'approval' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: { ...defaultMethodSettings, tone: 'friendly' as const, goal: 'relationship' as const } },
-    ],
-    suggestedConnections: [],
-  },
-  {
-    id: 'upsell',
-    label: 'Upsell',
-    icon: '📈',
-    description: 'Upsell opportunity for existing customers.',
-    category: 'advanced',
-    preview: 'yellow',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: { ...defaultMethodSettings, goal: 'closing' as const } },
-      { id: 'phone', type: 'phone', enabled: true, settings: { ...defaultMethodSettings, timing: 'scheduled' as const } },
-    ],
-    suggestedConnections: ['negotiating', 'closing'],
-  },
-  {
-    id: 'proposal',
-    label: 'Proposal',
-    icon: '📋',
-    description: 'Send formal proposal or quote.',
-    category: 'advanced',
-    preview: 'blue',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [
-      { id: 'email', type: 'email', enabled: true, settings: { ...defaultMethodSettings, tone: 'professional' as const } },
-    ],
-    suggestedConnections: ['closing', 'negotiating'],
-  },
-  {
-    id: 'custom',
-    label: 'Custom Node',
-    icon: '⚡',
-    description: 'Create your own custom stage.',
-    category: 'advanced',
-    preview: 'purple',
-    defaultStatusId: 'working' as LeadStatus,
-    contactMethods: [],
-    suggestedConnections: [],
-  },
-];
-
-// Export all templates combined
+// ALL TEMPLATES
 export const ALL_TEMPLATES: NodeTemplate[] = [
-  ...LEAD_STAGE_TEMPLATES,
-  ...COMMUNICATION_TEMPLATES,
-  ...AUTOMATION_TEMPLATES,
-  ...SEGMENTATION_TEMPLATES,
-  ...CONDITIONAL_TEMPLATES,
-  ...CONTACT_METHOD_TEMPLATES,
-  ...ADVANCED_TEMPLATES,
+  // CUSTOM - Always first
+  CUSTOM_TEMPLATE,
+
+  // LEAD STAGES
+  { id: 'inbox', label: 'Inbox', icon: '📥', description: 'Entry point for new leads', category: 'lead-stages', preview: 'blue', defaultStatusId: 'new' as LeadStatus, contactMethods: cm(['email']), suggestedConnections: ['hot-lead', 'warm-lead'] },
+  { id: 'hot-lead', label: 'Hot Lead', icon: '🔥', description: 'High priority, ready to buy', category: 'lead-stages', preview: 'orange', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['phone', 'text'], { tone: 'urgent', goal: 'closing' }), suggestedConnections: ['closing'] },
+  { id: 'warm-lead', label: 'Warm Lead', icon: '☀️', description: 'Interested, needs nurturing', category: 'lead-stages', preview: 'yellow', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email', 'phone']), suggestedConnections: ['hot-lead', 'negotiating'] },
+  { id: 'cold-lead', label: 'Cold Lead', icon: '❄️', description: 'Low engagement, revisit later', category: 'lead-stages', preview: 'cyan', defaultStatusId: 'circle-back' as LeadStatus, contactMethods: cm(['email'], { followUpStyle: 'gentle' }), suggestedConnections: ['warm-lead'] },
+  { id: 'negotiating', label: 'Negotiating', icon: '🤝', description: 'Discussing terms', category: 'lead-stages', preview: 'purple', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['phone', 'meeting'], { goal: 'closing' }), suggestedConnections: ['closing'] },
+  { id: 'closing', label: 'Closing', icon: '🎯', description: 'Final stage, deal almost done', category: 'lead-stages', preview: 'green', defaultStatusId: 'approval' as LeadStatus, contactMethods: cm(['phone', 'meeting'], { tone: 'urgent', goal: 'closing' }), suggestedConnections: ['won'] },
+  { id: 'won', label: 'Won!', icon: '🏆', description: 'Successfully converted!', category: 'lead-stages', preview: 'green', defaultStatusId: 'approval' as LeadStatus, contactMethods: cm(['email'], { tone: 'friendly', goal: 'relationship' }), suggestedConnections: [] },
+  { id: 'lost', label: 'Lost', icon: '❌', description: 'Did not convert', category: 'lead-stages', preview: 'red', defaultStatusId: 'dead' as LeadStatus, contactMethods: [], suggestedConnections: [] },
+  { id: 'on-hold', label: 'On Hold', icon: '⏸️', description: 'Waiting on external factors', category: 'lead-stages', preview: 'slate', defaultStatusId: 'circle-back' as LeadStatus, contactMethods: cm(['reminder']), suggestedConnections: ['warm-lead'] },
+
+  // COMMUNICATION
+  { id: 'send-email', label: 'Send Email', icon: '✉️', description: 'Trigger email sequence', category: 'communication', preview: 'blue', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email']), suggestedConnections: ['wait-response'] },
+  { id: 'phone-call', label: 'Phone Call', icon: '📞', description: 'Schedule a call', category: 'communication', preview: 'green', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['phone'], { timing: 'scheduled' }), suggestedConnections: ['follow-up'] },
+  { id: 'text-message', label: 'Text Message', icon: '💬', description: 'Send SMS', category: 'communication', preview: 'cyan', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['text'], { tone: 'friendly' }), suggestedConnections: ['wait-response'] },
+  { id: 'whatsapp', label: 'WhatsApp', icon: '📱', description: 'WhatsApp message', category: 'communication', preview: 'green', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['whatsapp'], { tone: 'casual' }), suggestedConnections: ['wait-response'] },
+  { id: 'meeting', label: 'Schedule Meeting', icon: '📅', description: 'In-person or virtual', category: 'communication', preview: 'purple', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['meeting'], { timing: 'scheduled' }), suggestedConnections: ['closing'] },
+  { id: 'manual-touch', label: 'Manual Touch', icon: '✋', description: 'Manual action required', category: 'communication', preview: 'yellow', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['manual']), suggestedConnections: [] },
+
+  // AUTOMATION
+  { id: 'auto-followup', label: 'Auto Follow-Up', icon: '🔄', description: 'Automatic follow-up after delay', category: 'automation', preview: 'blue', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email'], { timing: 'delayed', delay: 48 }), suggestedConnections: ['wait-response'] },
+  { id: 'reminder', label: 'Reminder', icon: '⏰', description: 'Task reminder for agent', category: 'automation', preview: 'yellow', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['reminder']), suggestedConnections: ['manual-touch'] },
+  { id: 'wait-response', label: 'Wait Response', icon: '⏳', description: 'Pause and wait for reply', category: 'automation', preview: 'slate', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['auto-followup', 'escalate'] },
+  { id: 'escalate', label: 'Escalate', icon: '📢', description: 'Escalate to manager', category: 'automation', preview: 'red', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['reminder'], { tone: 'urgent' }), suggestedConnections: ['manual-touch'] },
+  { id: 'drip', label: 'Drip Campaign', icon: '💧', description: 'Add to email drip', category: 'automation', preview: 'blue', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email'], { frequency: 'custom', timing: 'delayed' }), suggestedConnections: ['warm-lead'] },
+
+  // CONDITIONALS
+  { id: 'if-opened', label: 'If Opened', icon: '👁️', description: 'Branch if email opened', category: 'conditionals', preview: 'cyan', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['phone-call'] },
+  { id: 'if-clicked', label: 'If Clicked', icon: '👆', description: 'Branch if link clicked', category: 'conditionals', preview: 'green', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['hot-lead'] },
+  { id: 'if-replied', label: 'If Replied', icon: '💬', description: 'Branch if lead replied', category: 'conditionals', preview: 'green', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['negotiating'] },
+  { id: 'if-no-response', label: 'No Response', icon: '🔇', description: 'Branch if no reply', category: 'conditionals', preview: 'orange', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['auto-followup', 'cold-lead'] },
+  { id: 'delay', label: 'Delay', icon: '⏰', description: 'Wait specific time', category: 'conditionals', preview: 'slate', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: [] },
+  { id: 'ab-split', label: 'A/B Split', icon: '🔀', description: 'Split traffic for testing', category: 'conditionals', preview: 'purple', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: [] },
+
+  // ADVANCED
+  { id: 're-engage', label: 'Re-Engage', icon: '🔄', description: 'Win-back campaign', category: 'advanced', preview: 'purple', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email'], { followUpStyle: 'gentle', goal: 'nurturing' }), suggestedConnections: ['warm-lead'] },
+  { id: 'archive', label: 'Archive', icon: '📦', description: 'Archive for later', category: 'advanced', preview: 'slate', defaultStatusId: 'dead' as LeadStatus, contactMethods: [], suggestedConnections: ['re-engage'] },
+  { id: 'referral', label: 'Referral Ask', icon: '🎁', description: 'Ask for referrals', category: 'advanced', preview: 'green', defaultStatusId: 'approval' as LeadStatus, contactMethods: cm(['email'], { tone: 'friendly', goal: 'relationship' }), suggestedConnections: [] },
+  { id: 'upsell', label: 'Upsell', icon: '📈', description: 'Upsell opportunity', category: 'advanced', preview: 'yellow', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email', 'phone'], { goal: 'closing' }), suggestedConnections: ['closing'] },
+  { id: 'proposal', label: 'Proposal', icon: '📋', description: 'Send formal proposal', category: 'advanced', preview: 'indigo', defaultStatusId: 'working' as LeadStatus, contactMethods: cm(['email']), suggestedConnections: ['closing'] },
+  { id: 'qualify', label: 'Qualification', icon: '✅', description: 'Qualify lead', category: 'advanced', preview: 'green', defaultStatusId: 'working' as LeadStatus, contactMethods: [], suggestedConnections: ['hot-lead', 'warm-lead', 'cold-lead'] },
+  { id: 'disqualify', label: 'Disqualified', icon: '🚫', description: 'Does not meet criteria', category: 'advanced', preview: 'red', defaultStatusId: 'dead' as LeadStatus, contactMethods: [], suggestedConnections: [] },
 ];
 
 // Get templates by category
 export function getTemplatesByCategory(category: TemplateCategory): NodeTemplate[] {
   return ALL_TEMPLATES.filter(t => t.category === category);
 }
-

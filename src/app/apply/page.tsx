@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { Button, Input, Select, FileUpload } from '@/components/ui';
+import { Logo } from '@/components/Logo';
 import {
   leadApplicationSchema,
   LeadApplicationData,
