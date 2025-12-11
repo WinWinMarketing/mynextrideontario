@@ -9,6 +9,7 @@ import {
   MAX_PROFILES, STORAGE_KEY, ACTIVE_PROFILE_KEY, StageColor, PipelineAnalytics
 } from './types';
 import { ALL_PRESETS, Preset, PRESET_CATEGORIES } from './presets';
+import { EMAIL_TEMPLATES, SMS_TEMPLATES, CALL_TEMPLATES, ALL_TEMPLATES, MessageTemplate } from './templates';
 
 interface FuturisticPipelineProps {
   leads: Lead[];
@@ -81,6 +82,10 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [uploadData, setUploadData] = useState<string>('');
   const [uploadParsed, setUploadParsed] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Template Selection for Actions
+  const [selectedTemplateType, setSelectedTemplateType] = useState<'email' | 'sms' | 'call'>('email');
+  const [selectedTemplate, setSelectedTemplate] = useState<MessageTemplate | null>(null);
 
   // ============ SAVE STATE ============
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -459,7 +464,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   };
   
-  // ============ AUTO LAYOUT - Hourglass pattern ============
+  // ============ AUTO LAYOUT - Center-focused hourglass pattern ============
   const autoLayoutHourglass = () => {
     const deadStages = stages.filter(s => s.statusId === 'dead');
     const newStages = stages.filter(s => s.statusId === 'new');
@@ -467,59 +472,92 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     const approvalStages = stages.filter(s => s.statusId === 'approval');
     const circleBackStages = stages.filter(s => s.statusId === 'circle-back');
     
-    const centerX = 1500;
-    const centerY = 800;
-    const spacing = 500;
+    // Center point - where NEW LEAD sits (big focal point)
+    const centerX = 1200;
+    const centerY = 700;
     
     setStages(prev => prev.map(s => {
-      // Dead leads - far left, stacked vertically
-      if (s.statusId === 'dead') {
-        const idx = deadStages.findIndex(d => d.id === s.id);
-        return { ...s, x: 100, y: 100 + idx * 420 };
-      }
-      // New leads - center
+      // NEW LEAD - Center, big, focal point
       if (s.statusId === 'new') {
         const idx = newStages.findIndex(n => n.id === s.id);
-        return { ...s, x: centerX - s.width/2, y: centerY - s.height/2 + idx * 200 };
+        // Make it larger
+        return { 
+          ...s, 
+          x: centerX - 230, 
+          y: centerY - 230 + idx * 100,
+          width: 460,
+          height: 460
+        };
       }
-      // Working - fan out to upper right
+      
+      // DEAD LEADS - Far left, stacked vertically (negative funnel)
+      if (s.statusId === 'dead') {
+        const idx = deadStages.findIndex(d => d.id === s.id);
+        const totalDead = deadStages.length;
+        const startY = centerY - ((totalDead - 1) * 200);
+        return { 
+          ...s, 
+          x: 80, 
+          y: startY + idx * 400,
+          width: 340,
+          height: 320
+        };
+      }
+      
+      // WORKING - Branch out to upper-right and lower-right (positive funnel)
       if (s.statusId === 'working') {
         const idx = workingStages.findIndex(w => w.id === s.id);
-        const angle = -45 + (idx * 30);
-        const dist = spacing + (idx * 150);
+        const total = workingStages.length;
+        // Spread vertically on right side, branching out
+        const xBase = centerX + 600 + Math.floor(idx / 3) * 450;
+        const yOffset = (idx % 3 - 1) * 380;
         return { 
           ...s, 
-          x: centerX + Math.cos(angle * Math.PI / 180) * dist - s.width/2,
-          y: centerY + Math.sin(angle * Math.PI / 180) * dist - s.height/2
+          x: xBase,
+          y: centerY + yOffset,
+          width: 380,
+          height: 340
         };
       }
-      // Approval - fan out to lower right  
+      
+      // APPROVAL/WON - Far right, converging (success funnel)
       if (s.statusId === 'approval') {
         const idx = approvalStages.findIndex(a => a.id === s.id);
-        const angle = 15 + (idx * 25);
-        const dist = spacing + 200 + (idx * 150);
+        const total = approvalStages.length;
+        const xBase = centerX + 1400 + idx * 450;
+        const yOffset = idx === total - 1 ? 0 : (idx % 2 === 0 ? -180 : 180);
         return { 
           ...s, 
-          x: centerX + Math.cos(angle * Math.PI / 180) * dist - s.width/2,
-          y: centerY + Math.sin(angle * Math.PI / 180) * dist - s.height/2
+          x: xBase,
+          y: centerY + yOffset,
+          width: idx === total - 1 ? 440 : 380, // Last one (WON) is bigger
+          height: idx === total - 1 ? 420 : 340
         };
       }
-      // Circle back - lower left
+      
+      // CIRCLE BACK - Below center-left
       if (s.statusId === 'circle-back') {
         const idx = circleBackStages.findIndex(c => c.id === s.id);
-        return { ...s, x: 600, y: centerY + 400 + idx * 400 };
+        return { 
+          ...s, 
+          x: centerX - 400 + idx * 100, 
+          y: centerY + 500 + idx * 150,
+          width: 360,
+          height: 320
+        };
       }
+      
       return s;
     }));
     
-    // Also reposition message nodes
+    // Position message nodes as branches from the main flow
     setMessageNodes(prev => prev.map((m, idx) => ({
       ...m,
-      x: centerX + 800 + (idx % 3) * 400,
-      y: 200 + Math.floor(idx / 3) * 300
+      x: centerX + 1800 + (idx % 2) * 350,
+      y: 200 + Math.floor(idx / 2) * 280
     })));
     
-    setSaveNotification('✨ Auto-layout applied!');
+    setSaveNotification('✨ Hourglass layout applied!');
     setTimeout(() => setSaveNotification(null), 2000);
     setHasUnsavedChanges(true);
   };
@@ -751,113 +789,113 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
             </div>
           )}
 
-          {/* MESSAGES/ACTIONS TAB - Deep Template Integration */}
+          {/* ACTIONS TAB - Template Integration */}
           {sidebarTab === 'messages' && (
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-white">Action Nodes</h3>
-                <span className="text-xs text-slate-500">{messageNodes.length} active</span>
+                <h3 className="text-lg font-bold text-white">Actions</h3>
+                <span className="text-xs text-slate-500">{messageNodes.length} on canvas</span>
               </div>
-              <p className="text-sm text-slate-400">Drag action nodes to canvas. Each action can use templates from the Templates tab.</p>
               
-              {/* Quick Actions with Built-in Templates */}
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
-                  <span>⚡</span> Communication Actions
-                </h4>
+              {/* Template Type Selector */}
+              <div className="flex gap-1 p-1 bg-slate-800/50 rounded-xl">
                 {[
-                  { type: 'email' as const, label: 'Email Action', icon: '✉️', color: 'blue' as StageColor, desc: 'Automated email with template', template: 'Hi {{name}}, thanks for your interest!' },
-                  { type: 'sms' as const, label: 'SMS Action', icon: '💬', color: 'cyan' as StageColor, desc: 'Text message with personalization', template: 'Hi {{name}}, this is {{agent}} from My Next Ride!' },
-                  { type: 'call' as const, label: 'Call Reminder', icon: '📞', color: 'yellow' as StageColor, desc: 'Schedule a call task', template: 'Call {{name}} at {{phone}}' },
-                ].map(m => (
-                  <button key={m.type} onClick={() => {
+                  { id: 'email' as const, label: 'Email', icon: '✉️' },
+                  { id: 'sms' as const, label: 'SMS', icon: '💬' },
+                  { id: 'call' as const, label: 'Call', icon: '📞' },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setSelectedTemplateType(t.id)}
+                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${selectedTemplateType === t.id ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-white'}`}>
+                    {t.icon} {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Template List - From Templates Tab */}
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Template</h4>
+                {(selectedTemplateType === 'email' ? EMAIL_TEMPLATES.slice(0, 8) : 
+                  selectedTemplateType === 'sms' ? SMS_TEMPLATES.slice(0, 8) : 
+                  CALL_TEMPLATES.slice(0, 8)).map(tpl => (
+                  <button key={tpl.id} onClick={() => {
+                    const colorMap = { email: 'blue' as StageColor, sms: 'cyan' as StageColor, call: 'yellow' as StageColor };
                     const newMsg: MessageNode = {
                       id: `msg-${Date.now()}`,
-                      type: m.type,
-                      label: m.label,
-                      icon: m.icon,
-                      x: 1800 + messageNodes.length * 50,
-                      y: 200 + messageNodes.length * 100,
-                      width: 340,
-                      height: 260,
-                      color: m.color,
-                      message: m.template,
+                      type: tpl.category as 'email' | 'sms' | 'call',
+                      label: tpl.name,
+                      icon: tpl.icon,
+                      x: 2000 + messageNodes.length * 80,
+                      y: 300 + (messageNodes.length % 4) * 150,
+                      width: 320,
+                      height: 240,
+                      color: colorMap[tpl.category as keyof typeof colorMap] || 'blue',
+                      subject: tpl.subject,
+                      message: tpl.message,
                       autoTrigger: false,
                       triggerCondition: 'manual',
                       linkedStageIds: [],
                       inlineActions: [],
+                      templateId: tpl.id,
                     };
                     setMessageNodes([...messageNodes, newMsg]);
-                  }} className="w-full p-4 rounded-xl bg-slate-800/80 border border-slate-700/50 text-left hover:border-blue-500/50 transition-all group">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${STAGE_COLORS.find(c => c.id === m.color)?.bg} flex items-center justify-center text-xl shadow-lg group-hover:scale-110 transition-transform`}>
-                        {m.icon}
-                      </div>
+                    setSaveNotification(`✅ Added ${tpl.name}`);
+                    setTimeout(() => setSaveNotification(null), 2000);
+                  }} className="w-full p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 text-left hover:border-blue-500/50 transition-all group">
+                    <div className="flex items-start gap-3">
+                      <span className="text-lg">{tpl.icon}</span>
                       <div className="flex-1 min-w-0">
-                        <span className="text-sm font-semibold text-white block">{m.label}</span>
-                        <span className="text-xs text-slate-400 truncate block">{m.desc}</span>
+                        <span className="text-sm font-medium text-white block truncate">{tpl.name}</span>
+                        <span className="text-xs text-slate-500 block">{tpl.useCase}</span>
                       </div>
                     </div>
                   </button>
                 ))}
               </div>
 
-              {/* Automation Actions */}
+              {/* Quick Actions */}
               <div className="space-y-2 pt-4 border-t border-slate-700/50">
-                <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
-                  <span>🔄</span> Automation Actions
-                </h4>
-                {[
-                  { type: 'wait' as const, label: 'Wait Timer', icon: '⏰', color: 'purple' as StageColor, desc: 'Delay before next action' },
-                  { type: 'notification' as const, label: 'Internal Alert', icon: '🔔', color: 'orange' as StageColor, desc: 'Notify team members' },
-                  { type: 'webhook' as const, label: 'Webhook', icon: '🔗', color: 'indigo' as StageColor, desc: 'External API integration' },
-                ].map(m => (
-                  <button key={m.type} onClick={() => {
-                    const newMsg: MessageNode = {
-                      id: `msg-${Date.now()}`,
-                      type: m.type,
-                      label: m.label,
-                      icon: m.icon,
-                      x: 1800 + messageNodes.length * 50,
-                      y: 200 + messageNodes.length * 100,
-                      width: 340,
-                      height: 260,
-                      color: m.color,
-                      message: m.type === 'wait' ? 'Wait 24 hours before next step' : 'Configure this action...',
-                      autoTrigger: m.type === 'wait',
-                      triggerCondition: m.type === 'wait' ? 'on-enter' : 'manual',
-                      linkedStageIds: [],
-                      inlineActions: [],
-                      triggerDelay: m.type === 'wait' ? { value: 24, unit: 'hours', label: '24 hours' } : undefined,
-                    };
-                    setMessageNodes([...messageNodes, newMsg]);
-                  }} className="w-full p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 text-left hover:border-purple-500/50 transition-all group">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${STAGE_COLORS.find(c => c.id === m.color)?.bg} flex items-center justify-center text-lg`}>
-                        {m.icon}
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium text-white">{m.label}</span>
-                        <span className="text-xs text-slate-500 block">{m.desc}</span>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Automation</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { type: 'wait' as const, label: 'Wait', icon: '⏰', color: 'purple' as StageColor },
+                    { type: 'notification' as const, label: 'Alert', icon: '🔔', color: 'orange' as StageColor },
+                  ].map(m => (
+                    <button key={m.type} onClick={() => {
+                      const newMsg: MessageNode = {
+                        id: `msg-${Date.now()}`,
+                        type: m.type,
+                        label: m.label,
+                        icon: m.icon,
+                        x: 2000 + messageNodes.length * 80,
+                        y: 300 + (messageNodes.length % 4) * 150,
+                        width: 280,
+                        height: 180,
+                        color: m.color,
+                        message: m.type === 'wait' ? 'Wait before next action' : 'Internal notification',
+                        autoTrigger: true,
+                        triggerCondition: 'on-enter',
+                        linkedStageIds: [],
+                        inlineActions: [],
+                        triggerDelay: m.type === 'wait' ? { value: 24, unit: 'hours', label: '24 hours' } : undefined,
+                      };
+                      setMessageNodes([...messageNodes, newMsg]);
+                    }} className={`p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 text-center hover:border-${m.color}-500/50 transition-all`}>
+                      <span className="text-xl block mb-1">{m.icon}</span>
+                      <span className="text-xs font-medium text-white">{m.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Timer Presets */}
               <div className="space-y-2 pt-4 border-t border-slate-700/50">
-                <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
-                  <span>⏱️</span> Quick Delay Presets
-                </h4>
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Delay Presets</h4>
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { label: '1hr', value: 1, unit: 'hours' as const },
-                    { label: '4hr', value: 4, unit: 'hours' as const },
                     { label: '24hr', value: 24, unit: 'hours' as const },
                     { label: '2d', value: 2, unit: 'days' as const },
                     { label: '1wk', value: 1, unit: 'weeks' as const },
-                    { label: '1mo', value: 1, unit: 'months' as const },
                   ].map(t => (
                     <button key={t.label} onClick={() => {
                       const newMsg: MessageNode = {
@@ -865,10 +903,10 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                         type: 'wait',
                         label: `Wait ${t.label}`,
                         icon: '⏰',
-                        x: 1800 + messageNodes.length * 50,
-                        y: 200 + messageNodes.length * 100,
-                        width: 280,
-                        height: 180,
+                        x: 2000 + messageNodes.length * 80,
+                        y: 300 + (messageNodes.length % 4) * 150,
+                        width: 240,
+                        height: 160,
                         color: 'purple',
                         message: `Wait ${t.value} ${t.unit}`,
                         autoTrigger: true,
@@ -887,79 +925,48 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
             </div>
           )}
 
-          {/* SETTINGS TAB */}
+          {/* SETTINGS TAB - Simplified */}
           {sidebarTab === 'settings' && (
             <div className="space-y-6">
-              <h3 className="text-lg font-bold text-white">Canvas Settings</h3>
+              <h3 className="text-lg font-bold text-white">Pipeline Settings</h3>
               
-              {/* Node Size */}
-              <div className="space-y-3">
-                <label className="text-sm font-medium text-slate-300">Node Size</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {(['small', 'medium', 'large', 'xlarge'] as const).map(size => (
-                    <button key={size} onClick={() => setNodeSize(size)}
-                      className={`py-2.5 px-3 rounded-lg text-sm font-medium transition-all ${nodeSize === size ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
-                      {size.charAt(0).toUpperCase() + size.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Grid Size */}
-              <div className="space-y-3">
-                <label className="text-sm font-medium text-slate-300">Grid Size: {gridSize}px</label>
-                <input 
-                  type="range" 
-                  min="20" 
-                  max="100" 
-                  value={gridSize} 
-                  onChange={(e) => setGridSize(Number(e.target.value))}
-                  className="w-full accent-blue-500"
-                />
-              </div>
-
-              {/* Toggles */}
-              <div className="space-y-3">
-                <label className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl">
-                  <span className="text-sm font-medium text-slate-300">Show Grid</span>
-                  <button onClick={() => setShowGrid(!showGrid)}
-                    className={`w-12 h-6 rounded-full transition-all ${showGrid ? 'bg-blue-500' : 'bg-slate-700'}`}>
-                    <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${showGrid ? 'translate-x-6' : 'translate-x-0.5'}`} />
-                  </button>
-                </label>
-                <label className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl">
-                  <span className="text-sm font-medium text-slate-300">Snap to Grid</span>
-                  <button onClick={() => setSnapToGrid(!snapToGrid)}
-                    className={`w-12 h-6 rounded-full transition-all ${snapToGrid ? 'bg-blue-500' : 'bg-slate-700'}`}>
-                    <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${snapToGrid ? 'translate-x-6' : 'translate-x-0.5'}`} />
-                  </button>
-                </label>
-              </div>
-
-              {/* Analytics Preview */}
-              {analytics && (
-                <div className="space-y-4 pt-4 border-t border-slate-700/50">
-                  <h4 className="text-base font-bold text-white">Quick Stats</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-4 rounded-xl bg-blue-500/20 border border-blue-500/30">
-                      <p className="text-2xl font-bold text-blue-400">{analytics.totalLeads}</p>
-                      <p className="text-xs text-blue-300">Total Leads</p>
-                    </div>
-                    <div className="p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/30">
-                      <p className="text-2xl font-bold text-emerald-400">{analytics.conversionRate}%</p>
-                      <p className="text-xs text-emerald-300">Conversion</p>
-                    </div>
-                    <div className="p-4 rounded-xl bg-red-500/20 border border-red-500/30">
-                      <p className="text-2xl font-bold text-red-400">{analytics.deadLeadRate}%</p>
-                      <p className="text-xs text-red-300">Dead Rate</p>
-                    </div>
-                    <div className="p-4 rounded-xl bg-yellow-500/20 border border-yellow-500/30">
-                      <p className="text-2xl font-bold text-yellow-400">{analytics.scheduledMessages}</p>
-                      <p className="text-xs text-yellow-300">Automated</p>
-                    </div>
+              {/* Auto-Save Status */}
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+                    <span className="text-xl">☁️</span>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-emerald-400">Cloud Sync Enabled</h4>
+                    <p className="text-xs text-slate-400">All changes save automatically to AWS</p>
                   </div>
                 </div>
-              )}
+              </div>
+
+              {/* Profile Management */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-slate-300">Profile Management</h4>
+                <button onClick={() => setShowProfilesSidebar(true)} className="w-full p-4 rounded-xl bg-slate-800/60 border border-slate-700/50 text-left hover:border-blue-500/50 transition-all">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center text-xl">👤</div>
+                    <div>
+                      <span className="text-sm font-medium text-white">Saved Profiles</span>
+                      <p className="text-xs text-slate-500">{profiles.length} profiles saved</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              {/* Help Section */}
+              <div className="space-y-3 pt-4 border-t border-slate-700/50">
+                <h4 className="text-sm font-semibold text-slate-300">Tips</h4>
+                <div className="space-y-2 text-xs text-slate-400">
+                  <p>• <strong className="text-slate-300">Builder mode</strong> - Clean view for lead management</p>
+                  <p>• <strong className="text-slate-300">Node view</strong> - See all actions & connections</p>
+                  <p>• <strong className="text-slate-300">Auto Layout</strong> - Arrange nodes in hourglass pattern</p>
+                  <p>• <strong className="text-slate-300">Drag anywhere</strong> - Pan the canvas freely</p>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -1084,40 +1091,42 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               </div>
             ))}
 
-            {/* Connections */}
-            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
-              <defs>
-                <linearGradient id="connGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#3b82f6" />
-                  <stop offset="100%" stopColor="#8b5cf6" />
-                </linearGradient>
-              </defs>
-              {connections.map(c => {
-                const from = getNodeCenter(c.fromNodeId, c.fromType, 'right');
-                const to = getNodeCenter(c.toNodeId, c.toType, 'left');
-                const mx = (from.x + to.x) / 2;
-                return (
-                  <g key={c.id}>
-                    <path d={`M ${from.x} ${from.y} C ${mx} ${from.y}, ${mx} ${to.y}, ${to.x} ${to.y}`} 
-                      fill="none" stroke={c.style === 'dashed' ? '#64748b' : 'url(#connGradient)'} strokeWidth={c.thickness || 3} 
-                      strokeDasharray={c.style === 'dashed' ? '10 6' : 'none'} opacity={0.85} />
-                    <circle cx={to.x - 8} cy={to.y} r={5} fill={c.style === 'dashed' ? '#64748b' : '#8b5cf6'} />
-                    {c.triggerDelay && (
-                      <g>
-                        <rect x={mx - 50} y={(from.y + to.y) / 2 - 14} width={100} height={28} rx={6} fill="#1e293b" stroke="#475569" strokeWidth={1} />
-                        <text x={mx} y={(from.y + to.y) / 2 + 5} fill="#94a3b8" fontSize="13" textAnchor="middle" fontWeight="600">
-                          ⏱️ {c.triggerDelay.label}
-                        </text>
-                      </g>
-                    )}
-                  </g>
-                );
-              })}
-              {connectingFrom && (() => {
-                const from = getNodeCenter(connectingFrom.id, connectingFrom.type, 'right');
-                return <line x1={from.x} y1={from.y} x2={mousePos.x} y2={mousePos.y} stroke="#fbbf24" strokeWidth={3} strokeDasharray="8 5" />;
-              })()}
-            </svg>
+            {/* Connections - Hidden in Builder mode */}
+            {viewMode === 'node' && (
+              <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
+                <defs>
+                  <linearGradient id="connGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#3b82f6" />
+                    <stop offset="100%" stopColor="#8b5cf6" />
+                  </linearGradient>
+                </defs>
+                {connections.map(c => {
+                  const from = getNodeCenter(c.fromNodeId, c.fromType, 'right');
+                  const to = getNodeCenter(c.toNodeId, c.toType, 'left');
+                  const mx = (from.x + to.x) / 2;
+                  return (
+                    <g key={c.id}>
+                      <path d={`M ${from.x} ${from.y} C ${mx} ${from.y}, ${mx} ${to.y}, ${to.x} ${to.y}`} 
+                        fill="none" stroke={c.style === 'dashed' ? '#64748b' : 'url(#connGradient)'} strokeWidth={c.thickness || 3} 
+                        strokeDasharray={c.style === 'dashed' ? '10 6' : 'none'} opacity={0.85} />
+                      <circle cx={to.x - 8} cy={to.y} r={5} fill={c.style === 'dashed' ? '#64748b' : '#8b5cf6'} />
+                      {c.triggerDelay && (
+                        <g>
+                          <rect x={mx - 50} y={(from.y + to.y) / 2 - 14} width={100} height={28} rx={6} fill="#1e293b" stroke="#475569" strokeWidth={1} />
+                          <text x={mx} y={(from.y + to.y) / 2 + 5} fill="#94a3b8" fontSize="13" textAnchor="middle" fontWeight="600">
+                            ⏱️ {c.triggerDelay.label}
+                          </text>
+                        </g>
+                      )}
+                    </g>
+                  );
+                })}
+                {connectingFrom && (() => {
+                  const from = getNodeCenter(connectingFrom.id, connectingFrom.type, 'right');
+                  return <line x1={from.x} y1={from.y} x2={mousePos.x} y2={mousePos.y} stroke="#fbbf24" strokeWidth={3} strokeDasharray="8 5" />;
+                })()}
+              </svg>
+            )}
 
             {/* Stage Nodes */}
             {stages.map(stage => (
