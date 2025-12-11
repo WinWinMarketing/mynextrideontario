@@ -1,4 +1,4 @@
-// Pipeline Types - Complete System
+// Pipeline Types - Complete System with Notifications
 import { LeadStatus } from '@/lib/validation';
 
 // WORKSPACE PROFILE
@@ -11,6 +11,7 @@ export interface WorkspaceProfile {
   connections: NodeConnection[];
   labels: TextLabel[];
   emailTemplates: EmailTemplate[];
+  notifications: PipelineNotification[];
   settings: WorkspaceSettings;
 }
 
@@ -22,6 +23,9 @@ export interface WorkspaceSettings {
   showConnections: boolean;
   defaultStageWidth: number;
   defaultStageHeight: number;
+  compactMode: boolean;
+  gridView: boolean;
+  autoOrganize: boolean;
 }
 
 // STAGE/NODE
@@ -41,13 +45,41 @@ export interface PipelineStage {
   emailTemplateId?: string;
   followUpMethod?: FollowUpMethod;
   meetingType?: MeetingType;
+  linkedNotifications?: string[];
+  linkedEmails?: string[];
 }
 
 export type StageColor = 'blue' | 'yellow' | 'green' | 'red' | 'purple' | 'cyan' | 'orange' | 'pink' | 'teal' | 'indigo' | 'slate';
 
-export type FollowUpMethod = 'email' | 'phone' | 'text' | 'whatsapp' | 'meeting' | 'manual' | 'auto-sequence';
+export type FollowUpMethod = 'email' | 'phone' | 'text' | 'whatsapp' | 'meeting' | 'manual' | 'auto-sequence' | 'none';
 
-export type MeetingType = 'online-video' | 'online-phone' | 'in-person-office' | 'in-person-location' | 'test-drive';
+export type MeetingType = 'online-video' | 'online-phone' | 'in-person-office' | 'in-person-location' | 'test-drive' | 'none';
+
+// NOTIFICATIONS
+export interface PipelineNotification {
+  id: string;
+  type: 'reminder' | 'alert' | 'followup' | 'meeting' | 'deadline';
+  title: string;
+  message: string;
+  icon: string;
+  linkedStageId?: string;
+  linkedLeadId?: string;
+  timing: NotificationTiming;
+  isActive: boolean;
+  createdAt: string;
+  dismissedAt?: string;
+}
+
+export interface NotificationTiming {
+  type: 'immediate' | 'delay' | 'scheduled' | 'before-event';
+  delayMinutes?: number;
+  delayHours?: number;
+  delayDays?: number;
+  scheduledTime?: string;
+  beforeEventMinutes?: number;
+  repeat?: 'none' | 'daily' | 'weekly' | 'custom';
+  repeatInterval?: number;
+}
 
 // CONTACT METHODS
 export interface ContactMethod {
@@ -136,17 +168,32 @@ export interface NodeTemplate {
 
 export type TemplateCategory = 'custom' | 'lead-stages' | 'communication' | 'automation' | 'meetings' | 'advanced';
 
+// DEAD LEAD CATEGORIES
+export const DEAD_LEAD_CATEGORIES = [
+  { id: 'not-interested', label: 'Not Interested', icon: '🚫', color: 'red' as StageColor },
+  { id: 'no-contact', label: 'No Contact', icon: '📵', color: 'orange' as StageColor },
+  { id: 'bad-timing', label: 'Bad Timing', icon: '⏰', color: 'yellow' as StageColor },
+  { id: 'competitor', label: 'Went Competitor', icon: '🏃', color: 'slate' as StageColor },
+  { id: 'no-money', label: 'Budget Issue', icon: '💸', color: 'pink' as StageColor },
+  { id: 'fake', label: 'Fake/Spam', icon: '🚫', color: 'red' as StageColor },
+  { id: 'unqualified', label: 'Unqualified', icon: '❌', color: 'orange' as StageColor },
+  { id: 'not-ready', label: 'Not Ready', icon: '⏳', color: 'yellow' as StageColor },
+  { id: 'archive', label: 'Archived', icon: '📦', color: 'slate' as StageColor },
+];
+
 // PRESET
 export interface Preset {
   id: string;
   name: string;
   description: string;
   icon: string;
-  complexity: 'simple' | 'medium' | 'advanced';
+  complexity: 'simple' | 'medium' | 'advanced' | 'expert';
   stages: PipelineStage[];
   connections: NodeConnection[];
   labels: TextLabel[];
   emailTemplates: EmailTemplate[];
+  category?: string;
+  tags?: string[];
 }
 
 // CONSTANTS
@@ -175,6 +222,8 @@ export const EMOJI_BANK = [
   '🔔', '🔕', '📢', '📣', '⚠️', '🚨', '❗', '❓', '💯', '🆕',
   '🚗', '🚙', '🏎️', '🚕', '🛻', '🚐', '🏍️', '🛵', '✈️', '🚁',
   '🏠', '🏢', '🏪', '🏬', '🏭', '🗺️', '📍', '🧭', '🌐', '🔗',
+  '💀', '👻', '🚫', '📵', '🏃', '💸', '🤷', '👑', '🎂', '🙏',
+  '📹', '📱', '🌱', '💤', '🔧', '💭', '🤝', '👁️', '⏱️', '🎊',
 ];
 
 export const MEETING_TYPES: { id: MeetingType; label: string; icon: string; desc: string }[] = [
@@ -183,6 +232,7 @@ export const MEETING_TYPES: { id: MeetingType; label: string; icon: string; desc
   { id: 'in-person-office', label: 'Office Visit', icon: '🏢', desc: 'Meet at your office' },
   { id: 'in-person-location', label: 'Meet Anywhere', icon: '📍', desc: 'Coffee shop, etc.' },
   { id: 'test-drive', label: 'Test Drive', icon: '🚗', desc: 'Vehicle test drive' },
+  { id: 'none', label: 'No Meeting', icon: '❌', desc: 'No meeting required' },
 ];
 
 export const FOLLOW_UP_METHODS: { id: FollowUpMethod; label: string; icon: string }[] = [
@@ -193,6 +243,26 @@ export const FOLLOW_UP_METHODS: { id: FollowUpMethod; label: string; icon: strin
   { id: 'meeting', label: 'Meeting', icon: '📅' },
   { id: 'manual', label: 'Manual Task', icon: '✋' },
   { id: 'auto-sequence', label: 'Auto Sequence', icon: '🤖' },
+  { id: 'none', label: 'No Follow-up', icon: '❌' },
+];
+
+export const NOTIFICATION_TYPES = [
+  { id: 'reminder', label: 'Reminder', icon: '🔔', color: 'blue' },
+  { id: 'alert', label: 'Alert', icon: '⚠️', color: 'yellow' },
+  { id: 'followup', label: 'Follow-up Due', icon: '📞', color: 'cyan' },
+  { id: 'meeting', label: 'Meeting', icon: '📅', color: 'purple' },
+  { id: 'deadline', label: 'Deadline', icon: '⏰', color: 'red' },
+];
+
+export const NOTIFICATION_TIMING_OPTIONS = [
+  { value: 5, label: '5 minutes before' },
+  { value: 15, label: '15 minutes before' },
+  { value: 30, label: '30 minutes before' },
+  { value: 60, label: '1 hour before' },
+  { value: 120, label: '2 hours before' },
+  { value: 1440, label: '1 day before' },
+  { value: 2880, label: '2 days before' },
+  { value: 10080, label: '1 week before' },
 ];
 
 export const DEFAULT_AUTOMATION: AutomationSettings = {
@@ -215,13 +285,16 @@ export const DEFAULT_CONTACT_SETTINGS: ContactMethodSettings = {
 };
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
-  zoom: 0.6,
-  panX: 0,
-  panY: 0,
+  zoom: 0.5,
+  panX: 100,
+  panY: 80,
   showGrid: true,
   showConnections: true,
-  defaultStageWidth: 340,
-  defaultStageHeight: 320,
+  defaultStageWidth: 280,
+  defaultStageHeight: 260,
+  compactMode: false,
+  gridView: false,
+  autoOrganize: false,
 };
 
 // DEFAULT EMAIL TEMPLATES
@@ -329,6 +402,7 @@ My Next Ride Ontario Team`,
   },
 ];
 
-export const MAX_PROFILES = 5;
-export const STORAGE_KEY = 'pipeline_profiles';
-export const ACTIVE_PROFILE_KEY = 'pipeline_active_profile';
+export const MAX_PROFILES = 10;
+export const STORAGE_KEY = 'pipeline_profiles_v2';
+export const ACTIVE_PROFILE_KEY = 'pipeline_active_profile_v2';
+export const AUTO_SAVE_INTERVAL = 500; // Save every 500ms of inactivity
