@@ -4,138 +4,101 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lead, LeadStatus } from '@/lib/validation';
 import {
-  Workflow, Stage, Connection, ViewMode, ActionType, ActionConfig, TimerConfig,
-  getColor, STAGE_PRESETS, ACTION_PRESETS, DEAD_LEAD_CATEGORIES, UPLOAD_TEMPLATES,
-  createDefaultWorkflow, UPLOAD_FIELDS, formatTimer, LAYOUT, StageColor,
+  Workflow, Stage, Connection, ViewMode, ActionType, ActionConfig,
+  getColor, STAGE_PRESETS, ACTION_PRESETS, DEAD_LEAD_CATEGORIES,
+  createDefaultWorkflow, UPLOAD_FIELDS, TimerConfig, formatTimer,
+  UPLOAD_TEMPLATES, UploadTemplate, validateHeaders,
 } from './types';
 
 interface FlowPipelineProps {
   leads: Lead[];
   onStatusChange: (leadId: string, status: LeadStatus, deadReason?: string) => void;
   onViewDetails: (lead: Lead) => void;
-  starredLeads: Set<string>;
-  onToggleStar: (id: string) => void;
 }
 
-export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLeads, onToggleStar }: FlowPipelineProps) {
+export function FlowPipeline({ leads, onStatusChange, onViewDetails }: FlowPipelineProps) {
   // ============ WORKFLOW STATE ============
   const [workflow, setWorkflow] = useState<Workflow>(createDefaultWorkflow());
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [loadingMessage, setLoadingMessage] = useState('Loading pipeline...');
 
   // ============ VIEW STATE ============
   const [viewMode, setViewMode] = useState<ViewMode>('builder');
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 60, y: 60 });
+  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
   // ============ SELECTION STATE ============
   const [selectedStage, setSelectedStage] = useState<string | null>(null);
-  const [selectedAction, setSelectedAction] = useState<{ stageId: string; actionId: string } | null>(null);
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
 
   // ============ UI STATE ============
-  const [sidebarTab, setSidebarTab] = useState<'stages' | 'actions' | 'templates' | 'upload'>('stages');
+  const [sidebarTab, setSidebarTab] = useState<'stages' | 'actions' | 'upload'>('stages');
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [showWorkflowsModal, setShowWorkflowsModal] = useState(false);
-  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
 
   // ============ REFS ============
   const canvasRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const hasChanges = useRef(false);
 
-  // ============ LOAD WORKFLOWS FROM AWS S3 ============
+  // ============ LOAD WORKFLOWS FROM S3 ============
   useEffect(() => {
     const loadWorkflows = async () => {
       setIsLoading(true);
-      setLoadingMessage('Connecting to cloud storage...');
-      
       try {
         const response = await fetch('/api/admin/workflows');
         if (response.ok) {
           const data = await response.json();
-          setLoadingMessage('Loading workflows...');
-          
           if (data.workflows?.length > 0) {
             const fullWorkflows = await Promise.all(
-              data.workflows.slice(0, 10).map(async (w: { id: string }) => {
-                try {
-                  const res = await fetch(`/api/admin/workflows?id=${w.id}`);
-                  return res.ok ? res.json() : null;
-                } catch {
-                  return null;
-                }
+              data.workflows.slice(0, 5).map(async (w: { id: string }) => {
+                const res = await fetch(`/api/admin/workflows?id=${w.id}`);
+                return res.ok ? res.json() : null;
               })
             );
-            
             const valid = fullWorkflows.filter(Boolean);
             if (valid.length > 0) {
               setWorkflows(valid);
               setWorkflow(valid[0]);
-              setLastSaved(new Date(valid[0].updatedAt));
             }
           }
         }
       } catch (err) {
-        console.log('Cloud load failed, using default workflow');
+        console.log('Loading from S3 failed, using default');
       }
-      
       setIsLoading(false);
     };
-    
     loadWorkflows();
   }, []);
 
-  // ============ OPTIMIZED AUTO-SAVE TO AWS S3 ============
-  const saveToS3 = useCallback(async (wf: Workflow, force = false) => {
-    if (isSaving && !force) return;
-    if (!hasChanges.current && !force) return;
-    
+  // ============ AUTO-SAVE TO S3 ============
+  const saveToS3 = useCallback(async (wf: Workflow) => {
+    if (isSaving) return;
     setIsSaving(true);
-    
     try {
       const response = await fetch('/api/admin/workflows', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...wf,
-          updatedAt: new Date().toISOString(),
-        }),
+        body: JSON.stringify({ ...wf, updatedAt: new Date().toISOString() }),
       });
-      
       if (response.ok) {
         setLastSaved(new Date());
-        hasChanges.current = false;
-        showNotification('Saved to cloud', 'success');
-      } else {
-        showNotification('Save failed - saved locally', 'error');
       }
     } catch (err) {
       console.error('Save failed:', err);
-      showNotification('Save failed - offline mode', 'error');
     }
-    
     setIsSaving(false);
   }, [isSaving]);
 
-  // Debounced auto-save - only saves when there are actual changes
+  // Debounced auto-save
   const triggerAutoSave = useCallback((wf: Workflow) => {
-    hasChanges.current = true;
-    
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-    
-    saveTimeoutRef.current = setTimeout(() => {
-      saveToS3(wf);
-    }, 3000);
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => saveToS3(wf), 2000);
   }, [saveToS3]);
 
   // ============ WORKFLOW UPDATES ============
@@ -147,55 +110,34 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
     });
   }, [triggerAutoSave]);
 
-  // ============ CANVAS PANNING - SMOOTH & INTUITIVE ============
+  // ============ CANVAS PANNING ============
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.stage-node, .sidebar, .modal, .action-panel, .toolbar')) return;
-    
+    if ((e.target as HTMLElement).closest('.stage-node, .sidebar, .modal')) return;
     setIsPanning(true);
     panStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
     setSelectedStage(null);
-    setSelectedAction(null);
     setConnectingFrom(null);
-    
-    document.body.style.cursor = 'grabbing';
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
     if (!isPanning) return;
-    
     const dx = e.clientX - panStart.current.x;
     const dy = e.clientY - panStart.current.y;
-    
-    setPan({
-      x: panStart.current.panX + dx,
-      y: panStart.current.panY + dy,
-    });
+    setPan({ x: panStart.current.panX + dx, y: panStart.current.panY + dy });
   };
 
-  const handleCanvasMouseUp = () => {
-    setIsPanning(false);
-    document.body.style.cursor = '';
-  };
+  const handleCanvasMouseUp = () => setIsPanning(false);
 
   const handleWheel = (e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      // Zoom with ctrl/cmd + scroll
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.05 : 0.05;
-      setZoom(z => Math.max(0.4, Math.min(1.5, z + delta)));
-    } else {
-      // Horizontal scroll without modifier
-      setPan(p => ({
-        x: p.x - e.deltaX,
-        y: p.y - e.deltaY,
-      }));
-    }
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    setZoom(z => Math.max(0.3, Math.min(2, z + delta)));
   };
 
   // ============ STAGE OPERATIONS ============
   const addStage = (preset: typeof STAGE_PRESETS[0]) => {
-    const liveStages = workflow.stages.filter(s => s.status !== 'dead');
-    const maxOrder = liveStages.length > 0 ? Math.max(...liveStages.map(s => s.order)) : -1;
+    const existingX = workflow.stages.map(s => s.position.x);
+    const maxX = existingX.length > 0 ? Math.max(...existingX) : 0;
     
     const newStage: Stage = {
       id: `stage-${Date.now()}`,
@@ -203,13 +145,12 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
       status: preset.status,
       color: preset.color,
       icon: preset.icon,
-      position: { x: (maxOrder + 1) * (LAYOUT.STAGE_WIDTH_EXPANDED + LAYOUT.STAGE_SPACING), y: 0 },
+      position: { x: maxX + 300, y: 200 },
       actions: [],
-      order: maxOrder + 1,
     };
     
     updateWorkflow({ stages: [...workflow.stages, newStage] });
-    showNotification(`Added "${preset.label}"`, 'success');
+    showNotification(`Added ${preset.label}`);
   };
 
   const addDeadStage = (category: typeof DEAD_LEAD_CATEGORIES[0]) => {
@@ -223,13 +164,12 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
       color: category.color,
       icon: category.icon,
       description: category.description,
-      position: { x: 0, y: LAYOUT.ROW_HEIGHT + deadStages.length * 100 },
+      position: { x: 100, y: 400 + deadStages.length * 120 },
       actions: [],
-      order: -1,
     };
     
     updateWorkflow({ stages: [...workflow.stages, newStage] });
-    showNotification(`Added "${category.label}"`, 'success');
+    showNotification(`Added ${category.label}`);
   };
 
   const deleteStage = (stageId: string) => {
@@ -238,23 +178,14 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
       connections: workflow.connections.filter(c => c.from !== stageId && c.to !== stageId),
     });
     setSelectedStage(null);
-    showNotification('Stage deleted', 'info');
   };
 
   const moveStage = (stageId: string, dx: number, dy: number) => {
     updateWorkflow({
-      stages: workflow.stages.map(s =>
-        s.id === stageId
+      stages: workflow.stages.map(s => 
+        s.id === stageId 
           ? { ...s, position: { x: s.position.x + dx / zoom, y: s.position.y + dy / zoom } }
           : s
-      ),
-    });
-  };
-
-  const updateStageLabel = (stageId: string, label: string) => {
-    updateWorkflow({
-      stages: workflow.stages.map(s =>
-        s.id === stageId ? { ...s, label } : s
       ),
     });
   };
@@ -264,10 +195,10 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
     if (connectingFrom === stageId) {
       setConnectingFrom(null);
     } else if (connectingFrom) {
+      // Create connection
       const exists = workflow.connections.some(
-        c => (c.from === connectingFrom && c.to === stageId) || (c.from === stageId && c.to === connectingFrom)
+        c => c.from === connectingFrom && c.to === stageId
       );
-      
       if (!exists && connectingFrom !== stageId) {
         updateWorkflow({
           connections: [...workflow.connections, {
@@ -276,7 +207,6 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
             to: stageId,
           }],
         });
-        showNotification('Connection created', 'success');
       }
       setConnectingFrom(null);
     } else {
@@ -284,19 +214,11 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
     }
   };
 
-  const deleteConnection = (connId: string) => {
-    updateWorkflow({
-      connections: workflow.connections.filter(c => c.id !== connId),
-    });
-  };
-
   // ============ ACTIONS ============
-  const addAction = (stageId: string, preset: typeof ACTION_PRESETS[0]) => {
+  const addAction = (stageId: string, type: ActionType) => {
     const newAction: ActionConfig = {
       id: `action-${Date.now()}`,
-      type: preset.type,
-      label: preset.label,
-      icon: preset.icon,
+      type,
       templateId: '',
       enabled: true,
     };
@@ -306,9 +228,6 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
         s.id === stageId ? { ...s, actions: [...s.actions, newAction] } : s
       ),
     });
-    
-    setSelectedAction({ stageId, actionId: newAction.id });
-    showNotification(`Added "${preset.label}" action`, 'success');
   };
 
   const updateAction = (stageId: string, actionId: string, updates: Partial<ActionConfig>) => {
@@ -327,13 +246,11 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
         s.id === stageId ? { ...s, actions: s.actions.filter(a => a.id !== actionId) } : s
       ),
     });
-    setSelectedAction(null);
   };
 
   // ============ LEAD OPERATIONS ============
   const handleDropLead = (stageId: string) => {
     if (!draggedLead) return;
-    
     const stage = workflow.stages.find(s => s.id === stageId);
     if (!stage) return;
     
@@ -342,9 +259,7 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
     } else {
       onStatusChange(draggedLead.id, stage.status as LeadStatus);
     }
-    
     setDraggedLead(null);
-    showNotification('Lead moved', 'success');
   };
 
   const getStageLeads = (stage: Stage): Lead[] => {
@@ -354,179 +269,138 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
     return leads.filter(l => l.status === stage.status);
   };
 
-  // ============ AUTO LAYOUT ============
-  const autoLayout = useCallback(() => {
-    const liveStages = workflow.stages.filter(s => s.status !== 'dead');
+  // ============ FIT VIEW ============
+  const fitView = () => {
+    if (workflow.stages.length === 0) {
+      setPan({ x: 0, y: 0 });
+      setZoom(1);
+      return;
+    }
+    
+    const xs = workflow.stages.map(s => s.position.x);
+    const ys = workflow.stages.map(s => s.position.y);
+    const minX = Math.min(...xs) - 100;
+    const maxX = Math.max(...xs) + 300;
+    const minY = Math.min(...ys) - 100;
+    const maxY = Math.max(...ys) + 200;
+    
+    const width = containerRef.current?.clientWidth || 1000;
+    const height = containerRef.current?.clientHeight || 600;
+    
+    const scaleX = width / (maxX - minX);
+    const scaleY = height / (maxY - minY);
+    const newZoom = Math.min(scaleX, scaleY, 1) * 0.9;
+    
+    setPan({ x: -minX * newZoom + 50, y: -minY * newZoom + 50 });
+    setZoom(newZoom);
+  };
+
+  // ============ AUTO LAYOUT - HOURGLASS PATTERN ============
+  const autoLayout = () => {
+    const newStages = workflow.stages.filter(s => s.status === 'new');
+    const workingStages = workflow.stages.filter(s => s.status === 'working');
+    const circleBackStages = workflow.stages.filter(s => s.status === 'circle-back');
+    const approvalStages = workflow.stages.filter(s => s.status === 'approval');
     const deadStages = workflow.stages.filter(s => s.status === 'dead');
     
+    const centerY = 300; // Center point for hourglass
+    const spacing = { x: 300, y: 120 };
+    
     const layouted = workflow.stages.map(stage => {
-      if (stage.status === 'dead') {
-        const deadIndex = deadStages.indexOf(stage);
-        return {
-          ...stage,
-          position: { x: 0, y: LAYOUT.ROW_HEIGHT + deadIndex * 100 },
-          order: -1,
-        };
+      // NEW stages - Center-left focal point
+      if (stage.status === 'new') {
+        const idx = newStages.indexOf(stage);
+        const offset = (newStages.length - 1) / 2;
+        return { ...stage, position: { x: 100, y: centerY + (idx - offset) * spacing.y } };
       }
       
-      const liveIndex = liveStages.indexOf(stage);
-      return {
-        ...stage,
-        position: { x: liveIndex * (LAYOUT.STAGE_WIDTH_EXPANDED + LAYOUT.STAGE_SPACING), y: 0 },
-        order: liveIndex,
-      };
+      // WORKING stages - First branch out (spread vertically)
+      if (stage.status === 'working') {
+        const idx = workingStages.indexOf(stage);
+        const total = workingStages.length;
+        const offset = (total - 1) / 2;
+        const spread = Math.min(total * 100, 400); // Max spread
+        return { ...stage, position: { x: 400, y: centerY + (idx - offset) * (spread / Math.max(total - 1, 1)) } };
+      }
+      
+      // CIRCLE-BACK stages - Below working, slightly left
+      if (stage.status === 'circle-back') {
+        const idx = circleBackStages.indexOf(stage);
+        return { ...stage, position: { x: 350 + idx * 150, y: centerY + 250 + idx * 80 } };
+      }
+      
+      // APPROVAL stages - Narrowing back (hourglass waist & exit)
+      if (stage.status === 'approval') {
+        const idx = approvalStages.indexOf(stage);
+        const total = approvalStages.length;
+        if (total === 1) {
+          return { ...stage, position: { x: 700, y: centerY } };
+        }
+        const offset = (total - 1) / 2;
+        const isLast = idx === total - 1;
+        // Last approval (Won) goes further right
+        if (isLast && total > 1) {
+          return { ...stage, position: { x: 1000, y: centerY } };
+        }
+        return { ...stage, position: { x: 700, y: centerY + (idx - offset) * 100 } };
+      }
+      
+      // DEAD stages - Bottom track, spread horizontally
+      if (stage.status === 'dead') {
+        const idx = deadStages.indexOf(stage);
+        const cols = Math.min(deadStages.length, 4);
+        const row = Math.floor(idx / cols);
+        const col = idx % cols;
+        return { ...stage, position: { x: 100 + col * 250, y: centerY + 400 + row * 140 } };
+      }
+      
+      return stage;
     });
     
     updateWorkflow({ stages: layouted });
-    
-    // Fit view after layout
-    setTimeout(() => {
-      fitView();
-    }, 100);
-    
-    showNotification('Layout optimized', 'success');
-  }, [workflow.stages, updateWorkflow]);
-
-  // ============ FIT VIEW ============
-  const fitView = useCallback(() => {
-    if (workflow.stages.length === 0) {
-      setPan({ x: 60, y: 60 });
-      setZoom(1);
-      return;
-    }
-    
-    const liveStages = workflow.stages.filter(s => s.status !== 'dead');
-    if (liveStages.length === 0) {
-      setPan({ x: 60, y: 60 });
-      setZoom(1);
-      return;
-    }
-    
-    const xs = liveStages.map(s => s.position.x);
-    const maxX = Math.max(...xs) + (viewMode === 'builder' ? LAYOUT.STAGE_WIDTH_COLLAPSED : LAYOUT.STAGE_WIDTH_EXPANDED);
-    
-    const containerWidth = containerRef.current?.clientWidth || 1000;
-    const containerHeight = containerRef.current?.clientHeight || 600;
-    
-    const neededWidth = maxX + 200;
-    const neededHeight = viewMode === 'builder' ? 200 : LAYOUT.STAGE_HEIGHT_EXPANDED + 200;
-    
-    const scaleX = (containerWidth - 200) / neededWidth;
-    const scaleY = (containerHeight - 200) / neededHeight;
-    const newZoom = Math.min(scaleX, scaleY, 1);
-    
-    setZoom(Math.max(0.4, newZoom));
-    setPan({ x: 60, y: 60 });
-  }, [workflow.stages, viewMode]);
+    setTimeout(fitView, 100);
+    showNotification('Hourglass layout applied');
+  };
 
   // ============ NOTIFICATIONS ============
-  const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 2500);
-  };
-
-  // ============ CREATE NEW WORKFLOW ============
-  const createNewWorkflow = (name: string) => {
-    const newWorkflow = createDefaultWorkflow();
-    newWorkflow.name = name;
-    
-    setWorkflow(newWorkflow);
-    setWorkflows([newWorkflow, ...workflows]);
-    saveToS3(newWorkflow, true);
-    setShowWorkflowsModal(false);
-    showNotification('New workflow created', 'success');
-  };
-
-  // ============ SWITCH WORKFLOW ============
-  const switchWorkflow = (wf: Workflow) => {
-    setWorkflow(wf);
-    setShowWorkflowsModal(false);
-    fitView();
+  const showNotification = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 2000);
   };
 
   // ============ GET CONNECTION PATH ============
   const getConnectionPath = (from: Stage, to: Stage): string => {
-    const stageWidth = viewMode === 'builder' ? LAYOUT.STAGE_WIDTH_COLLAPSED : LAYOUT.STAGE_WIDTH_EXPANDED;
-    const stageHeight = viewMode === 'builder' ? LAYOUT.STAGE_HEIGHT_COLLAPSED : 80;
-    
-    const x1 = from.position.x + stageWidth;
-    const y1 = from.position.y + stageHeight / 2;
+    const x1 = from.position.x + 200;
+    const y1 = from.position.y + 40;
     const x2 = to.position.x;
-    const y2 = to.position.y + stageHeight / 2;
-    
-    // Elegant curved path
-    const dx = x2 - x1;
-    const controlOffset = Math.min(Math.abs(dx) * 0.4, 100);
-    
-    return `M ${x1} ${y1} C ${x1 + controlOffset} ${y1}, ${x2 - controlOffset} ${y2}, ${x2} ${y2}`;
+    const y2 = to.position.y + 40;
+    const mx = (x1 + x2) / 2;
+    return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
   };
-
-  // ============ KEYBOARD SHORTCUTS ============
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setConnectingFrom(null);
-        setSelectedStage(null);
-        setSelectedAction(null);
-      }
-      
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        saveToS3(workflow, true);
-      }
-      
-      if (e.key === 'Delete' && selectedStage) {
-        deleteStage(selectedStage);
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedStage, workflow, saveToS3]);
 
   // ============ RENDER ============
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-center"
-        >
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-            className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full mx-auto mb-6"
-          />
-          <p className="text-xl text-slate-300 font-medium">{loadingMessage}</p>
-          <p className="text-sm text-slate-500 mt-2">Please wait...</p>
-        </motion.div>
+      <div className="h-full flex items-center justify-center bg-slate-950">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-slate-400">Loading pipeline...</p>
+        </div>
       </div>
     );
   }
 
-  const liveStages = workflow.stages.filter(s => s.status !== 'dead').sort((a, b) => a.order - b.order);
-  const deadStages = workflow.stages.filter(s => s.status === 'dead');
-
   return (
-    <div className="h-full flex bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-hidden">
-      {/* ============ ELEGANT SIDEBAR ============ */}
-      <aside className="w-80 bg-slate-900/95 backdrop-blur-xl border-r border-slate-700/50 flex flex-col sidebar z-40">
-        {/* Header with Pipeline Name */}
-        <div className="p-5 border-b border-slate-700/50">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <span className="text-lg">🚀</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-lg font-bold text-white truncate">{workflow.name}</h1>
-              <p className="text-xs text-slate-400">
-                {liveStages.length} stages • {leads.length} leads
-              </p>
-            </div>
+    <div className="h-full flex bg-slate-950 overflow-hidden">
+      {/* ============ SIDEBAR ============ */}
+      <aside className="w-72 bg-slate-900/80 border-r border-slate-800 flex flex-col sidebar">
+        {/* Header */}
+        <div className="p-4 border-b border-slate-800">
+          <div className="flex items-center justify-between mb-3">
+            <h1 className="text-lg font-semibold text-white">{workflow.name}</h1>
             <button
               onClick={() => setShowUploadModal(true)}
-              className="p-2.5 rounded-xl bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-all border border-blue-500/30"
+              className="p-2 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors"
               title="Upload Leads"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -534,25 +408,21 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
               </svg>
             </button>
           </div>
-
-          {/* View Mode Toggle - Clean Design */}
-          <div className="flex bg-slate-800/80 rounded-xl p-1 border border-slate-700/50">
+          
+          {/* Mode Toggle */}
+          <div className="flex bg-slate-800 rounded-lg p-1">
             <button
               onClick={() => setViewMode('builder')}
-              className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all ${
-                viewMode === 'builder'
-                  ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/30'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                viewMode === 'builder' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              Builder Mode
+              Builder
             </button>
             <button
               onClick={() => setViewMode('nodes')}
-              className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all ${
-                viewMode === 'nodes'
-                  ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg shadow-purple-500/30'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                viewMode === 'nodes' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
               Node View
@@ -561,73 +431,65 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-700/50">
+        <div className="flex border-b border-slate-800">
           {[
-            { id: 'stages', label: 'Stages', icon: '📦' },
-            { id: 'actions', label: 'Actions', icon: '⚡' },
-            { id: 'upload', label: 'Import', icon: '📥' },
+            { id: 'stages', label: 'Stages' },
+            { id: 'actions', label: 'Actions' },
+            { id: 'upload', label: 'Upload' },
           ].map(tab => (
             <button
               key={tab.id}
               onClick={() => setSidebarTab(tab.id as typeof sidebarTab)}
-              className={`flex-1 py-3.5 text-sm font-semibold transition-all flex flex-col items-center gap-1 ${
+              className={`flex-1 py-3 text-sm font-medium transition-colors ${
                 sidebarTab === tab.id
-                  ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/5'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                  ? 'text-blue-400 border-b-2 border-blue-400'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
-              <span className="text-base">{tab.icon}</span>
               {tab.label}
             </button>
           ))}
         </div>
 
-        {/* Tab Content */}
-        <div className="flex-1 overflow-y-auto p-5">
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-4">
           {sidebarTab === 'stages' && (
-            <div className="space-y-5">
-              {/* Pipeline Stages */}
+            <div className="space-y-4">
               <div>
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Pipeline Stages</h3>
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Pipeline Stages</h3>
                 <div className="space-y-2">
                   {STAGE_PRESETS.map((preset, i) => (
-                    <motion.button
+                    <button
                       key={i}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
                       onClick={() => addStage(preset)}
-                      className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/50 hover:border-slate-600 hover:bg-slate-800 transition-all text-left group"
+                      className="w-full flex items-center gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:border-slate-600 transition-all text-left group"
                     >
-                      <div className={`w-10 h-10 rounded-xl ${getColor(preset.color).bg} ${getColor(preset.color).border} border flex items-center justify-center ${getColor(preset.color).text} text-lg`}>
+                      <div className={`w-8 h-8 rounded-lg ${getColor(preset.color).bg} ${getColor(preset.color).border} border flex items-center justify-center ${getColor(preset.color).text} text-sm`}>
                         {preset.icon}
                       </div>
-                      <span className="text-sm text-white font-semibold">{preset.label}</span>
-                      <span className="ml-auto opacity-0 group-hover:opacity-100 text-slate-500 transition-opacity">+</span>
-                    </motion.button>
+                      <span className="text-sm text-white font-medium">{preset.label}</span>
+                    </button>
                   ))}
                 </div>
               </div>
 
-              {/* Dead Lead Categories */}
               <div>
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Dead Lead Categories</h3>
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Dead Lead Categories</h3>
                 <div className="space-y-2">
                   {DEAD_LEAD_CATEGORIES.map((cat, i) => (
-                    <motion.button
+                    <button
                       key={i}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
                       onClick={() => addDeadStage(cat)}
-                      className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/50 hover:border-red-500/30 transition-all text-left group"
+                      className="w-full flex items-center gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:border-red-500/30 transition-all text-left"
                     >
-                      <div className={`w-10 h-10 rounded-xl ${getColor(cat.color).bg} ${getColor(cat.color).border} border flex items-center justify-center ${getColor(cat.color).text} text-lg`}>
+                      <div className={`w-8 h-8 rounded-lg ${getColor(cat.color).bg} ${getColor(cat.color).border} border flex items-center justify-center ${getColor(cat.color).text} text-xs`}>
                         {cat.icon}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm text-white font-semibold block">{cat.label}</span>
-                        <span className="text-xs text-slate-500 truncate block">{cat.description}</span>
+                      <div>
+                        <span className="text-sm text-white font-medium block">{cat.label}</span>
+                        <span className="text-xs text-slate-500">{cat.description}</span>
                       </div>
-                    </motion.button>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -635,32 +497,23 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
           )}
 
           {sidebarTab === 'actions' && (
-            <div className="space-y-5">
-              <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/30">
-                <p className="text-sm text-blue-300">
-                  {selectedStage ? (
-                    <>Select an action type to add to <strong>{workflow.stages.find(s => s.id === selectedStage)?.label}</strong></>
-                  ) : (
-                    <>Click a stage first, then add actions here.</>
-                  )}
-                </p>
-              </div>
-
+            <div className="space-y-4">
+              <p className="text-sm text-slate-400">Select a stage first, then add actions.</p>
+              
               {selectedStage && (
                 <div className="space-y-2">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Add Action to Stage</h3>
                   {ACTION_PRESETS.map((preset, i) => (
-                    <motion.button
+                    <button
                       key={i}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => addAction(selectedStage, preset)}
-                      className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/50 hover:border-blue-500/30 transition-all text-left group"
+                      onClick={() => addAction(selectedStage, preset.type)}
+                      className="w-full flex items-center gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:border-blue-500/30 transition-all text-left"
                     >
-                      <div className={`w-10 h-10 rounded-xl ${getColor(preset.color).bg} ${getColor(preset.color).border} border flex items-center justify-center text-lg`}>
+                      <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 text-sm">
                         {preset.icon}
                       </div>
-                      <span className="text-sm text-white font-semibold">{preset.label}</span>
-                    </motion.button>
+                      <span className="text-sm text-white font-medium">{preset.label}</span>
+                    </button>
                   ))}
                 </div>
               )}
@@ -668,175 +521,89 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
           )}
 
           {sidebarTab === 'upload' && (
-            <div className="space-y-5">
-              <p className="text-sm text-slate-400">Import leads from Excel, CSV, or Google Sheets with intelligent field mapping.</p>
-              
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+            <div className="space-y-4">
+              <p className="text-sm text-slate-400">Upload leads from Excel, CSV, or Google Sheets.</p>
+              <button
                 onClick={() => setShowUploadModal(true)}
-                className="w-full py-4 px-5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold hover:from-blue-400 hover:to-blue-500 transition-all shadow-lg shadow-blue-500/30"
+                className="w-full py-3 px-4 rounded-lg bg-blue-500/20 border border-blue-500/30 text-blue-400 font-medium hover:bg-blue-500/30 transition-colors"
               >
-                📥 Open Import Tool
-              </motion.button>
-
-              <div className="pt-4 border-t border-slate-700/50">
-                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Supported Formats</h4>
-                <ul className="space-y-2 text-sm">
-                  {[
-                    { format: 'Excel (.xlsx, .xls)', color: 'bg-green-500' },
-                    { format: 'CSV files', color: 'bg-green-500' },
-                    { format: 'Google Sheets (paste)', color: 'bg-green-500' },
-                    { format: 'Tab-separated values', color: 'bg-green-500' },
-                  ].map((f, i) => (
-                    <li key={i} className="flex items-center gap-2 text-slate-400">
-                      <span className={`w-2 h-2 rounded-full ${f.color}`} />
-                      {f.format}
-                    </li>
-                  ))}
+                Open Upload Tool
+              </button>
+              
+              <div className="pt-4 border-t border-slate-800">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Supported Formats</h3>
+                <ul className="space-y-2 text-sm text-slate-400">
+                  <li className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                    Excel (.xlsx, .xls)
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                    CSV files
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                    Google Sheets (paste)
+                  </li>
                 </ul>
-              </div>
-
-              <div className="pt-4 border-t border-slate-700/50">
-                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Quick Templates</h4>
-                <div className="space-y-2">
-                  {UPLOAD_TEMPLATES.slice(0, 3).map(tmpl => (
-                    <button
-                      key={tmpl.id}
-                      className="w-full p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 hover:border-slate-600 text-left transition-all"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">{tmpl.icon}</span>
-                        <span className="text-sm text-white font-medium">{tmpl.name}</span>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1">{tmpl.description}</p>
-                    </button>
-                  ))}
-                </div>
               </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-700/50 bg-slate-800/30">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {isSaving ? (
-                <div className="flex items-center gap-2 text-amber-400">
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    className="w-4 h-4 border-2 border-amber-400/30 border-t-amber-400 rounded-full"
-                  />
-                  <span className="text-xs font-medium">Saving...</span>
-                </div>
-              ) : lastSaved ? (
-                <span className="text-xs text-slate-500">
-                  Saved {lastSaved.toLocaleTimeString()}
-                </span>
-              ) : (
-                <span className="text-xs text-slate-500">Not saved</span>
-              )}
-            </div>
-            <button
-              onClick={() => setShowWorkflowsModal(true)}
-              className="text-xs text-blue-400 hover:text-blue-300 font-medium"
-            >
-              Switch Workflow
-            </button>
+        <div className="p-4 border-t border-slate-800">
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>{isSaving ? 'Saving...' : lastSaved ? `Saved ${lastSaved.toLocaleTimeString()}` : 'Not saved'}</span>
+            <span>{workflow.stages.length} stages</span>
           </div>
         </div>
       </aside>
 
-      {/* ============ MAIN CANVAS ============ */}
+      {/* ============ CANVAS ============ */}
       <main className="flex-1 relative overflow-hidden">
-        {/* Top Toolbar */}
-        <div className="toolbar absolute top-5 left-5 right-5 z-20 flex items-center justify-between pointer-events-none">
-          <div className="flex items-center gap-3 pointer-events-auto">
-            {/* Zoom Controls */}
-            <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900/90 backdrop-blur-xl border border-slate-700/50 shadow-xl">
-              <button
-                onClick={() => setZoom(z => Math.max(0.4, z - 0.1))}
-                className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors text-lg"
-              >
-                −
-              </button>
-              <span className="text-sm text-white font-semibold w-14 text-center">
-                {Math.round(zoom * 100)}%
-              </span>
-              <button
-                onClick={() => setZoom(z => Math.min(1.5, z + 0.1))}
-                className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors text-lg"
-              >
-                +
-              </button>
+        {/* Toolbar */}
+        <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between pointer-events-none">
+          <div className="flex items-center gap-2 pointer-events-auto">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-800">
+              <button onClick={() => setZoom(z => Math.max(0.3, z - 0.1))} className="text-slate-400 hover:text-white px-2">−</button>
+              <span className="text-sm text-white w-12 text-center">{Math.round(zoom * 100)}%</span>
+              <button onClick={() => setZoom(z => Math.min(2, z + 0.1))} className="text-slate-400 hover:text-white px-2">+</button>
             </div>
-
-            <button
-              onClick={fitView}
-              className="px-4 py-2.5 rounded-xl bg-slate-900/90 backdrop-blur-xl border border-slate-700/50 text-sm text-white font-semibold hover:bg-slate-800/90 transition-colors shadow-xl"
-            >
-              ⊡ Fit View
+            <button onClick={fitView} className="px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-800 text-sm text-white hover:bg-slate-800 transition-colors">
+              Fit
             </button>
-
-            <button
-              onClick={autoLayout}
-              className="px-4 py-2.5 rounded-xl bg-slate-900/90 backdrop-blur-xl border border-slate-700/50 text-sm text-white font-semibold hover:bg-slate-800/90 transition-colors shadow-xl"
-            >
-              ✨ Auto Layout
+            <button onClick={autoLayout} className="px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-800 text-sm text-white hover:bg-slate-800 transition-colors">
+              Auto Layout
             </button>
           </div>
-
-          {/* Connection Mode Indicator */}
-          {connectingFrom && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="pointer-events-auto px-5 py-2.5 rounded-xl bg-amber-500/20 backdrop-blur-xl border border-amber-500/40 text-amber-400 text-sm font-semibold shadow-xl"
-            >
-              🔗 Click another stage to connect
-            </motion.div>
-          )}
-
-          {/* Save Status */}
-          <div className="pointer-events-auto flex items-center gap-3">
-            <button
-              onClick={() => saveToS3(workflow, true)}
-              disabled={isSaving}
-              className={`px-5 py-2.5 rounded-xl font-semibold text-sm transition-all shadow-xl ${
-                hasChanges.current
-                  ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-400 hover:to-blue-500'
-                  : 'bg-slate-900/90 backdrop-blur-xl border border-slate-700/50 text-slate-400'
-              }`}
-            >
-              💾 {isSaving ? 'Saving...' : 'Save'}
-            </button>
+          
+          <div className="flex items-center gap-2 pointer-events-auto">
+            {connectingFrom && (
+              <div className="px-3 py-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-sm">
+                Click a stage to connect
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Canvas */}
+        {/* Canvas Background */}
         <div
           ref={containerRef}
           className={`absolute inset-0 ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`}
-          style={{
-            background: 'radial-gradient(ellipse at 50% 0%, rgba(59, 130, 246, 0.08) 0%, transparent 50%), radial-gradient(circle at 50% 50%, #0f172a 0%, #020617 100%)',
-          }}
+          style={{ background: 'radial-gradient(circle at 50% 50%, #1e293b 0%, #0f172a 100%)' }}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
           onMouseLeave={handleCanvasMouseUp}
           onWheel={handleWheel}
         >
-          {/* Elegant Grid Pattern */}
-          <div
-            className="absolute inset-0 opacity-[0.07]"
+          {/* Dot Grid */}
+          <div 
+            className="absolute inset-0 opacity-20"
             style={{
-              backgroundImage: `
-                linear-gradient(to right, rgba(255,255,255,0.1) 1px, transparent 1px),
-                linear-gradient(to bottom, rgba(255,255,255,0.1) 1px, transparent 1px)
-              `,
-              backgroundSize: `${60 * zoom}px ${60 * zoom}px`,
+              backgroundImage: 'radial-gradient(circle, #475569 1px, transparent 1px)',
+              backgroundSize: `${30 * zoom}px ${30 * zoom}px`,
               backgroundPosition: `${pan.x}px ${pan.y}px`,
             }}
           />
@@ -850,47 +617,30 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
               transformOrigin: '0 0',
             }}
           >
-            {/* Connections SVG */}
-            <svg
-              className="absolute inset-0 w-[6000px] h-[4000px] pointer-events-none"
-              style={{ overflow: 'visible' }}
-            >
+            {/* Connections */}
+            <svg className="absolute inset-0 w-[5000px] h-[3000px] pointer-events-none" style={{ overflow: 'visible' }}>
               <defs>
-                <linearGradient id="connectionGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.8" />
-                  <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.8" />
+                <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.6" />
+                  <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.6" />
                 </linearGradient>
-                <filter id="connectionGlow">
-                  <feGaussianBlur stdDeviation="3" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
               </defs>
-
               {workflow.connections.map(conn => {
-                const fromStage = workflow.stages.find(s => s.id === conn.from);
-                const toStage = workflow.stages.find(s => s.id === conn.to);
-                if (!fromStage || !toStage) return null;
-
+                const from = workflow.stages.find(s => s.id === conn.from);
+                const to = workflow.stages.find(s => s.id === conn.to);
+                if (!from || !to) return null;
                 return (
                   <g key={conn.id}>
-                    <motion.path
-                      initial={{ pathLength: 0 }}
-                      animate={{ pathLength: 1 }}
-                      transition={{ duration: 0.5 }}
-                      d={getConnectionPath(fromStage, toStage)}
+                    <path
+                      d={getConnectionPath(from, to)}
                       fill="none"
-                      stroke="url(#connectionGradient)"
-                      strokeWidth={3}
-                      filter="url(#connectionGlow)"
+                      stroke="url(#lineGradient)"
+                      strokeWidth={2}
                     />
-                    {/* Arrow head */}
                     <circle
-                      cx={toStage.position.x - 6}
-                      cy={toStage.position.y + (viewMode === 'builder' ? LAYOUT.STAGE_HEIGHT_COLLAPSED / 2 : 40)}
-                      r={5}
+                      cx={to.position.x}
+                      cy={to.position.y + 40}
+                      r={4}
                       fill="#8b5cf6"
                     />
                   </g>
@@ -898,8 +648,8 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
               })}
             </svg>
 
-            {/* Live Stages */}
-            {liveStages.map((stage, index) => (
+            {/* Stages */}
+            {workflow.stages.map(stage => (
               <StageNode
                 key={stage.id}
                 stage={stage}
@@ -916,64 +666,23 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
                 onDrop={() => handleDropLead(stage.id)}
                 onDragLead={setDraggedLead}
                 onViewLead={onViewDetails}
-                onToggleStar={onToggleStar}
-                starredLeads={starredLeads}
-                onUpdateLabel={(label) => updateStageLabel(stage.id, label)}
                 onUpdateAction={(actionId, updates) => updateAction(stage.id, actionId, updates)}
                 onDeleteAction={(actionId) => deleteAction(stage.id, actionId)}
-                selectedAction={selectedAction?.stageId === stage.id ? selectedAction.actionId : null}
-                onSelectAction={(actionId) => setSelectedAction(actionId ? { stageId: stage.id, actionId } : null)}
-              />
-            ))}
-
-            {/* Dead Lead Stages */}
-            {viewMode === 'nodes' && deadStages.map((stage) => (
-              <StageNode
-                key={stage.id}
-                stage={stage}
-                leads={getStageLeads(stage)}
-                isSelected={selectedStage === stage.id}
-                isConnecting={connectingFrom === stage.id}
-                isDropTarget={!!draggedLead}
-                viewMode={viewMode}
-                zoom={zoom}
-                onSelect={() => setSelectedStage(stage.id)}
-                onMove={(dx, dy) => moveStage(stage.id, dx, dy)}
-                onDelete={() => deleteStage(stage.id)}
-                onConnect={() => startConnection(stage.id)}
-                onDrop={() => handleDropLead(stage.id)}
-                onDragLead={setDraggedLead}
-                onViewLead={onViewDetails}
-                onToggleStar={onToggleStar}
-                starredLeads={starredLeads}
-                onUpdateLabel={(label) => updateStageLabel(stage.id, label)}
-                onUpdateAction={(actionId, updates) => updateAction(stage.id, actionId, updates)}
-                onDeleteAction={(actionId) => deleteAction(stage.id, actionId)}
-                selectedAction={selectedAction?.stageId === stage.id ? selectedAction.actionId : null}
-                onSelectAction={(actionId) => setSelectedAction(actionId ? { stageId: stage.id, actionId } : null)}
               />
             ))}
           </div>
         </div>
 
-        {/* Notifications */}
+        {/* Notification */}
         <AnimatePresence>
           {notification && (
             <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.95 }}
-              className={`absolute bottom-6 left-1/2 -translate-x-1/2 px-5 py-3 rounded-xl shadow-2xl backdrop-blur-xl border font-semibold text-sm ${
-                notification.type === 'success'
-                  ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
-                  : notification.type === 'error'
-                  ? 'bg-red-500/20 border-red-500/40 text-red-400'
-                  : 'bg-slate-800/90 border-slate-700/50 text-white'
-              }`}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm"
             >
-              {notification.type === 'success' && '✓ '}
-              {notification.type === 'error' && '✕ '}
-              {notification.message}
+              {notification}
             </motion.div>
           )}
         </AnimatePresence>
@@ -985,48 +694,11 @@ export function FlowPipeline({ leads, onStatusChange, onViewDetails, starredLead
           <UploadLeadsModal onClose={() => setShowUploadModal(false)} />
         )}
       </AnimatePresence>
-
-      {/* ============ WORKFLOWS MODAL ============ */}
-      <AnimatePresence>
-        {showWorkflowsModal && (
-          <WorkflowsModal
-            workflows={workflows}
-            currentWorkflow={workflow}
-            onSelect={switchWorkflow}
-            onCreate={createNewWorkflow}
-            onClose={() => setShowWorkflowsModal(false)}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }
 
 // ============ STAGE NODE COMPONENT ============
-interface StageNodeProps {
-  stage: Stage;
-  leads: Lead[];
-  isSelected: boolean;
-  isConnecting: boolean;
-  isDropTarget: boolean;
-  viewMode: ViewMode;
-  zoom: number;
-  onSelect: () => void;
-  onMove: (dx: number, dy: number) => void;
-  onDelete: () => void;
-  onConnect: () => void;
-  onDrop: () => void;
-  onDragLead: (lead: Lead | null) => void;
-  onViewLead: (lead: Lead) => void;
-  onToggleStar: (id: string) => void;
-  starredLeads: Set<string>;
-  onUpdateLabel: (label: string) => void;
-  onUpdateAction: (actionId: string, updates: Partial<ActionConfig>) => void;
-  onDeleteAction: (actionId: string) => void;
-  selectedAction: string | null;
-  onSelectAction: (actionId: string | null) => void;
-}
-
 function StageNode({
   stage,
   leads,
@@ -1042,23 +714,33 @@ function StageNode({
   onDrop,
   onDragLead,
   onViewLead,
-  onToggleStar,
-  starredLeads,
-  onUpdateLabel,
   onUpdateAction,
   onDeleteAction,
-  selectedAction,
-  onSelectAction,
-}: StageNodeProps) {
+}: {
+  stage: Stage;
+  leads: Lead[];
+  isSelected: boolean;
+  isConnecting: boolean;
+  isDropTarget: boolean;
+  viewMode: ViewMode;
+  zoom: number;
+  onSelect: () => void;
+  onMove: (dx: number, dy: number) => void;
+  onDelete: () => void;
+  onConnect: () => void;
+  onDrop: () => void;
+  onDragLead: (lead: Lead | null) => void;
+  onViewLead: (lead: Lead) => void;
+  onUpdateAction: (actionId: string, updates: Partial<ActionConfig>) => void;
+  onDeleteAction: (actionId: string) => void;
+}) {
   const [isDragging, setIsDragging] = useState(false);
   const [showActions, setShowActions] = useState(false);
-  const [isEditingLabel, setIsEditingLabel] = useState(false);
-  const [editLabel, setEditLabel] = useState(stage.label);
   const lastPos = useRef({ x: 0, y: 0 });
   const color = getColor(stage.color);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.action-panel, .connect-btn, .lead-item, .delete-btn, input')) return;
+    if ((e.target as HTMLElement).closest('.action-panel, .connect-btn, .lead-item')) return;
     e.stopPropagation();
     setIsDragging(true);
     lastPos.current = { x: e.clientX, y: e.clientY };
@@ -1067,406 +749,350 @@ function StageNode({
       onMove(ev.clientX - lastPos.current.x, ev.clientY - lastPos.current.y);
       lastPos.current = { x: ev.clientX, y: ev.clientY };
     };
-    
     const handleUp = () => {
       setIsDragging(false);
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-    
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
   };
 
-  const handleLabelSubmit = () => {
-    if (editLabel.trim()) {
-      onUpdateLabel(editLabel.trim());
-    } else {
-      setEditLabel(stage.label);
-    }
-    setIsEditingLabel(false);
-  };
-
-  // ============ BUILDER MODE - COMPACT HORIZONTAL FLOW ============
+  // Builder mode - compact view
   if (viewMode === 'builder') {
     return (
-      <motion.div
+      <div
         className="stage-node absolute"
         style={{ left: stage.position.x, top: stage.position.y }}
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDrop}
       >
-        {/* Left Connector */}
-        <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-slate-600 border-2 border-slate-500 shadow-lg" />
-
-        <motion.div
+        <div
           onClick={onSelect}
           onMouseDown={handleMouseDown}
-          onDoubleClick={() => setIsEditingLabel(true)}
-          whileHover={{ scale: 1.02 }}
-          className={`relative px-5 py-3.5 rounded-2xl border-2 backdrop-blur-xl transition-all cursor-grab ${
-            isSelected ? `${color.border} ring-2 ring-offset-2 ring-offset-slate-900 ring-${color.id}-500/40` : 'border-slate-700/50'
-          } ${isConnecting ? 'ring-2 ring-amber-500/50' : ''} ${isDropTarget ? 'ring-2 ring-green-500/50' : ''} ${isDragging ? 'cursor-grabbing scale-105' : ''}`}
-          style={{
-            background: `linear-gradient(135deg, ${color.accent}15 0%, rgba(15, 23, 42, 0.95) 100%)`,
-            minWidth: LAYOUT.STAGE_WIDTH_COLLAPSED,
-          }}
+          className={`relative px-6 py-3 rounded-xl border-2 backdrop-blur-sm transition-all cursor-grab ${
+            isSelected ? `${color.border} ring-2 ring-blue-500/30` : 'border-slate-700/50'
+          } ${isConnecting ? 'ring-2 ring-yellow-500/50' : ''} ${isDragging ? 'cursor-grabbing' : ''}`}
+          style={{ background: 'rgba(15, 23, 42, 0.8)' }}
         >
+          {/* Left connector */}
+          <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-slate-600 border-2 border-slate-500" />
+          
+          {/* Content */}
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl ${color.bg} ${color.border} border flex items-center justify-center ${color.text} text-lg shadow-lg`}>
+            <div className={`w-8 h-8 rounded-lg ${color.bg} ${color.border} border flex items-center justify-center ${color.text} text-sm`}>
               {stage.icon}
             </div>
-            <div className="flex-1 min-w-0">
-              {isEditingLabel ? (
-                <input
-                  type="text"
-                  value={editLabel}
-                  onChange={(e) => setEditLabel(e.target.value)}
-                  onBlur={handleLabelSubmit}
-                  onKeyDown={(e) => e.key === 'Enter' && handleLabelSubmit()}
-                  className="bg-transparent border-none outline-none text-white font-bold text-sm w-full"
-                  autoFocus
-                />
-              ) : (
-                <span className="text-white font-bold text-sm block truncate">{stage.label}</span>
-              )}
-              <span className="text-xs text-slate-400">{leads.length} leads</span>
+            <div>
+              <span className="text-white font-medium block">{stage.label}</span>
+              <span className="text-xs text-slate-500">{leads.length} leads</span>
             </div>
-            {stage.actions.length > 0 && (
-              <div className={`w-6 h-6 rounded-full ${color.bg} ${color.text} flex items-center justify-center text-xs font-bold`}>
-                {stage.actions.length}
-              </div>
-            )}
           </div>
-        </motion.div>
 
-        {/* Right Connector */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onConnect(); }}
-          className={`connect-btn absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-all shadow-lg ${
-            isConnecting
-              ? 'bg-amber-500 border-amber-400 text-black'
-              : 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-blue-500 hover:border-blue-400 hover:text-white'
-          }`}
-        >
-          +
-        </button>
-      </motion.div>
+          {/* Right connector */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onConnect(); }}
+            className={`connect-btn absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+              isConnecting ? 'bg-yellow-500 border-yellow-400 text-black' : 'bg-slate-700 border-slate-500 text-slate-300 hover:bg-blue-500 hover:border-blue-400'
+            }`}
+          >
+            +
+          </button>
+        </div>
+      </div>
     );
   }
 
-  // ============ NODE VIEW - EXPANDED WITH FULL DETAILS ============
+  // Node view - expanded view
   return (
-    <motion.div
+    <div
       className="stage-node absolute"
       style={{ left: stage.position.x, top: stage.position.y }}
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
-      {/* Left Connector */}
-      <div className="absolute left-0 top-10 -translate-x-1/2 w-4 h-4 rounded-full bg-slate-600 border-2 border-slate-500 shadow-lg" />
+      {/* Left connector */}
+      <div className="absolute left-0 top-10 -translate-x-1/2 w-3 h-3 rounded-full bg-slate-600 border-2 border-slate-500" />
 
-      <motion.div
+      <div
         onClick={onSelect}
         onMouseDown={handleMouseDown}
-        className={`relative rounded-2xl border-2 backdrop-blur-xl overflow-hidden transition-all shadow-2xl ${
-          isSelected ? `${color.border} ring-2 ring-offset-2 ring-offset-slate-900 ring-${color.id}-500/40` : 'border-slate-700/50'
-        } ${isConnecting ? 'ring-2 ring-amber-500/50' : ''} ${isDropTarget ? 'ring-2 ring-green-500/50' : ''} ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-        style={{
-          width: LAYOUT.STAGE_WIDTH_EXPANDED,
-          background: 'linear-gradient(180deg, rgba(30, 41, 59, 0.98) 0%, rgba(15, 23, 42, 0.98) 100%)',
-        }}
+        className={`relative w-[200px] rounded-xl border-2 backdrop-blur-sm overflow-hidden transition-all ${
+          isSelected ? `${color.border} ring-2 ring-blue-500/30` : 'border-slate-700/50'
+        } ${isConnecting ? 'ring-2 ring-yellow-500/50' : ''} ${isDropTarget ? 'ring-2 ring-green-500/50' : ''} ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+        style={{ background: 'rgba(15, 23, 42, 0.9)' }}
       >
         {/* Header */}
-        <div className={`px-5 py-4 ${color.bg} border-b border-slate-700/50`}>
-          <div className="flex items-center gap-3">
-            <div className={`w-12 h-12 rounded-xl ${color.bg} ${color.border} border flex items-center justify-center ${color.text} text-xl shadow-lg`}>
-              {stage.icon}
-            </div>
-            <div className="flex-1 min-w-0">
-              {isEditingLabel ? (
-                <input
-                  type="text"
-                  value={editLabel}
-                  onChange={(e) => setEditLabel(e.target.value)}
-                  onBlur={handleLabelSubmit}
-                  onKeyDown={(e) => e.key === 'Enter' && handleLabelSubmit()}
-                  className="bg-transparent border-none outline-none text-white font-bold text-base w-full"
-                  autoFocus
-                />
-              ) : (
-                <span
-                  className="text-white font-bold text-base block truncate cursor-text"
-                  onDoubleClick={() => setIsEditingLabel(true)}
-                >
-                  {stage.label}
-                </span>
-              )}
-              {stage.description && (
-                <span className="text-xs text-slate-400 block truncate">{stage.description}</span>
-              )}
-            </div>
-            <div className={`px-3 py-1.5 rounded-xl ${color.bg} ${color.border} border ${color.text} text-lg font-bold`}>
+        <div className={`px-4 py-3 border-b border-slate-700/50 ${color.bg}`}>
+          <div className="flex items-center gap-2">
+            <span className={`text-lg ${color.text}`}>{stage.icon}</span>
+            <span className="text-white font-medium text-sm">{stage.label}</span>
+            <span className={`ml-auto px-2 py-0.5 rounded text-xs ${color.bg} ${color.text} border ${color.border}`}>
               {leads.length}
-            </div>
+            </span>
           </div>
         </div>
 
         {/* Leads */}
-        <div className="p-4 max-h-[200px] overflow-y-auto">
+        <div className="p-2 max-h-[200px] overflow-y-auto">
           {leads.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-6 text-slate-500">
-              <span className="text-3xl mb-2 opacity-50">📥</span>
-              <span className="text-sm font-medium">Drop leads here</span>
-            </div>
+            <p className="text-center text-xs text-slate-500 py-4">Drop leads here</p>
           ) : (
-            <div className="space-y-2">
-              {leads.slice(0, 6).map(lead => (
-                <motion.div
+            <div className="space-y-1">
+              {leads.slice(0, 5).map(lead => (
+                <div
                   key={lead.id}
                   draggable
                   onDragStart={() => onDragLead(lead)}
                   onDragEnd={() => onDragLead(null)}
                   onClick={(e) => { e.stopPropagation(); onViewLead(lead); }}
-                  whileHover={{ scale: 1.02 }}
-                  className="lead-item flex items-center gap-3 p-3 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 cursor-grab border border-slate-700/50 transition-all"
+                  className="lead-item flex items-center gap-2 p-2 rounded-lg bg-slate-800/50 hover:bg-slate-700/50 cursor-pointer transition-colors"
                 >
-                  <div className={`w-9 h-9 rounded-lg ${color.bg} ${color.text} flex items-center justify-center text-sm font-bold flex-shrink-0`}>
+                  <div className={`w-6 h-6 rounded ${color.bg} ${color.text} flex items-center justify-center text-xs font-medium`}>
                     {lead.formData.fullName.charAt(0)}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm text-white font-semibold block truncate">{lead.formData.fullName}</span>
-                    <span className="text-xs text-slate-500 truncate block">{lead.formData.phone}</span>
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onToggleStar(lead.id); }}
-                    className="text-lg flex-shrink-0 hover:scale-110 transition-transform"
-                  >
-                    {starredLeads.has(lead.id) ? '⭐' : '☆'}
-                  </button>
-                </motion.div>
-              ))}
-              {leads.length > 6 && (
-                <div className="text-center text-xs text-slate-500 py-2 font-medium">
-                  +{leads.length - 6} more leads
+                  <span className="text-xs text-white truncate flex-1">{lead.formData.fullName}</span>
                 </div>
+              ))}
+              {leads.length > 5 && (
+                <p className="text-center text-xs text-slate-500 py-1">+{leads.length - 5} more</p>
               )}
             </div>
           )}
         </div>
 
-        {/* Actions Section */}
+        {/* Actions */}
         {stage.actions.length > 0 && (
-          <div className="px-4 pb-4">
+          <div className="px-2 pb-2">
             <button
               onClick={(e) => { e.stopPropagation(); setShowActions(!showActions); }}
-              className="w-full py-2.5 px-4 rounded-xl bg-slate-800/80 border border-slate-700/50 text-sm text-slate-300 font-semibold hover:bg-slate-700/80 transition-colors flex items-center justify-between"
+              className="w-full py-1.5 px-2 rounded-lg bg-slate-800/50 text-xs text-slate-400 hover:text-white transition-colors"
             >
-              <span>⚡ {stage.actions.length} Action{stage.actions.length !== 1 ? 's' : ''}</span>
-              <span>{showActions ? '▲' : '▼'}</span>
+              {stage.actions.length} action{stage.actions.length !== 1 ? 's' : ''} {showActions ? '▲' : '▼'}
             </button>
-
-            <AnimatePresence>
-              {showActions && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="action-panel mt-3 space-y-2 overflow-hidden"
-                >
-                  {stage.actions.map(action => (
-                    <ActionItem
-                      key={action.id}
-                      action={action}
-                      isSelected={selectedAction === action.id}
-                      onSelect={() => onSelectAction(selectedAction === action.id ? null : action.id)}
-                      onUpdate={(updates) => onUpdateAction(action.id, updates)}
-                      onDelete={() => onDeleteAction(action.id)}
-                    />
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
+            
+            {showActions && (
+              <div className="action-panel mt-2 space-y-1">
+                {stage.actions.map(action => (
+                  <ActionItem
+                    key={action.id}
+                    action={action}
+                    onUpdate={(updates) => onUpdateAction(action.id, updates)}
+                    onDelete={() => onDeleteAction(action.id)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
-      </motion.div>
+      </div>
 
-      {/* Right Connector */}
+      {/* Right connector */}
       <button
         onClick={(e) => { e.stopPropagation(); onConnect(); }}
-        className={`connect-btn absolute right-0 top-10 translate-x-1/2 w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-all shadow-lg ${
-          isConnecting
-            ? 'bg-amber-500 border-amber-400 text-black'
-            : 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-blue-500 hover:border-blue-400 hover:text-white'
+        className={`connect-btn absolute right-0 top-10 translate-x-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs transition-all ${
+          isConnecting ? 'bg-yellow-500 border-yellow-400 text-black' : 'bg-slate-700 border-slate-500 text-slate-300 hover:bg-blue-500 hover:border-blue-400'
         }`}
       >
         +
       </button>
 
-      {/* Delete Button */}
+      {/* Delete button (when selected) */}
       {isSelected && (
-        <motion.button
-          initial={{ opacity: 0, y: 5 }}
-          animate={{ opacity: 1, y: 0 }}
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="delete-btn absolute -top-10 right-0 px-3 py-1.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-400 text-xs font-semibold hover:bg-red-500/30 transition-colors"
-        >
-          🗑️ Delete
-        </motion.button>
-      )}
-    </motion.div>
-  );
-}
-
-// ============ ACTION ITEM COMPONENT ============
-interface ActionItemProps {
-  action: ActionConfig;
-  isSelected: boolean;
-  onSelect: () => void;
-  onUpdate: (updates: Partial<ActionConfig>) => void;
-  onDelete: () => void;
-}
-
-function ActionItem({ action, isSelected, onSelect, onUpdate, onDelete }: ActionItemProps) {
-  return (
-    <div className={`p-3 rounded-xl border transition-all ${
-      isSelected ? 'bg-blue-500/10 border-blue-500/40' : 'bg-slate-900/60 border-slate-700/50'
-    }`}>
-      <div className="flex items-center justify-between">
         <button
-          onClick={(e) => { e.stopPropagation(); onSelect(); }}
-          className="flex items-center gap-2 flex-1 text-left"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="absolute -top-8 right-0 px-2 py-1 rounded bg-red-500/20 text-red-400 text-xs hover:bg-red-500/30 transition-colors"
         >
-          <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm ${
-            action.enabled ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-700 text-slate-500'
-          }`}>
-            {action.icon}
-          </span>
-          <div className="flex-1 min-w-0">
-            <span className="text-xs text-white font-semibold block truncate">{action.label}</span>
-            {action.delay && action.delay.value > 0 && (
-              <span className="text-[10px] text-purple-400">⏱️ After {formatTimer(action.delay)}</span>
-            )}
-          </div>
+          Delete
         </button>
-        
-        <div className="flex items-center gap-1">
-          <button
-            onClick={(e) => { e.stopPropagation(); onUpdate({ enabled: !action.enabled }); }}
-            className={`w-8 h-4 rounded-full transition-colors ${action.enabled ? 'bg-blue-500' : 'bg-slate-700'}`}
-          >
-            <div className={`w-3 h-3 rounded-full bg-white shadow transition-transform ${action.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="p-1.5 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-
-      {/* Expanded Settings - Wait Timer Integrated */}
-      <AnimatePresence>
-        {isSelected && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="mt-3 pt-3 border-t border-slate-700/50 space-y-3"
-          >
-            {/* Wait Timer - Integrated Naturally */}
-            <div>
-              <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block mb-1.5">
-                Delay Before Action
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  min="0"
-                  value={action.delay?.value || 0}
-                  onChange={(e) => onUpdate({
-                    delay: { value: parseInt(e.target.value) || 0, unit: action.delay?.unit || 'hours' }
-                  })}
-                  className="w-16 px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs font-medium"
-                />
-                <select
-                  value={action.delay?.unit || 'hours'}
-                  onChange={(e) => onUpdate({
-                    delay: { value: action.delay?.value || 0, unit: e.target.value as TimerConfig['unit'] }
-                  })}
-                  className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs font-medium"
-                >
-                  <option value="minutes">Minutes</option>
-                  <option value="hours">Hours</option>
-                  <option value="days">Days</option>
-                  <option value="weeks">Weeks</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Condition */}
-            <div>
-              <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block mb-1.5">
-                Trigger Condition
-              </label>
-              <select
-                value={action.condition || 'always'}
-                onChange={(e) => onUpdate({ condition: e.target.value as ActionConfig['condition'] })}
-                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs font-medium"
-              >
-                <option value="always">Always</option>
-                <option value="no-response">If no response</option>
-                <option value="if-opened">If email opened</option>
-              </select>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      )}
     </div>
   );
 }
 
-// ============ UPLOAD LEADS MODAL ============
+// ============ ACTION ITEM COMPONENT ============
+function ActionItem({
+  action,
+  onUpdate,
+  onDelete,
+}: {
+  action: ActionConfig;
+  onUpdate: (updates: Partial<ActionConfig>) => void;
+  onDelete: () => void;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const typeLabel = ACTION_PRESETS.find(p => p.type === action.type)?.label || action.type;
+
+  return (
+    <div className="p-2 rounded-lg bg-slate-900/50 border border-slate-700/50">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className={`w-5 h-5 rounded flex items-center justify-center text-xs ${action.enabled ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-700 text-slate-500'}`}>
+            {ACTION_PRESETS.find(p => p.type === action.type)?.icon}
+          </span>
+          <span className="text-xs text-white">{typeLabel}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setIsEditing(!isEditing)}
+            className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+          <button
+            onClick={onDelete}
+            className="p-1 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      
+      {isEditing && (
+        <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-2">
+          {/* Wait Timer */}
+          <div>
+            <label className="text-[10px] text-slate-500 uppercase">Wait Before</label>
+            <div className="flex gap-1 mt-1">
+              <input
+                type="number"
+                min="0"
+                value={action.waitBefore?.value || 0}
+                onChange={(e) => onUpdate({ waitBefore: { value: parseInt(e.target.value) || 0, unit: action.waitBefore?.unit || 'hours' } })}
+                className="w-14 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-white text-xs"
+              />
+              <select
+                value={action.waitBefore?.unit || 'hours'}
+                onChange={(e) => onUpdate({ waitBefore: { value: action.waitBefore?.value || 0, unit: e.target.value as TimerConfig['unit'] } })}
+                className="flex-1 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-white text-xs"
+              >
+                <option value="minutes">min</option>
+                <option value="hours">hrs</option>
+                <option value="days">days</option>
+                <option value="weeks">wks</option>
+              </select>
+            </div>
+          </div>
+          
+          {/* Enable Toggle */}
+          <label className="flex items-center justify-between">
+            <span className="text-[10px] text-slate-500 uppercase">Enabled</span>
+            <button
+              onClick={() => onUpdate({ enabled: !action.enabled })}
+              className={`w-8 h-4 rounded-full transition-colors ${action.enabled ? 'bg-blue-500' : 'bg-slate-700'}`}
+            >
+              <div className={`w-3 h-3 rounded-full bg-white transition-transform ${action.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+            </button>
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============ UPLOAD LEADS MODAL - ENHANCED ============
 function UploadLeadsModal({ onClose }: { onClose: () => void }) {
-  const [uploadMethod, setUploadMethod] = useState<'file' | 'paste' | 'template'>('file');
+  const [step, setStep] = useState<'template' | 'upload' | 'mapping' | 'preview'>('template');
+  const [selectedTemplate, setSelectedTemplate] = useState<UploadTemplate | null>(null);
+  const [uploadMethod, setUploadMethod] = useState<'file' | 'paste'>('paste');
   const [fileData, setFileData] = useState<string[][] | null>(null);
   const [pasteData, setPasteData] = useState('');
-  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [mappings, setMappings] = useState<Record<string, string>>({});
+  const [columnMappings, setColumnMappings] = useState<Record<number, string>>({});
+  const [validationResult, setValidationResult] = useState<{ valid: boolean; missing: string[]; extra: string[] } | null>(null);
+  const [templateFilter, setTemplateFilter] = useState<string>('all');
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const filteredTemplates = UPLOAD_TEMPLATES.filter(t => 
+    templateFilter === 'all' || t.category === templateFilter
+  );
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    setIsProcessing(true);
-
+    
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
-      const rows = text.split('\n').map(row =>
-        row.split(/[,\t]/).map(cell => cell.trim().replace(/^["']|["']$/g, ''))
-      ).filter(row => row.some(cell => cell));
-      setFileData(rows);
-      setIsProcessing(false);
+      // Handle both CSV (comma) and TSV (tab)
+      const delimiter = text.includes('\t') ? '\t' : ',';
+      const rows = text.split('\n')
+        .filter(row => row.trim())
+        .map(row => row.split(delimiter).map(cell => cell.trim().replace(/^["']|["']$/g, '')));
+      processData(rows);
     };
     reader.readAsText(file);
   };
 
   const handlePaste = () => {
     if (!pasteData.trim()) return;
+    // Tab-separated for paste from Excel/Sheets
+    const rows = pasteData.split('\n')
+      .filter(row => row.trim())
+      .map(row => row.split('\t').map(cell => cell.trim()));
+    processData(rows);
+  };
 
-    setIsProcessing(true);
-    const rows = pasteData.split('\n').map(row =>
-      row.split(/[\t]/).map(cell => cell.trim())
-    ).filter(row => row.some(cell => cell));
+  const processData = (rows: string[][]) => {
+    if (rows.length < 2) return;
     setFileData(rows);
-    setIsProcessing(false);
+    
+    // Auto-detect mappings based on headers
+    const headers = rows[0];
+    const autoMappings: Record<number, string> = {};
+    
+    headers.forEach((header, idx) => {
+      const headerLower = header.toLowerCase().trim();
+      // Try to match with upload fields
+      const matchedField = UPLOAD_FIELDS.find(f => 
+        f.label.toLowerCase() === headerLower ||
+        f.id.toLowerCase() === headerLower ||
+        headerLower.includes(f.id.toLowerCase()) ||
+        headerLower.includes(f.label.toLowerCase())
+      );
+      if (matchedField) {
+        autoMappings[idx] = matchedField.id;
+      }
+    });
+    
+    setColumnMappings(autoMappings);
+    
+    // Validate if template selected
+    if (selectedTemplate) {
+      const result = validateHeaders(headers, selectedTemplate);
+      setValidationResult(result);
+    }
+    
+    setStep('mapping');
+  };
+
+  const applyTemplate = (template: UploadTemplate) => {
+    setSelectedTemplate(template);
+    // Generate sample paste data from template
+    const sampleData = [template.headers.join('\t'), template.sampleRow.join('\t')].join('\n');
+    setPasteData(sampleData);
+    setStep('upload');
+  };
+
+  const downloadTemplate = (template: UploadTemplate) => {
+    const csvContent = [
+      template.headers.join(','),
+      template.sampleRow.join(','),
+      // Add a few empty rows for user to fill
+      template.headers.map(() => '').join(','),
+      template.headers.map(() => '').join(','),
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${template.id}-template.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -1474,305 +1100,335 @@ function UploadLeadsModal({ onClose }: { onClose: () => void }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm modal"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm modal"
       onClick={onClose}
     >
       <motion.div
-        initial={{ scale: 0.95, opacity: 0, y: 20 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.95, opacity: 0, y: 20 }}
-        className="w-full max-w-3xl bg-slate-900 rounded-3xl border border-slate-700/50 shadow-2xl overflow-hidden"
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="w-full max-w-4xl max-h-[90vh] bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-6 border-b border-slate-700/50 flex items-center justify-between bg-gradient-to-r from-slate-800/80 to-slate-900/80">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <span className="text-2xl">📥</span>
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-white">Import Leads</h2>
-              <p className="text-sm text-slate-400">Upload your lead data with intelligent mapping</p>
+        <div className="p-6 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-semibold text-white">Upload Leads</h2>
+            {/* Step indicator */}
+            <div className="flex items-center gap-2">
+              {['template', 'upload', 'mapping', 'preview'].map((s, i) => (
+                <div key={s} className="flex items-center">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                    step === s ? 'bg-blue-500 text-white' : 
+                    ['template', 'upload', 'mapping', 'preview'].indexOf(step) > i ? 'bg-green-500 text-white' : 'bg-slate-700 text-slate-400'
+                  }`}>
+                    {i + 1}
+                  </div>
+                  {i < 3 && <div className={`w-8 h-0.5 ${['template', 'upload', 'mapping', 'preview'].indexOf(step) > i ? 'bg-green-500' : 'bg-slate-700'}`} />}
+                </div>
+              ))}
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-10 h-10 rounded-xl bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors flex items-center justify-center"
-          >
-            ✕
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
 
-        {/* Method Tabs */}
-        <div className="flex border-b border-slate-700/50">
-          {[
-            { id: 'file', label: 'Upload File', icon: '📁' },
-            { id: 'paste', label: 'Paste Data', icon: '📋' },
-            { id: 'template', label: 'Use Template', icon: '📝' },
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setUploadMethod(tab.id as typeof uploadMethod)}
-              className={`flex-1 py-4 text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
-                uploadMethod === tab.id
-                  ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/5'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-            >
-              <span>{tab.icon}</span>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
         {/* Content */}
-        <div className="p-6 max-h-[60vh] overflow-y-auto">
-          {uploadMethod === 'file' && (
-            <div className="space-y-6">
-              <div className="border-2 border-dashed border-slate-700 rounded-2xl p-10 text-center hover:border-blue-500/50 transition-colors">
-                <input
-                  type="file"
-                  accept=".csv,.xlsx,.xls,.txt"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  id="file-upload"
-                />
-                <label htmlFor="file-upload" className="cursor-pointer">
-                  <motion.div
-                    whileHover={{ scale: 1.05 }}
-                    className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 flex items-center justify-center"
+        <div className="flex-1 overflow-y-auto p-6">
+          {/* STEP 1: Template Selection */}
+          {step === 'template' && (
+            <div>
+              <p className="text-slate-400 mb-4">Choose a template or start with custom headers.</p>
+              
+              {/* Category Filter */}
+              <div className="flex gap-2 mb-4 flex-wrap">
+                {['all', 'universal', 'automotive', 'real-estate', 'services'].map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setTemplateFilter(cat)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all capitalize ${
+                      templateFilter === cat ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                    }`}
                   >
-                    <span className="text-4xl">📁</span>
-                  </motion.div>
-                  <p className="text-lg text-white font-semibold mb-2">Click to upload or drag and drop</p>
-                  <p className="text-sm text-slate-500">Excel, CSV, or text files supported</p>
-                </label>
+                    {cat === 'all' ? 'All Templates' : cat.replace('-', ' ')}
+                  </button>
+                ))}
               </div>
-            </div>
-          )}
+              
+              {/* Template Grid */}
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                {filteredTemplates.map(template => (
+                  <button
+                    key={template.id}
+                    onClick={() => applyTemplate(template)}
+                    className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/50 hover:border-blue-500/50 transition-all text-left group"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl">{template.icon}</span>
+                      <div>
+                        <h3 className="text-white font-medium group-hover:text-blue-400">{template.name}</h3>
+                        <p className="text-xs text-slate-500">{template.description}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <span>{template.headers.length} columns</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); downloadTemplate(template); }}
+                        className="text-blue-400 hover:text-blue-300"
+                      >
+                        Download CSV
+                      </button>
+                    </div>
+                  </button>
+                ))}
+              </div>
 
-          {uploadMethod === 'paste' && (
-            <div className="space-y-4">
-              <textarea
-                value={pasteData}
-                onChange={(e) => setPasteData(e.target.value)}
-                placeholder="Paste your data from Google Sheets, Excel, or any spreadsheet...&#10;&#10;Columns should be separated by tabs.&#10;Each row should be on a new line."
-                className="w-full h-48 px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder:text-slate-500 resize-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-              />
+              {/* Skip to custom */}
               <button
-                onClick={handlePaste}
-                disabled={!pasteData.trim()}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:from-blue-400 hover:to-blue-500 transition-all shadow-lg shadow-blue-500/30"
+                onClick={() => { setSelectedTemplate(null); setStep('upload'); }}
+                className="w-full py-3 rounded-lg border-2 border-dashed border-slate-700 text-slate-400 hover:border-slate-600 hover:text-white transition-all"
               >
-                Process Data
+                Skip template - Use custom headers
               </button>
             </div>
           )}
 
-          {uploadMethod === 'template' && (
-            <div className="space-y-4">
-              <p className="text-sm text-slate-400 mb-4">Choose a template that matches your data format:</p>
-              <div className="grid grid-cols-2 gap-4">
-                {UPLOAD_TEMPLATES.map(tmpl => (
-                  <button
-                    key={tmpl.id}
-                    onClick={() => setSelectedTemplate(tmpl.id)}
-                    className={`p-4 rounded-xl border text-left transition-all ${
-                      selectedTemplate === tmpl.id
-                        ? 'bg-blue-500/20 border-blue-500/50'
-                        : 'bg-slate-800/60 border-slate-700/50 hover:border-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-2xl">{tmpl.icon}</span>
-                      <span className="text-white font-semibold">{tmpl.name}</span>
+          {/* STEP 2: Upload Data */}
+          {step === 'upload' && (
+            <div>
+              {selectedTemplate && (
+                <div className="mb-6 p-4 rounded-xl bg-blue-500/10 border border-blue-500/30">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-2xl">{selectedTemplate.icon}</span>
+                    <div>
+                      <h3 className="text-white font-medium">{selectedTemplate.name}</h3>
+                      <p className="text-xs text-blue-300">Required headers: {selectedTemplate.headers.join(', ')}</p>
                     </div>
-                    <p className="text-xs text-slate-400">{tmpl.description}</p>
-                    <p className="text-xs text-slate-500 mt-2">{tmpl.fields.length} fields</p>
-                  </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Method Toggle */}
+              <div className="flex bg-slate-800 rounded-lg p-1 mb-6">
+                <button
+                  onClick={() => setUploadMethod('paste')}
+                  className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+                    uploadMethod === 'paste' ? 'bg-slate-700 text-white' : 'text-slate-400'
+                  }`}
+                >
+                  📋 Paste from Excel/Sheets
+                </button>
+                <button
+                  onClick={() => setUploadMethod('file')}
+                  className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+                    uploadMethod === 'file' ? 'bg-slate-700 text-white' : 'text-slate-400'
+                  }`}
+                >
+                  📁 Upload File
+                </button>
+              </div>
+
+              {uploadMethod === 'paste' ? (
+                <div>
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 block">
+                    Paste data (Tab-separated from Excel/Google Sheets)
+                  </label>
+                  <textarea
+                    value={pasteData}
+                    onChange={(e) => setPasteData(e.target.value)}
+                    placeholder={`Paste your data here. First row should be headers.\n\nExample:\nFull Name\tEmail\tPhone\tNotes\nJohn Smith\tjohn@email.com\t(416) 555-1234\tInterested`}
+                    className="w-full h-48 px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder:text-slate-500 resize-none font-mono text-sm"
+                  />
+                  <div className="flex justify-between items-center mt-3">
+                    <p className="text-xs text-slate-500">Tip: Copy directly from Excel or Google Sheets (Ctrl+C), then paste here (Ctrl+V)</p>
+                    <button
+                      onClick={handlePaste}
+                      disabled={!pasteData.trim()}
+                      className="px-4 py-2 rounded-lg bg-blue-500 text-white font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Process Data
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="border-2 border-dashed border-slate-700 rounded-xl p-8 text-center">
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls,.tsv,.txt"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    id="file-upload"
+                  />
+                  <label htmlFor="file-upload" className="cursor-pointer">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-500/20 flex items-center justify-center">
+                      <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                    </div>
+                    <p className="text-white font-medium mb-1">Click to upload or drag & drop</p>
+                    <p className="text-sm text-slate-500">CSV, Excel (.xlsx, .xls), TSV files</p>
+                  </label>
+                </div>
+              )}
+
+              {/* Back button */}
+              <button
+                onClick={() => { setStep('template'); setSelectedTemplate(null); }}
+                className="mt-4 text-sm text-slate-400 hover:text-white"
+              >
+                ← Back to templates
+              </button>
+            </div>
+          )}
+
+          {/* STEP 3: Column Mapping */}
+          {step === 'mapping' && fileData && (
+            <div>
+              {/* Validation Messages */}
+              {validationResult && !validationResult.valid && (
+                <div className="mb-4 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30">
+                  <h4 className="text-yellow-400 font-medium mb-2">⚠️ Header Mismatch</h4>
+                  {validationResult.missing.length > 0 && (
+                    <p className="text-sm text-yellow-300">Missing: {validationResult.missing.join(', ')}</p>
+                  )}
+                  {validationResult.extra.length > 0 && (
+                    <p className="text-sm text-slate-400">Extra columns: {validationResult.extra.join(', ')}</p>
+                  )}
+                </div>
+              )}
+
+              <h3 className="text-white font-medium mb-4">Map Columns to Fields</h3>
+              
+              {/* Column Mapping Grid */}
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                {fileData[0].map((header, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white font-medium truncate">{header}</p>
+                      <p className="text-xs text-slate-500 truncate">Sample: {fileData[1]?.[idx] || '-'}</p>
+                    </div>
+                    <select
+                      value={columnMappings[idx] || ''}
+                      onChange={(e) => setColumnMappings(prev => ({ ...prev, [idx]: e.target.value }))}
+                      className="w-36 px-2 py-1.5 rounded-lg bg-slate-700 border border-slate-600 text-white text-xs"
+                    >
+                      <option value="">Skip column</option>
+                      {UPLOAD_FIELDS.map(field => (
+                        <option key={field.id} value={field.id}>
+                          {field.label} {field.required && '*'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 ))}
+              </div>
+
+              {/* Required fields check */}
+              <div className="p-3 rounded-lg bg-slate-800/30 mb-4">
+                <p className="text-xs text-slate-400 mb-2">Required fields:</p>
+                <div className="flex flex-wrap gap-2">
+                  {UPLOAD_FIELDS.filter(f => f.required).map(field => {
+                    const isMapped = Object.values(columnMappings).includes(field.id);
+                    return (
+                      <span key={field.id} className={`px-2 py-1 rounded text-xs ${isMapped ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                        {field.label} {isMapped ? '✓' : '✕'}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button onClick={() => setStep('upload')} className="px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition-colors">
+                  ← Back
+                </button>
+                <button
+                  onClick={() => setStep('preview')}
+                  disabled={!UPLOAD_FIELDS.filter(f => f.required).every(f => Object.values(columnMappings).includes(f.id))}
+                  className="flex-1 px-4 py-2 rounded-lg bg-blue-500 text-white font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Continue to Preview
+                </button>
               </div>
             </div>
           )}
 
-          {/* Data Preview */}
-          {fileData && (
-            <div className="mt-6 pt-6 border-t border-slate-700/50">
-              <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
-                <span>📊</span>
-                Preview ({fileData.length - 1} rows detected)
-              </h3>
-              <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+          {/* STEP 4: Preview & Import */}
+          {step === 'preview' && fileData && (
+            <div>
+              <h3 className="text-white font-medium mb-4">Preview Import ({fileData.length - 1} leads)</h3>
+              
+              {/* Data Preview Table */}
+              <div className="overflow-x-auto mb-6 rounded-xl border border-slate-700">
                 <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-slate-800/80">
-                      {fileData[0]?.map((col, i) => (
-                        <th key={i} className="px-4 py-3 text-left text-slate-300 font-semibold border-b border-slate-700/50">
-                          {col || `Column ${i + 1}`}
-                        </th>
-                      ))}
+                  <thead className="bg-slate-800">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-slate-400 font-medium">#</th>
+                      {Object.entries(columnMappings)
+                        .filter(([_, value]) => value)
+                        .sort(([a], [b]) => parseInt(a) - parseInt(b))
+                        .map(([idx, fieldId]) => {
+                          const field = UPLOAD_FIELDS.find(f => f.id === fieldId);
+                          return (
+                            <th key={idx} className="px-3 py-2 text-left text-slate-400 font-medium">
+                              {field?.label || fieldId}
+                            </th>
+                          );
+                        })}
                     </tr>
                   </thead>
                   <tbody>
-                    {fileData.slice(1, 5).map((row, i) => (
-                      <tr key={i} className="border-b border-slate-700/30">
-                        {row.map((cell, j) => (
-                          <td key={j} className="px-4 py-3 text-white">{cell}</td>
-                        ))}
+                    {fileData.slice(1, 6).map((row, rowIdx) => (
+                      <tr key={rowIdx} className="border-t border-slate-800">
+                        <td className="px-3 py-2 text-slate-500">{rowIdx + 1}</td>
+                        {Object.entries(columnMappings)
+                          .filter(([_, value]) => value)
+                          .sort(([a], [b]) => parseInt(a) - parseInt(b))
+                          .map(([idx]) => (
+                            <td key={idx} className="px-3 py-2 text-white">{row[parseInt(idx)] || '-'}</td>
+                          ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                {fileData.length > 6 && (
+                  <div className="px-3 py-2 text-center text-slate-500 text-xs bg-slate-800/50">
+                    ... and {fileData.length - 6} more rows
+                  </div>
+                )}
               </div>
-              {fileData.length > 5 && (
-                <p className="text-xs text-slate-500 mt-2 text-center">
-                  Showing 4 of {fileData.length - 1} rows
-                </p>
-              )}
-            </div>
-          )}
 
-          {isProcessing && (
-            <div className="flex items-center justify-center py-10">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                className="w-10 h-10 border-3 border-blue-500/30 border-t-blue-500 rounded-full"
-              />
+              <div className="flex gap-3">
+                <button onClick={() => setStep('mapping')} className="px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition-colors">
+                  ← Back to Mapping
+                </button>
+                <button
+                  onClick={() => {
+                    // TODO: Implement actual import
+                    alert(`Would import ${fileData.length - 1} leads. Integration with backend required.`);
+                    onClose();
+                  }}
+                  className="flex-1 px-4 py-2 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 transition-colors"
+                >
+                  🚀 Import {fileData.length - 1} Leads
+                </button>
+              </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-slate-700/50 flex justify-end gap-3 bg-slate-800/30">
-          <button
-            onClick={onClose}
-            className="px-5 py-2.5 rounded-xl bg-slate-800 text-white font-semibold hover:bg-slate-700 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            disabled={!fileData}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:from-blue-400 hover:to-blue-500 transition-all shadow-lg shadow-blue-500/30"
-          >
-            Import {fileData ? `${fileData.length - 1} Leads` : ''}
-          </button>
+        <div className="p-4 border-t border-slate-800 flex-shrink-0">
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>Supported: CSV, Excel, Google Sheets (paste)</span>
+            <span>First row must contain headers</span>
+          </div>
         </div>
       </motion.div>
     </motion.div>
   );
 }
 
-// ============ WORKFLOWS MODAL ============
-function WorkflowsModal({
-  workflows,
-  currentWorkflow,
-  onSelect,
-  onCreate,
-  onClose,
-}: {
-  workflows: Workflow[];
-  currentWorkflow: Workflow;
-  onSelect: (wf: Workflow) => void;
-  onCreate: (name: string) => void;
-  onClose: () => void;
-}) {
-  const [newName, setNewName] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm modal"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ scale: 0.95, opacity: 0, y: 20 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.95, opacity: 0, y: 20 }}
-        className="w-full max-w-lg bg-slate-900 rounded-3xl border border-slate-700/50 shadow-2xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="p-6 border-b border-slate-700/50">
-          <h2 className="text-xl font-bold text-white">Your Workflows</h2>
-          <p className="text-sm text-slate-400">Switch between workflows or create a new one</p>
-        </div>
-
-        <div className="p-6 space-y-4 max-h-[50vh] overflow-y-auto">
-          {workflows.map(wf => (
-            <button
-              key={wf.id}
-              onClick={() => onSelect(wf)}
-              className={`w-full p-4 rounded-xl border text-left transition-all ${
-                currentWorkflow.id === wf.id
-                  ? 'bg-blue-500/20 border-blue-500/50'
-                  : 'bg-slate-800/60 border-slate-700/50 hover:border-slate-600'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-white font-semibold block">{wf.name}</span>
-                  <span className="text-xs text-slate-400">
-                    {wf.stages.length} stages • Updated {new Date(wf.updatedAt).toLocaleDateString()}
-                  </span>
-                </div>
-                {currentWorkflow.id === wf.id && (
-                  <span className="px-2 py-1 rounded-lg bg-blue-500/20 text-blue-400 text-xs font-bold">
-                    Active
-                  </span>
-                )}
-              </div>
-            </button>
-          ))}
-
-          {/* Create New */}
-          {isCreating ? (
-            <div className="p-4 rounded-xl border border-dashed border-slate-700 bg-slate-800/30">
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Workflow name..."
-                className="w-full bg-transparent border-none outline-none text-white text-sm mb-3 placeholder:text-slate-500"
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { if (newName.trim()) { onCreate(newName.trim()); setNewName(''); setIsCreating(false); } }}
-                  disabled={!newName.trim()}
-                  className="flex-1 py-2 rounded-lg bg-blue-500 text-white text-sm font-semibold disabled:opacity-50"
-                >
-                  Create
-                </button>
-                <button
-                  onClick={() => { setIsCreating(false); setNewName(''); }}
-                  className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-semibold"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setIsCreating(true)}
-              className="w-full p-4 rounded-xl border border-dashed border-slate-700 text-slate-400 hover:border-slate-600 hover:text-white transition-all text-sm font-semibold"
-            >
-              + Create New Workflow
-            </button>
-          )}
-        </div>
-
-        <div className="p-6 border-t border-slate-700/50">
-          <button
-            onClick={onClose}
-            className="w-full py-3 rounded-xl bg-slate-800 text-white font-semibold hover:bg-slate-700 transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
