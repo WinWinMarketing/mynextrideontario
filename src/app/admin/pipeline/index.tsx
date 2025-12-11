@@ -66,9 +66,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
   // Grid Settings
   const [gridSize, setGridSize] = useState(40);
-  const [snapToGrid, setSnapToGrid] = useState(true);
+  const [snapToGrid, setSnapToGrid] = useState(false); // Disabled by default for smooth movement
   const [nodeSize, setNodeSize] = useState<'small' | 'medium' | 'large' | 'xlarge'>('large');
   const [showGrid, setShowGrid] = useState(true);
+  
+  // View Mode - Builder hides action nodes for easier lead management
+  const [viewMode, setViewMode] = useState<'builder' | 'node'>('node');
 
   // Analytics
   const [analytics, setAnalytics] = useState<PipelineAnalytics | null>(null);
@@ -436,23 +439,89 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     return Math.round(pos / gridSize) * gridSize;
   };
 
-  // ============ NODE MOVEMENT ============
+  // ============ NODE MOVEMENT - Smooth without mandatory snapping ============
   const handleNodeMove = (id: string, type: 'stage' | 'message', dx: number, dy: number) => {
     if (type === 'stage') {
       setStages(prev => prev.map(s => {
         if (s.id !== id) return s;
-        const newX = snapPosition(s.x + dx / zoom);
-        const newY = snapPosition(s.y + dy / zoom);
+        // Only snap if setting is enabled, otherwise move freely
+        const newX = snapToGrid ? snapPosition(s.x + dx / zoom) : Math.round(s.x + dx / zoom);
+        const newY = snapToGrid ? snapPosition(s.y + dy / zoom) : Math.round(s.y + dy / zoom);
         return { ...s, x: newX, y: newY };
       }));
     } else {
       setMessageNodes(prev => prev.map(m => {
         if (m.id !== id) return m;
-        const newX = snapPosition(m.x + dx / zoom);
-        const newY = snapPosition(m.y + dy / zoom);
+        const newX = snapToGrid ? snapPosition(m.x + dx / zoom) : Math.round(m.x + dx / zoom);
+        const newY = snapToGrid ? snapPosition(m.y + dy / zoom) : Math.round(m.y + dy / zoom);
         return { ...m, x: newX, y: newY };
       }));
     }
+  };
+  
+  // ============ AUTO LAYOUT - Hourglass pattern ============
+  const autoLayoutHourglass = () => {
+    const deadStages = stages.filter(s => s.statusId === 'dead');
+    const newStages = stages.filter(s => s.statusId === 'new');
+    const workingStages = stages.filter(s => s.statusId === 'working');
+    const approvalStages = stages.filter(s => s.statusId === 'approval');
+    const circleBackStages = stages.filter(s => s.statusId === 'circle-back');
+    
+    const centerX = 1500;
+    const centerY = 800;
+    const spacing = 500;
+    
+    setStages(prev => prev.map(s => {
+      // Dead leads - far left, stacked vertically
+      if (s.statusId === 'dead') {
+        const idx = deadStages.findIndex(d => d.id === s.id);
+        return { ...s, x: 100, y: 100 + idx * 420 };
+      }
+      // New leads - center
+      if (s.statusId === 'new') {
+        const idx = newStages.findIndex(n => n.id === s.id);
+        return { ...s, x: centerX - s.width/2, y: centerY - s.height/2 + idx * 200 };
+      }
+      // Working - fan out to upper right
+      if (s.statusId === 'working') {
+        const idx = workingStages.findIndex(w => w.id === s.id);
+        const angle = -45 + (idx * 30);
+        const dist = spacing + (idx * 150);
+        return { 
+          ...s, 
+          x: centerX + Math.cos(angle * Math.PI / 180) * dist - s.width/2,
+          y: centerY + Math.sin(angle * Math.PI / 180) * dist - s.height/2
+        };
+      }
+      // Approval - fan out to lower right  
+      if (s.statusId === 'approval') {
+        const idx = approvalStages.findIndex(a => a.id === s.id);
+        const angle = 15 + (idx * 25);
+        const dist = spacing + 200 + (idx * 150);
+        return { 
+          ...s, 
+          x: centerX + Math.cos(angle * Math.PI / 180) * dist - s.width/2,
+          y: centerY + Math.sin(angle * Math.PI / 180) * dist - s.height/2
+        };
+      }
+      // Circle back - lower left
+      if (s.statusId === 'circle-back') {
+        const idx = circleBackStages.findIndex(c => c.id === s.id);
+        return { ...s, x: 600, y: centerY + 400 + idx * 400 };
+      }
+      return s;
+    }));
+    
+    // Also reposition message nodes
+    setMessageNodes(prev => prev.map((m, idx) => ({
+      ...m,
+      x: centerX + 800 + (idx % 3) * 400,
+      y: 200 + Math.floor(idx / 3) * 300
+    })));
+    
+    setSaveNotification('✨ Auto-layout applied!');
+    setTimeout(() => setSaveNotification(null), 2000);
+    setHasUnsavedChanges(true);
   };
 
   // ============ CONNECTIONS ============
@@ -682,20 +751,24 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
             </div>
           )}
 
-          {/* MESSAGES TAB */}
+          {/* MESSAGES/ACTIONS TAB - Deep Template Integration */}
           {sidebarTab === 'messages' && (
             <div className="space-y-5">
-              <h3 className="text-lg font-bold text-white">Add Action Node</h3>
-              <p className="text-sm text-slate-400">Connect actions to stages for automated workflows.</p>
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white">Action Nodes</h3>
+                <span className="text-xs text-slate-500">{messageNodes.length} active</span>
+              </div>
+              <p className="text-sm text-slate-400">Drag action nodes to canvas. Each action can use templates from the Templates tab.</p>
               
-              <div className="space-y-3">
+              {/* Quick Actions with Built-in Templates */}
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                  <span>⚡</span> Communication Actions
+                </h4>
                 {[
-                  { type: 'email' as const, label: 'Email Action', icon: '✉️', color: 'blue' as StageColor, desc: 'Send automated emails' },
-                  { type: 'sms' as const, label: 'SMS Action', icon: '💬', color: 'cyan' as StageColor, desc: 'Send text messages' },
-                  { type: 'call' as const, label: 'Call Reminder', icon: '📞', color: 'yellow' as StageColor, desc: 'Schedule call reminders' },
-                  { type: 'notification' as const, label: 'Notification', icon: '🔔', color: 'orange' as StageColor, desc: 'Internal alerts' },
-                  { type: 'wait' as const, label: 'Wait Timer', icon: '⏰', color: 'purple' as StageColor, desc: 'Delay next action' },
-                  { type: 'webhook' as const, label: 'Webhook', icon: '🔗', color: 'indigo' as StageColor, desc: 'External integrations' },
+                  { type: 'email' as const, label: 'Email Action', icon: '✉️', color: 'blue' as StageColor, desc: 'Automated email with template', template: 'Hi {{name}}, thanks for your interest!' },
+                  { type: 'sms' as const, label: 'SMS Action', icon: '💬', color: 'cyan' as StageColor, desc: 'Text message with personalization', template: 'Hi {{name}}, this is {{agent}} from My Next Ride!' },
+                  { type: 'call' as const, label: 'Call Reminder', icon: '📞', color: 'yellow' as StageColor, desc: 'Schedule a call task', template: 'Call {{name}} at {{phone}}' },
                 ].map(m => (
                   <button key={m.type} onClick={() => {
                     const newMsg: MessageNode = {
@@ -703,12 +776,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                       type: m.type,
                       label: m.label,
                       icon: m.icon,
-                      x: snapPosition(600 + messageNodes.length * 50),
-                      y: snapPosition(500 + messageNodes.length * 30),
+                      x: 1800 + messageNodes.length * 50,
+                      y: 200 + messageNodes.length * 100,
                       width: 340,
                       height: 260,
                       color: m.color,
-                      message: 'Configure your action here...',
+                      message: m.template,
                       autoTrigger: false,
                       triggerCondition: 'manual',
                       linkedStageIds: [],
@@ -717,16 +790,99 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                     setMessageNodes([...messageNodes, newMsg]);
                   }} className="w-full p-4 rounded-xl bg-slate-800/80 border border-slate-700/50 text-left hover:border-blue-500/50 transition-all group">
                     <div className="flex items-center gap-4">
-                      <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${STAGE_COLORS.find(c => c.id === m.color)?.bg} flex items-center justify-center text-2xl shadow-lg group-hover:scale-110 transition-transform`}>
+                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${STAGE_COLORS.find(c => c.id === m.color)?.bg} flex items-center justify-center text-xl shadow-lg group-hover:scale-110 transition-transform`}>
                         {m.icon}
                       </div>
-                      <div>
-                        <span className="text-base font-semibold text-white block">{m.label}</span>
-                        <span className="text-sm text-slate-400">{m.desc}</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-semibold text-white block">{m.label}</span>
+                        <span className="text-xs text-slate-400 truncate block">{m.desc}</span>
                       </div>
                     </div>
                   </button>
                 ))}
+              </div>
+
+              {/* Automation Actions */}
+              <div className="space-y-2 pt-4 border-t border-slate-700/50">
+                <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                  <span>🔄</span> Automation Actions
+                </h4>
+                {[
+                  { type: 'wait' as const, label: 'Wait Timer', icon: '⏰', color: 'purple' as StageColor, desc: 'Delay before next action' },
+                  { type: 'notification' as const, label: 'Internal Alert', icon: '🔔', color: 'orange' as StageColor, desc: 'Notify team members' },
+                  { type: 'webhook' as const, label: 'Webhook', icon: '🔗', color: 'indigo' as StageColor, desc: 'External API integration' },
+                ].map(m => (
+                  <button key={m.type} onClick={() => {
+                    const newMsg: MessageNode = {
+                      id: `msg-${Date.now()}`,
+                      type: m.type,
+                      label: m.label,
+                      icon: m.icon,
+                      x: 1800 + messageNodes.length * 50,
+                      y: 200 + messageNodes.length * 100,
+                      width: 340,
+                      height: 260,
+                      color: m.color,
+                      message: m.type === 'wait' ? 'Wait 24 hours before next step' : 'Configure this action...',
+                      autoTrigger: m.type === 'wait',
+                      triggerCondition: m.type === 'wait' ? 'on-enter' : 'manual',
+                      linkedStageIds: [],
+                      inlineActions: [],
+                      triggerDelay: m.type === 'wait' ? { value: 24, unit: 'hours', label: '24 hours' } : undefined,
+                    };
+                    setMessageNodes([...messageNodes, newMsg]);
+                  }} className="w-full p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 text-left hover:border-purple-500/50 transition-all group">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${STAGE_COLORS.find(c => c.id === m.color)?.bg} flex items-center justify-center text-lg`}>
+                        {m.icon}
+                      </div>
+                      <div>
+                        <span className="text-sm font-medium text-white">{m.label}</span>
+                        <span className="text-xs text-slate-500 block">{m.desc}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Timer Presets */}
+              <div className="space-y-2 pt-4 border-t border-slate-700/50">
+                <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                  <span>⏱️</span> Quick Delay Presets
+                </h4>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: '1hr', value: 1, unit: 'hours' as const },
+                    { label: '4hr', value: 4, unit: 'hours' as const },
+                    { label: '24hr', value: 24, unit: 'hours' as const },
+                    { label: '2d', value: 2, unit: 'days' as const },
+                    { label: '1wk', value: 1, unit: 'weeks' as const },
+                    { label: '1mo', value: 1, unit: 'months' as const },
+                  ].map(t => (
+                    <button key={t.label} onClick={() => {
+                      const newMsg: MessageNode = {
+                        id: `wait-${Date.now()}`,
+                        type: 'wait',
+                        label: `Wait ${t.label}`,
+                        icon: '⏰',
+                        x: 1800 + messageNodes.length * 50,
+                        y: 200 + messageNodes.length * 100,
+                        width: 280,
+                        height: 180,
+                        color: 'purple',
+                        message: `Wait ${t.value} ${t.unit}`,
+                        autoTrigger: true,
+                        triggerCondition: 'on-enter',
+                        linkedStageIds: [],
+                        inlineActions: [],
+                        triggerDelay: { value: t.value, unit: t.unit, label: `${t.value} ${t.unit}` },
+                      };
+                      setMessageNodes([...messageNodes, newMsg]);
+                    }} className="px-3 py-2 rounded-lg bg-purple-500/20 border border-purple-500/30 text-purple-400 text-sm font-medium hover:bg-purple-500/30 transition-all">
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -865,6 +1021,26 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 ⊡ Fit
               </button>
               
+              <button onClick={autoLayoutHourglass} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/40 text-purple-400 text-sm font-semibold hover:from-purple-500/30 hover:to-indigo-500/30 transition-all">
+                ✨ Auto Layout
+              </button>
+
+              {/* View Mode Toggle */}
+              <div className="flex items-center bg-slate-800/80 rounded-xl border border-slate-700/50 overflow-hidden">
+                <button 
+                  onClick={() => setViewMode('builder')} 
+                  className={`px-4 py-2.5 text-sm font-medium transition-all ${viewMode === 'builder' ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Builder
+                </button>
+                <button 
+                  onClick={() => setViewMode('node')} 
+                  className={`px-4 py-2.5 text-sm font-medium transition-all ${viewMode === 'node' ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Node View
+                </button>
+              </div>
+              
               {deadCount > 0 && (
                 <div className="px-4 py-2.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-400 text-sm font-semibold">
                   💀 {deadCount}
@@ -967,8 +1143,8 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               />
             ))}
 
-            {/* Message Nodes */}
-            {messageNodes.map(msg => (
+            {/* Message Nodes - Hidden in Builder mode for easier lead management */}
+            {viewMode === 'node' && messageNodes.map(msg => (
               <RunwayMessageNode
                 key={msg.id}
                 node={msg}

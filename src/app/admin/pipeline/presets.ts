@@ -921,6 +921,177 @@ const HOURGLASS_PRESET: Preset = {
 // Add hourglass to presets array
 ALL_PRESETS.push(HOURGLASS_PRESET);
 
+// ========================================
+// QUICK FOLLOW-UP: Fast response pipeline
+// ========================================
+const QUICK_FOLLOWUP_PRESET: Preset = {
+  id: 'quick-followup',
+  name: '⚡ Quick Follow-Up',
+  description: 'Speed-focused pipeline for rapid lead response. Optimized for 5-minute response times with automated follow-ups.',
+  icon: '⚡',
+  complexity: 'standard',
+  category: 'sales',
+  estimatedSetupTime: '10 minutes',
+  features: ['5-minute response goal', 'Auto SMS on entry', 'Rapid follow-up sequence', '24hr dead lead trigger'],
+  stages: [
+    stage('dead-no-response', '📵 No Response', 'dead', 50, 300, '📵', 'red', { w: 350, h: 300, dead: 'no-contact' }),
+    stage('dead-not-interested', '👎 Not Interested', 'dead', 50, 650, '👎', 'red', { w: 350, h: 300, dead: 'not-interested' }),
+    stage('new', '📥 NEW LEAD', 'new', 600, 450, '📥', 'blue', { 
+      w: 450, h: 450,
+      inlineActions: [
+        smsAction('sms-instant', 'Instant SMS', 'Hi {{name}}, thanks for reaching out! I\'ll call you in the next 5 minutes. - My Next Ride', true),
+      ]
+    }),
+    stage('contacted', '📞 Contacted', 'working', 1150, 300, '📞', 'cyan', { w: 380, h: 340 }),
+    stage('interested', '🔥 Interested', 'working', 1150, 700, '🔥', 'orange', { w: 380, h: 340 }),
+    stage('qualified', '✅ Qualified', 'working', 1650, 450, '✅', 'green', { w: 400, h: 380 }),
+    stage('closing', '🎯 Closing', 'approval', 2150, 450, '🎯', 'emerald', { w: 400, h: 380 }),
+    stage('won', '🏆 WON', 'approval', 2650, 450, '🏆', 'emerald', { w: 420, h: 420 }),
+  ],
+  messageNodes: [
+    msg('msg-5min', 'sms', '⚡ 5-Min SMS', '⚡', 600, 100, 'blue', 'Instant response SMS', { auto: true }),
+    msg('msg-1hr', 'email', '📧 1hr Follow', '📧', 1150, 100, 'cyan', '1 hour follow-up email', { auto: true, delay: delay(1, 'hours') }),
+  ],
+  connections: [
+    conn('new', 'contacted'),
+    conn('new', 'interested'),
+    conn('contacted', 'qualified'),
+    conn('interested', 'qualified'),
+    conn('qualified', 'closing'),
+    conn('closing', 'won'),
+    conn('contacted', 'dead-no-response', 'stage', 'stage', { dashed: true }),
+    conn('interested', 'dead-not-interested', 'stage', 'stage', { dashed: true }),
+  ],
+  labels: [lbl('lbl-title', 'QUICK FOLLOW-UP PIPELINE', 1400, 50, 36, '#3b82f6')],
+};
+ALL_PRESETS.push(QUICK_FOLLOWUP_PRESET);
+
+// ========================================
+// NURTURE SEQUENCE: Long-term follow-up
+// ========================================
+const NURTURE_PRESET: Preset = {
+  id: 'nurture-sequence',
+  name: '🌱 Nurture Sequence',
+  description: 'Long-term nurturing pipeline for leads not ready to buy. Automated drip campaigns over weeks/months.',
+  icon: '🌱',
+  complexity: 'advanced',
+  category: 'sales',
+  estimatedSetupTime: '30 minutes',
+  features: ['30-60-90 day drip', 'Re-engagement triggers', 'Cool lead warming', 'Birthday/anniversary reminders'],
+  stages: [
+    stage('cold', '❄️ Cold Lead', 'dead', 50, 400, '❄️', 'slate', { w: 360, h: 320, dead: 'no-contact' }),
+    stage('new', '📥 New Lead', 'new', 500, 400, '📥', 'blue', { w: 400, h: 380 }),
+    stage('week1', '📧 Week 1', 'working', 1000, 200, '📧', 'cyan', { w: 360, h: 300 }),
+    stage('week2', '💬 Week 2', 'working', 1000, 550, '💬', 'teal', { w: 360, h: 300 }),
+    stage('month1', '📆 Month 1', 'working', 1500, 200, '📆', 'yellow', { w: 360, h: 300 }),
+    stage('month2', '📅 Month 2', 'working', 1500, 550, '📅', 'amber', { w: 360, h: 300 }),
+    stage('reengaged', '🔥 Re-Engaged', 'working', 2000, 400, '🔥', 'orange', { w: 400, h: 380 }),
+    stage('ready', '✅ Ready to Buy', 'approval', 2500, 400, '✅', 'emerald', { w: 420, h: 400 }),
+  ],
+  messageNodes: [
+    msg('msg-w1', 'email', 'Week 1 Email', '📧', 1000, 900, 'cyan', 'First nurture email', { auto: true, delay: delay(1, 'weeks') }),
+    msg('msg-w2', 'sms', 'Week 2 SMS', '💬', 1200, 900, 'teal', 'Week 2 check-in', { auto: true, delay: delay(2, 'weeks') }),
+    msg('msg-m1', 'email', 'Month 1 Email', '📆', 1400, 900, 'yellow', 'Month 1 value email', { auto: true, delay: delay(1, 'months') }),
+  ],
+  connections: [
+    conn('new', 'week1'),
+    conn('new', 'week2'),
+    conn('week1', 'month1'),
+    conn('week2', 'month2'),
+    conn('month1', 'reengaged'),
+    conn('month2', 'reengaged'),
+    conn('reengaged', 'ready'),
+    conn('week1', 'cold', 'stage', 'stage', { dashed: true }),
+    conn('week2', 'cold', 'stage', 'stage', { dashed: true }),
+  ],
+  labels: [lbl('lbl-title', 'NURTURE SEQUENCE', 1200, 50, 36, '#22c55e')],
+};
+ALL_PRESETS.push(NURTURE_PRESET);
+
+// ========================================  
+// APPOINTMENT SETTER: Meeting focused
+// ========================================
+const APPOINTMENT_PRESET: Preset = {
+  id: 'appointment-setter',
+  name: '📅 Appointment Setter',
+  description: 'Pipeline optimized for booking meetings and test drives. Clear meeting-focused stages.',
+  icon: '📅',
+  complexity: 'standard',
+  category: 'automotive',
+  estimatedSetupTime: '15 minutes',
+  features: ['Meeting reminder automation', 'No-show recovery', 'Test drive tracking', 'Calendar integration ready'],
+  stages: [
+    stage('no-show', '❌ No Show', 'dead', 50, 300, '❌', 'red', { w: 350, h: 300, dead: 'no-contact' }),
+    stage('cancelled', '🚫 Cancelled', 'dead', 50, 650, '🚫', 'red', { w: 350, h: 300, dead: 'not-interested' }),
+    stage('new', '📥 New Lead', 'new', 500, 450, '📥', 'blue', { w: 400, h: 400 }),
+    stage('scheduling', '📞 Scheduling', 'working', 1000, 450, '📞', 'cyan', { w: 380, h: 360 }),
+    stage('confirmed', '✅ Confirmed', 'working', 1500, 250, '✅', 'green', { w: 380, h: 340 }),
+    stage('reminder-sent', '🔔 Reminder Sent', 'working', 1500, 650, '🔔', 'yellow', { w: 380, h: 340 }),
+    stage('attended', '🤝 Attended', 'approval', 2000, 450, '🤝', 'emerald', { w: 400, h: 380 }),
+    stage('test-drive', '🚗 Test Drive', 'approval', 2500, 300, '🚗', 'violet', { w: 400, h: 360 }),
+    stage('deal', '🏆 Deal Closed', 'approval', 2500, 650, '🏆', 'emerald', { w: 420, h: 400 }),
+  ],
+  messageNodes: [
+    msg('msg-confirm', 'sms', 'Confirm SMS', '✅', 1500, 50, 'green', 'Appointment confirmation', { auto: true }),
+    msg('msg-remind', 'sms', '24hr Reminder', '🔔', 1700, 50, 'yellow', '24 hour reminder', { auto: true, delay: delay(24, 'hours') }),
+  ],
+  connections: [
+    conn('new', 'scheduling'),
+    conn('scheduling', 'confirmed'),
+    conn('scheduling', 'reminder-sent'),
+    conn('confirmed', 'attended'),
+    conn('reminder-sent', 'attended'),
+    conn('attended', 'test-drive'),
+    conn('attended', 'deal'),
+    conn('test-drive', 'deal'),
+    conn('confirmed', 'no-show', 'stage', 'stage', { dashed: true }),
+    conn('scheduling', 'cancelled', 'stage', 'stage', { dashed: true }),
+  ],
+  labels: [lbl('lbl-title', 'APPOINTMENT SETTER', 1200, 50, 36, '#a855f7')],
+};
+ALL_PRESETS.push(APPOINTMENT_PRESET);
+
+// ========================================
+// REFERRAL MACHINE: Post-sale referrals
+// ========================================
+const REFERRAL_PRESET: Preset = {
+  id: 'referral-machine',
+  name: '⭐ Referral Machine',
+  description: 'Post-sale pipeline focused on generating referrals from happy customers.',
+  icon: '⭐',
+  complexity: 'standard',
+  category: 'sales',
+  estimatedSetupTime: '15 minutes',
+  features: ['Post-sale check-ins', 'Referral ask sequence', 'Reward tracking', 'Review requests'],
+  stages: [
+    stage('no-referral', '😔 No Referral', 'dead', 50, 450, '😔', 'slate', { w: 350, h: 300, dead: 'not-interested' }),
+    stage('delivered', '🚗 Delivered', 'new', 500, 450, '🚗', 'blue', { w: 400, h: 400 }),
+    stage('week1-check', '📱 Week 1', 'working', 1000, 300, '📱', 'cyan', { w: 360, h: 320 }),
+    stage('review-ask', '⭐ Review Ask', 'working', 1000, 650, '⭐', 'yellow', { w: 360, h: 320 }),
+    stage('month1-check', '📧 Month 1', 'working', 1500, 450, '📧', 'teal', { w: 380, h: 360 }),
+    stage('referral-ask', '🤝 Referral Ask', 'approval', 2000, 300, '🤝', 'orange', { w: 400, h: 360 }),
+    stage('referral-received', '🎁 Referral In!', 'approval', 2000, 650, '🎁', 'emerald', { w: 400, h: 360 }),
+    stage('reward-sent', '💰 Reward Sent', 'approval', 2500, 450, '💰', 'emerald', { w: 420, h: 400 }),
+  ],
+  messageNodes: [
+    msg('msg-w1', 'sms', 'Week 1 Check', '📱', 1000, 100, 'cyan', 'How\'s the vehicle?', { auto: true, delay: delay(1, 'weeks') }),
+    msg('msg-review', 'email', 'Review Request', '⭐', 1200, 100, 'yellow', 'Leave us a review!', { auto: true, delay: delay(2, 'weeks') }),
+    msg('msg-ref', 'email', 'Referral Ask', '🤝', 2000, 100, 'orange', 'Know anyone who needs a car?', { auto: true, delay: delay(1, 'months') }),
+  ],
+  connections: [
+    conn('delivered', 'week1-check'),
+    conn('delivered', 'review-ask'),
+    conn('week1-check', 'month1-check'),
+    conn('review-ask', 'month1-check'),
+    conn('month1-check', 'referral-ask'),
+    conn('referral-ask', 'referral-received'),
+    conn('referral-received', 'reward-sent'),
+    conn('referral-ask', 'no-referral', 'stage', 'stage', { dashed: true }),
+  ],
+  labels: [lbl('lbl-title', 'REFERRAL MACHINE', 1200, 50, 36, '#f97316')],
+};
+ALL_PRESETS.push(REFERRAL_PRESET);
+
 export const PRESET_CATEGORIES = [
   { id: 'all', label: 'All Presets', icon: '📁' },
   { id: 'automotive', label: 'Automotive', icon: '🚗' },
