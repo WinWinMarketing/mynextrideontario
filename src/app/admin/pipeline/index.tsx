@@ -198,56 +198,114 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   }, [hasUnsavedChanges]);
 
-  // ============ MANUAL SAVE ============
-  const manualSave = useCallback(() => {
+  // ============ MANUAL SAVE - S3 + LOCAL ============
+  const manualSave = useCallback(async () => {
     if (activeProfileId) {
       const now = new Date().toISOString();
+      const updatedProfile = { 
+        id: activeProfileId,
+        name: profiles.find(p => p.id === activeProfileId)?.name || 'Workflow',
+        createdAt: profiles.find(p => p.id === activeProfileId)?.createdAt || now,
+        updatedAt: now, 
+        stages, 
+        messageNodes,
+        connections, 
+        labels,
+        emailTemplates: [],
+        settings: { 
+          ...DEFAULT_WORKSPACE_SETTINGS, 
+          zoom, 
+          panX: pan.x, 
+          panY: pan.y,
+          gridSize,
+          snapToGrid,
+          nodeSize,
+          showGrid,
+        } 
+      };
+
+      // Update local state
       const updated = profiles.map(p => 
-        p.id === activeProfileId ? { 
-          ...p, 
-          updatedAt: now, 
-          stages, 
-          messageNodes,
-          connections, 
-          labels, 
-          settings: { 
-            ...DEFAULT_WORKSPACE_SETTINGS, 
-            zoom, 
-            panX: pan.x, 
-            panY: pan.y,
-            gridSize,
-            snapToGrid,
-            nodeSize,
-            showGrid,
-          } 
-        } : p
+        p.id === activeProfileId ? updatedProfile : p
       );
       setProfiles(updated);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+
+      // Save to S3 via API
+      try {
+        const response = await fetch('/api/admin/workflows', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedProfile),
+        });
+        
+        if (response.ok) {
+          setSaveNotification('✅ Saved to cloud!');
+        } else {
+          setSaveNotification('⚠️ Saved locally only');
+        }
+      } catch (err) {
+        console.error('Failed to save to S3:', err);
+        setSaveNotification('⚠️ Saved locally only');
+      }
+
       setLastSaveTime(new Date());
       setHasUnsavedChanges(false);
       setShowSaveReminder(false);
-      setSaveNotification('✅ Saved!');
       setTimeout(() => setSaveNotification(null), 2000);
     }
   }, [activeProfileId, stages, messageNodes, connections, labels, zoom, pan, profiles, gridSize, snapToGrid, nodeSize, showGrid]);
 
-  // ============ LOAD ============
+  // ============ LOAD - TRY S3 FIRST, THEN LOCAL ============
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const savedActive = localStorage.getItem(ACTIVE_PROFILE_KEY);
-    
-    if (saved) {
+    const loadWorkflows = async () => {
+      // Try to load from S3 first
       try {
-        const parsed = JSON.parse(saved);
-        setProfiles(parsed);
-        if (savedActive) {
-          const found = parsed.find((p: WorkspaceProfile) => p.id === savedActive);
-          if (found) { loadProfileData(found); setActiveProfileId(savedActive); }
-          else if (parsed.length > 0) { loadProfileData(parsed[0]); setActiveProfileId(parsed[0].id); }
-        } else if (parsed.length > 0) { loadProfileData(parsed[0]); setActiveProfileId(parsed[0].id); }
-      } catch { applyPreset(ALL_PRESETS[0]); }
-    } else { applyPreset(ALL_PRESETS[0]); }
+        const response = await fetch('/api/admin/workflows');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.workflows && data.workflows.length > 0) {
+            // Load full workflow data for each
+            const fullWorkflows = await Promise.all(
+              data.workflows.map(async (w: any) => {
+                const fullRes = await fetch(`/api/admin/workflows?id=${w.id}`);
+                if (fullRes.ok) return fullRes.json();
+                return null;
+              })
+            );
+            const validWorkflows = fullWorkflows.filter(Boolean);
+            if (validWorkflows.length > 0) {
+              setProfiles(validWorkflows);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(validWorkflows));
+              loadProfileData(validWorkflows[0]);
+              setActiveProfileId(validWorkflows[0].id);
+              localStorage.setItem(ACTIVE_PROFILE_KEY, validWorkflows[0].id);
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        console.log('S3 load failed, trying local storage:', err);
+      }
+
+      // Fall back to local storage
+      const saved = localStorage.getItem(STORAGE_KEY);
+      const savedActive = localStorage.getItem(ACTIVE_PROFILE_KEY);
+      
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setProfiles(parsed);
+          if (savedActive) {
+            const found = parsed.find((p: WorkspaceProfile) => p.id === savedActive);
+            if (found) { loadProfileData(found); setActiveProfileId(savedActive); }
+            else if (parsed.length > 0) { loadProfileData(parsed[0]); setActiveProfileId(parsed[0].id); }
+          } else if (parsed.length > 0) { loadProfileData(parsed[0]); setActiveProfileId(parsed[0].id); }
+        } catch { applyPreset(ALL_PRESETS[0]); }
+      } else { applyPreset(ALL_PRESETS[0]); }
+    };
+
+    loadWorkflows();
   }, []);
 
   // Calculate analytics
