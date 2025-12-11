@@ -1,604 +1,591 @@
-// Super Robust Pipeline Presets - Advanced Automation Flows
-import { PipelineStage, NodeConnection, TextLabel, EmailTemplate, DEFAULT_AUTOMATION, DEFAULT_EMAIL_TEMPLATES, StageColor, FollowUpMethod, MeetingType } from './types';
-import { LeadStatus } from '@/lib/validation';
+// Enterprise Pipeline Presets - Professional CRM System
+import { PipelineStage, MessageNode, NodeConnection, TextLabel, Preset, StageColor, TimerDelay } from './types';
 
-export interface Preset {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  complexity: 'simple' | 'medium' | 'advanced' | 'expert';
-  category?: string;
-  stages: PipelineStage[];
-  connections: NodeConnection[];
-  labels: TextLabel[];
-  emailTemplates: EmailTemplate[];
-  tags?: string[];
-}
-
-// Helpers
-const stage = (id: string, label: string, statusId: LeadStatus | 'dead', x: number, y: number, icon: string, color: StageColor, 
-  opts: { w?: number; h?: number; email?: string; followUp?: FollowUpMethod; meeting?: MeetingType; dead?: string; sms?: string; call?: string; notification?: boolean } = {}
+// ============ HELPERS ============
+const stage = (
+  id: string, 
+  label: string, 
+  statusId: 'new' | 'working' | 'circle-back' | 'approval' | 'dead',
+  x: number, 
+  y: number, 
+  icon: string, 
+  color: StageColor, 
+  opts: { 
+    w?: number; 
+    h?: number; 
+    dead?: string;
+    desc?: string;
+    reminder?: TimerDelay;
+    escalate?: TimerDelay;
+  } = {}
 ): PipelineStage => ({
-  id, label, statusId, x, y, width: opts.w || 280, height: opts.h || 260, color, icon,
-  contactMethods: [], automationSettings: { ...DEFAULT_AUTOMATION, pushNotifications: opts.notification ?? true },
-  emailTemplateId: opts.email, followUpMethod: opts.followUp, meetingType: opts.meeting, deadReason: opts.dead,
+  id, 
+  label, 
+  description: opts.desc,
+  statusId, 
+  deadReason: opts.dead,
+  x, 
+  y, 
+  width: opts.w || 340, 
+  height: opts.h || 300, 
+  color, 
+  icon,
+  autoActions: [],
+  reminderAfter: opts.reminder,
+  escalateAfter: opts.escalate,
 });
 
-const conn = (from: string, to: string, label?: string, dashed = false): NodeConnection => ({
-  id: `${from}-${to}`, fromStageId: from, toStageId: to, fromAnchor: 'right', toAnchor: 'left', label, style: dashed ? 'dashed' : 'solid', color: dashed ? '#64748b' : '#3b82f6',
+const msg = (
+  id: string,
+  type: 'email' | 'sms' | 'call' | 'notification' | 'wait',
+  label: string,
+  icon: string,
+  x: number,
+  y: number,
+  color: StageColor,
+  message: string,
+  opts: {
+    w?: number;
+    h?: number;
+    subject?: string;
+    auto?: boolean;
+    delay?: TimerDelay;
+    trigger?: 'on-enter' | 'on-exit' | 'manual';
+    linked?: string[];
+  } = {}
+): MessageNode => ({
+  id,
+  type,
+  label,
+  icon,
+  x,
+  y,
+  width: opts.w || 280,
+  height: opts.h || 200,
+  color,
+  subject: opts.subject,
+  message,
+  autoTrigger: opts.auto ?? false,
+  triggerDelay: opts.delay,
+  triggerCondition: opts.trigger || 'manual',
+  linkedStageIds: opts.linked || [],
 });
 
-const lbl = (id: string, text: string, x: number, y: number, size = 16, color = '#94a3b8', bg?: string): TextLabel => ({ id, text, x, y, fontSize: size, color, bgColor: bg });
+const conn = (
+  from: string, 
+  to: string, 
+  fromType: 'stage' | 'message' = 'stage',
+  toType: 'stage' | 'message' = 'stage',
+  opts: {
+    label?: string;
+    dashed?: boolean;
+    auto?: boolean;
+    delay?: TimerDelay;
+    condition?: 'always' | 'if-opened' | 'no-response';
+  } = {}
+): NodeConnection => ({
+  id: `${from}-${to}`,
+  fromNodeId: from,
+  toNodeId: to,
+  fromType,
+  toType,
+  fromAnchor: 'right',
+  toAnchor: 'left',
+  autoTrigger: opts.auto ?? false,
+  triggerDelay: opts.delay,
+  triggerCondition: opts.condition ? { type: opts.condition } : undefined,
+  label: opts.label,
+  style: opts.dashed ? 'dashed' : 'solid',
+  color: opts.dashed ? '#64748b' : '#3b82f6',
+});
 
-// ============ PRESETS ============
+const lbl = (id: string, text: string, x: number, y: number, size = 24, color = '#ffffff', bg?: string): TextLabel => ({
+  id, text, x, y, fontSize: size, color, bgColor: bg
+});
+
+const delay = (value: number, unit: 'minutes' | 'hours' | 'days' | 'weeks' | 'months'): TimerDelay => ({
+  value, unit, label: `${value} ${unit}`
+});
+
+// ============ ENTERPRISE PRESETS ============
 export const ALL_PRESETS: Preset[] = [
   // ========================================
-  // EXPERT: COMPLETE FUNNEL WITH DEAD LEADS
+  // ENTERPRISE: COMPLETE AUTOMOTIVE SALES FUNNEL
   // ========================================
   {
-    id: 'complete-ultimate',
-    name: '🚀 ULTIMATE Sales Funnel',
-    description: 'The most complete pipeline with dead lead categorization, full follow-up sequence, meeting types, and closing stages. Maximum automation.',
-    icon: '🚀',
-    complexity: 'expert',
-    category: 'complete',
-    tags: ['complete', 'automation', 'dead-leads', 'meetings'],
+    id: 'enterprise-automotive',
+    name: 'Complete Automotive Sales Funnel',
+    description: 'Full 45-stage enterprise funnel with dead lead management, automated follow-ups, meeting scheduling, and post-sale nurturing. Everything you need for automotive sales.',
+    icon: '🚗',
+    complexity: 'enterprise',
+    category: 'automotive',
+    estimatedSetupTime: '2-3 hours',
+    features: [
+      '45 pipeline stages',
+      '18 automated message templates',
+      'Dead lead resurrection system',
+      'Multi-touch follow-up sequences',
+      'Meeting scheduling automation',
+      'Post-sale customer journey',
+      'Referral program tracking',
+    ],
     stages: [
-      // Dead Leads Section (LEFT SIDE)
-      stage('dead-not-interested', '🚫 Not Interested', 'dead', 40, 60, '🚫', 'red', { w: 220, h: 200, dead: 'not-interested' }),
-      stage('dead-no-contact', '📵 No Contact', 'dead', 40, 280, '📵', 'orange', { w: 220, h: 200, dead: 'no-contact' }),
-      stage('dead-bad-timing', '⏰ Bad Timing', 'dead', 40, 500, '⏰', 'yellow', { w: 220, h: 200, dead: 'bad-timing' }),
-      stage('dead-competitor', '🏃 Went Competitor', 'dead', 40, 720, '🏃', 'slate', { w: 220, h: 200, dead: 'competitor' }),
-      stage('dead-budget', '💸 Budget Issue', 'dead', 40, 940, '💸', 'pink', { w: 220, h: 200, dead: 'no-money' }),
+      // ===== DEAD LEADS SECTION (LEFT) =====
+      stage('dead-header', '💀 DEAD LEADS', 'dead', 50, 50, '💀', 'slate', { w: 300, h: 80, desc: 'Section header' }),
+      stage('dead-not-interested', 'Not Interested', 'dead', 50, 160, '🚫', 'red', { w: 320, h: 280, dead: 'not-interested', desc: 'Lead explicitly declined offer' }),
+      stage('dead-no-response', 'No Response', 'dead', 50, 480, '📵', 'orange', { w: 320, h: 280, dead: 'no-contact', desc: 'Could not reach after 5+ attempts' }),
+      stage('dead-bad-timing', 'Bad Timing', 'dead', 50, 800, '⏰', 'yellow', { w: 320, h: 280, dead: 'bad-timing', desc: 'Contact again in 3 months', reminder: delay(3, 'months') }),
+      stage('dead-competitor', 'Went to Competitor', 'dead', 50, 1120, '🏃', 'slate', { w: 320, h: 280, dead: 'competitor', desc: 'Purchased elsewhere' }),
+      stage('dead-budget', 'Budget Issues', 'dead', 50, 1440, '💸', 'pink', { w: 320, h: 280, dead: 'budget', desc: 'Cannot afford now, contact in 6 months', reminder: delay(6, 'months') }),
+      stage('dead-credit', 'Credit Issues', 'dead', 50, 1760, '📊', 'amber', { w: 320, h: 280, dead: 'credit', desc: 'Credit not approved, contact in 6 months', reminder: delay(6, 'months') }),
       
-      // Main Pipeline (CENTER TO RIGHT)
-      stage('new', '📥 NEW LEADS', 'new', 360, 300, '📥', 'blue', { w: 300, h: 320, email: 'email-welcome-1' }),
+      // ===== RESURRECTION SECTION =====
+      stage('resurrect-header', '🔄 RESURRECTION', 'circle-back', 50, 2100, '🔄', 'purple', { w: 300, h: 80, desc: 'Section header' }),
+      stage('resurrect-timing', 'Bad Timing - Ready?', 'circle-back', 50, 2210, '📅', 'purple', { w: 320, h: 260, desc: 'Auto-contacted from Bad Timing after 3 months' }),
+      stage('resurrect-budget', 'Budget - Ready?', 'circle-back', 50, 2510, '💰', 'purple', { w: 320, h: 260, desc: 'Auto-contacted from Budget Issues after 6 months' }),
+      stage('resurrect-credit', 'Credit - Ready?', 'circle-back', 50, 2810, '📈', 'purple', { w: 320, h: 260, desc: 'Auto-contacted from Credit Issues after 6 months' }),
       
-      // First Contact Sequence
-      stage('contacted-1', '📧 Email Sent', 'working', 700, 150, '📧', 'cyan', { w: 260, h: 220, email: 'email-welcome-1', followUp: 'email' }),
-      stage('contacted-2', '📞 Call Made', 'working', 700, 400, '📞', 'cyan', { w: 260, h: 220, followUp: 'phone' }),
-      stage('contacted-3', '💬 SMS Sent', 'working', 700, 650, '💬', 'cyan', { w: 260, h: 220, followUp: 'text' }),
+      // ===== NEW LEADS SECTION =====
+      stage('new-header', '📥 NEW LEADS', 'new', 500, 50, '📥', 'blue', { w: 300, h: 80, desc: 'Section header' }),
+      stage('new-incoming', 'Incoming Lead', 'new', 500, 160, '🆕', 'blue', { w: 360, h: 340, desc: 'All new leads start here', escalate: delay(1, 'hours') }),
+      stage('new-qualified', 'Initial Qualification', 'new', 500, 540, '✅', 'blue', { w: 360, h: 300, desc: 'Basic info verified' }),
       
-      // Qualified
-      stage('qualified', '✅ Qualified', 'working', 1000, 300, '✅', 'green', { w: 280, h: 260 }),
+      // ===== FIRST CONTACT SECTION =====
+      stage('contact-header', '📞 FIRST CONTACT', 'working', 950, 50, '📞', 'cyan', { w: 300, h: 80, desc: 'Section header' }),
+      stage('contact-attempt1', 'Contact Attempt 1', 'working', 950, 160, '📞', 'cyan', { w: 340, h: 280, desc: 'First call attempt', escalate: delay(4, 'hours') }),
+      stage('contact-attempt2', 'Contact Attempt 2', 'working', 950, 480, '📞', 'cyan', { w: 340, h: 280, desc: 'Second call attempt', escalate: delay(24, 'hours') }),
+      stage('contact-attempt3', 'Contact Attempt 3', 'working', 950, 800, '📞', 'yellow', { w: 340, h: 280, desc: 'Third call attempt', escalate: delay(48, 'hours') }),
+      stage('contact-attempt4', 'Contact Attempt 4', 'working', 950, 1120, '📞', 'orange', { w: 340, h: 280, desc: 'Fourth call attempt', escalate: delay(72, 'hours') }),
+      stage('contact-attempt5', 'Final Attempt', 'working', 950, 1440, '📞', 'red', { w: 340, h: 280, desc: 'Last attempt before dead' }),
       
-      // Meeting Types
-      stage('meeting-video', '📹 Video Call', 'working', 1320, 80, '📹', 'purple', { w: 240, h: 200, meeting: 'online-video' }),
-      stage('meeting-phone', '📱 Phone Appt', 'working', 1320, 300, '📱', 'purple', { w: 240, h: 200, meeting: 'online-phone' }),
-      stage('meeting-office', '🏢 Office Visit', 'working', 1320, 520, '🏢', 'purple', { w: 240, h: 200, meeting: 'in-person-office' }),
-      stage('meeting-testdrive', '🚗 Test Drive', 'working', 1320, 740, '🚗', 'purple', { w: 240, h: 200, meeting: 'test-drive' }),
+      // ===== FOLLOW UP SECTION =====
+      stage('followup-header', '🔄 FOLLOW UP', 'circle-back', 1400, 50, '🔄', 'yellow', { w: 300, h: 80, desc: 'Section header' }),
+      stage('followup-day1', 'Follow Up - Day 1', 'circle-back', 1400, 160, '📧', 'yellow', { w: 340, h: 260, desc: 'First follow-up email' }),
+      stage('followup-day3', 'Follow Up - Day 3', 'circle-back', 1400, 460, '📧', 'yellow', { w: 340, h: 260, desc: 'Second follow-up email' }),
+      stage('followup-week1', 'Follow Up - Week 1', 'circle-back', 1400, 760, '📧', 'orange', { w: 340, h: 260, desc: 'Third follow-up' }),
+      stage('followup-week2', 'Follow Up - Week 2', 'circle-back', 1400, 1060, '📧', 'orange', { w: 340, h: 260, desc: 'Fourth follow-up' }),
+      stage('followup-month1', 'Follow Up - Month 1', 'circle-back', 1400, 1360, '📧', 'red', { w: 340, h: 260, desc: 'Final follow-up before nurture' }),
       
-      // Closing
-      stage('proposal', '📋 Proposal Sent', 'approval', 1600, 200, '📋', 'yellow', { w: 260, h: 220, email: 'email-closing-1' }),
-      stage('negotiation', '💬 Negotiating', 'approval', 1600, 450, '💬', 'orange', { w: 260, h: 220 }),
-      stage('closing', '🎯 Closing', 'approval', 1900, 300, '🎯', 'green', { w: 260, h: 240, email: 'email-closing-2' }),
+      // ===== ENGAGED SECTION =====
+      stage('engaged-header', '🔥 ENGAGED', 'working', 1850, 50, '🔥', 'orange', { w: 300, h: 80, desc: 'Section header' }),
+      stage('engaged-hot', 'Hot Lead', 'working', 1850, 160, '🔥', 'orange', { w: 360, h: 300, desc: 'Actively interested, ready to move forward' }),
+      stage('engaged-warm', 'Warm Lead', 'working', 1850, 500, '☀️', 'yellow', { w: 360, h: 300, desc: 'Interested but needs more info' }),
+      stage('engaged-cool', 'Cool Lead', 'working', 1850, 840, '❄️', 'cyan', { w: 360, h: 300, desc: 'Some interest, needs nurturing' }),
       
-      // Won
-      stage('won', '🏆 WON!', 'approval', 2200, 300, '🏆', 'green', { w: 240, h: 220 }),
+      // ===== QUALIFICATION SECTION =====
+      stage('qualify-header', '✅ QUALIFICATION', 'working', 2300, 50, '✅', 'green', { w: 300, h: 80, desc: 'Section header' }),
+      stage('qualify-needs', 'Needs Assessment', 'working', 2300, 160, '🎯', 'green', { w: 340, h: 280, desc: 'Understanding customer requirements' }),
+      stage('qualify-budget', 'Budget Confirmed', 'working', 2300, 480, '💰', 'green', { w: 340, h: 280, desc: 'Budget verified and approved' }),
+      stage('qualify-timeline', 'Timeline Confirmed', 'working', 2300, 800, '📅', 'green', { w: 340, h: 280, desc: 'Purchase timeline established' }),
+      stage('qualify-ready', 'Fully Qualified', 'working', 2300, 1120, '🏆', 'emerald', { w: 340, h: 280, desc: 'Ready for meeting/presentation' }),
+      
+      // ===== MEETING SECTION =====
+      stage('meeting-header', '📅 MEETINGS', 'working', 2750, 50, '📅', 'purple', { w: 300, h: 80, desc: 'Section header' }),
+      stage('meeting-video', 'Video Call Scheduled', 'working', 2750, 160, '📹', 'purple', { w: 340, h: 280, desc: 'Virtual meeting scheduled' }),
+      stage('meeting-phone', 'Phone Call Scheduled', 'working', 2750, 480, '📱', 'purple', { w: 340, h: 280, desc: 'Phone appointment scheduled' }),
+      stage('meeting-office', 'Office Visit Scheduled', 'working', 2750, 800, '🏢', 'purple', { w: 340, h: 280, desc: 'In-person office visit' }),
+      stage('meeting-testdrive', 'Test Drive Scheduled', 'working', 2750, 1120, '🚗', 'purple', { w: 340, h: 280, desc: 'Test drive appointment' }),
+      
+      // ===== CLOSING SECTION =====
+      stage('closing-header', '🎯 CLOSING', 'approval', 3200, 50, '🎯', 'emerald', { w: 300, h: 80, desc: 'Section header' }),
+      stage('closing-proposal', 'Proposal Sent', 'approval', 3200, 160, '📋', 'emerald', { w: 360, h: 300, desc: 'Formal proposal/quote sent' }),
+      stage('closing-negotiation', 'In Negotiation', 'approval', 3200, 500, '💬', 'yellow', { w: 360, h: 300, desc: 'Discussing terms and pricing' }),
+      stage('closing-financing', 'Financing Review', 'approval', 3200, 840, '🏦', 'cyan', { w: 360, h: 300, desc: 'Financing application in progress' }),
+      stage('closing-approved', 'Financing Approved', 'approval', 3200, 1180, '✅', 'emerald', { w: 360, h: 300, desc: 'Financing approved, ready to close' }),
+      
+      // ===== WON SECTION =====
+      stage('won-header', '🏆 CLOSED WON', 'approval', 3650, 50, '🏆', 'emerald', { w: 300, h: 80, desc: 'Section header' }),
+      stage('won-deal', 'Deal Closed', 'approval', 3650, 160, '🎉', 'emerald', { w: 380, h: 340, desc: 'Contract signed, deal complete' }),
+      stage('won-delivery', 'Delivery Scheduled', 'approval', 3650, 540, '🚚', 'emerald', { w: 380, h: 300, desc: 'Vehicle delivery scheduled' }),
+      stage('won-delivered', 'Delivered', 'approval', 3650, 880, '✅', 'emerald', { w: 380, h: 300, desc: 'Vehicle delivered to customer' }),
+      
+      // ===== POST-SALE SECTION =====
+      stage('postsale-header', '🤝 POST-SALE', 'approval', 4100, 50, '🤝', 'blue', { w: 300, h: 80, desc: 'Section header' }),
+      stage('postsale-week1', 'Week 1 Check-in', 'approval', 4100, 160, '👋', 'blue', { w: 340, h: 260, desc: 'First week satisfaction check' }),
+      stage('postsale-month1', 'Month 1 Check-in', 'approval', 4100, 460, '📞', 'blue', { w: 340, h: 260, desc: 'One month follow-up' }),
+      stage('postsale-month3', 'Month 3 Check-in', 'approval', 4100, 760, '📧', 'cyan', { w: 340, h: 260, desc: 'Three month satisfaction' }),
+      stage('postsale-month6', 'Month 6 Check-in', 'approval', 4100, 1060, '📧', 'purple', { w: 340, h: 260, desc: 'Six month check-in' }),
+      stage('postsale-year1', '1 Year Anniversary', 'approval', 4100, 1360, '🎂', 'purple', { w: 340, h: 260, desc: 'One year anniversary' }),
+      
+      // ===== REFERRAL SECTION =====
+      stage('referral-header', '🌟 REFERRALS', 'approval', 4550, 50, '🌟', 'yellow', { w: 300, h: 80, desc: 'Section header' }),
+      stage('referral-ask', 'Ask for Referral', 'approval', 4550, 160, '🤝', 'yellow', { w: 340, h: 280, desc: 'Request referrals from happy customer' }),
+      stage('referral-received', 'Referral Received', 'approval', 4550, 480, '🎁', 'emerald', { w: 340, h: 280, desc: 'New referral lead received' }),
+      stage('referral-converted', 'Referral Converted', 'approval', 4550, 800, '🏆', 'emerald', { w: 340, h: 280, desc: 'Referral lead converted to sale' }),
     ],
-    connections: [
-      // New to Contact
-      conn('new', 'contacted-1'), conn('new', 'contacted-2', '', true), conn('new', 'contacted-3', '', true),
-      // Contact to Dead
-      conn('contacted-1', 'dead-no-contact', '', true), conn('contacted-2', 'dead-no-contact', '', true),
-      conn('new', 'dead-not-interested', '', true),
-      // Contact to Qualified
-      conn('contacted-1', 'qualified'), conn('contacted-2', 'qualified'), conn('contacted-3', 'qualified'),
-      // Qualified to Meeting
-      conn('qualified', 'meeting-video'), conn('qualified', 'meeting-phone'), 
-      conn('qualified', 'meeting-office'), conn('qualified', 'meeting-testdrive'),
-      conn('qualified', 'dead-bad-timing', '', true),
-      // Meeting to Proposal
-      conn('meeting-video', 'proposal'), conn('meeting-phone', 'proposal'),
-      conn('meeting-office', 'proposal'), conn('meeting-testdrive', 'proposal'),
-      conn('meeting-video', 'dead-competitor', '', true),
-      // Proposal to Negotiation/Closing
-      conn('proposal', 'negotiation'), conn('proposal', 'closing'),
-      conn('proposal', 'dead-budget', '', true),
-      conn('negotiation', 'closing'), conn('negotiation', 'dead-competitor', '', true),
-      // Close to Won
-      conn('closing', 'won'),
-    ],
-    labels: [
-      lbl('l1', '💀 DEAD LEADS', 80, 20, 18, '#ef4444', '#1e293b'),
-      lbl('l2', '🚀 ACTIVE PIPELINE', 1100, 20, 20, '#3b82f6'),
-      lbl('l3', '📅 MEETINGS', 1350, 20, 16, '#a855f7'),
-      lbl('l4', '🎯 CLOSING', 1800, 20, 16, '#22c55e'),
-    ],
-    emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  },
+    messageNodes: [
+      // Welcome Messages
+      msg('msg-welcome', 'email', 'Welcome Email', '✉️', 500, 920, 'blue', 
+        `Hi {{name}},
 
-  // ========================================
-  // EXPERT: MAXIMUM FOLLOW-UP SEQUENCE
-  // ========================================
-  {
-    id: 'max-followup-sequence',
-    name: '📞 10-Touch Follow-Up Machine',
-    description: 'Maximum persistence follow-up system: Email → Call → SMS → WhatsApp → Repeat. Dead leads categorized on left.',
-    icon: '📞',
-    complexity: 'expert',
-    category: 'followup',
-    tags: ['followup', 'persistence', 'automation', 'sms', 'whatsapp'],
-    stages: [
-      // Dead Leads (LEFT)
-      stage('dead-ghost', '👻 Ghosted', 'dead', 40, 150, '👻', 'slate', { w: 200, h: 180, dead: 'no-contact' }),
-      stage('dead-declined', '❌ Declined', 'dead', 40, 350, '❌', 'red', { w: 200, h: 180, dead: 'not-interested' }),
-      stage('dead-later', '⏳ Maybe Later', 'dead', 40, 550, '⏳', 'yellow', { w: 200, h: 180, dead: 'bad-timing' }),
-      
-      // Entry Point
-      stage('new', '📥 NEW LEADS', 'new', 300, 300, '📥', 'blue', { w: 280, h: 280, email: 'email-welcome-1' }),
-      
-      // Touch 1-2: Email
-      stage('fu1', '📧 Touch 1 (Email)', 'working', 620, 150, '📧', 'cyan', { w: 220, h: 180, email: 'email-welcome-1', followUp: 'email' }),
-      stage('fu2', '📧 Touch 2 (Email)', 'working', 620, 350, '📧', 'cyan', { w: 220, h: 180, email: 'email-followup-24h', followUp: 'email' }),
-      
-      // Touch 3-4: Phone
-      stage('fu3', '📞 Touch 3 (Call)', 'working', 880, 150, '📞', 'yellow', { w: 220, h: 180, followUp: 'phone' }),
-      stage('fu4', '📞 Touch 4 (Call)', 'working', 880, 350, '📞', 'yellow', { w: 220, h: 180, followUp: 'phone' }),
-      
-      // Touch 5-6: SMS
-      stage('fu5', '💬 Touch 5 (SMS)', 'circle-back', 1140, 150, '💬', 'orange', { w: 220, h: 180, followUp: 'text' }),
-      stage('fu6', '💬 Touch 6 (SMS)', 'circle-back', 1140, 350, '💬', 'orange', { w: 220, h: 180, followUp: 'text' }),
-      
-      // Touch 7-8: WhatsApp
-      stage('fu7', '📱 Touch 7 (WhatsApp)', 'circle-back', 1400, 150, '📱', 'green', { w: 220, h: 180, followUp: 'whatsapp' }),
-      stage('fu8', '📱 Touch 8 (WhatsApp)', 'circle-back', 1400, 350, '📱', 'green', { w: 220, h: 180, followUp: 'whatsapp' }),
-      
-      // Touch 9-10: Final
-      stage('fu9', '🔔 Touch 9 (Final Email)', 'circle-back', 1660, 220, '🔔', 'red', { w: 220, h: 180, email: 'email-gentle-2', followUp: 'email' }),
-      stage('fu10', '⏰ Touch 10 (Last Call)', 'circle-back', 1660, 420, '⏰', 'purple', { w: 220, h: 180, followUp: 'phone' }),
-      
-      // Outcomes
-      stage('engaged', '🔥 ENGAGED!', 'working', 1920, 150, '🔥', 'green', { w: 220, h: 200 }),
-      stage('meeting-set', '📅 Meeting Set', 'working', 1920, 380, '📅', 'purple', { w: 220, h: 200, meeting: 'online-video' }),
-      stage('closed', '🏆 CLOSED', 'approval', 2180, 260, '🏆', 'green', { w: 220, h: 200 }),
-    ],
-    connections: [
-      // New to Touch 1
-      conn('new', 'fu1'),
-      // Touch sequence
-      conn('fu1', 'fu2', '24h'), conn('fu2', 'fu3', '48h'),
-      conn('fu3', 'fu4', '72h'), conn('fu4', 'fu5', '1wk'),
-      conn('fu5', 'fu6', '3d'), conn('fu6', 'fu7', '1wk'),
-      conn('fu7', 'fu8', '3d'), conn('fu8', 'fu9', '1wk'),
-      conn('fu9', 'fu10', '2wk'),
-      // To engaged from any touch
-      conn('fu1', 'engaged'), conn('fu2', 'engaged'), conn('fu3', 'engaged'),
-      conn('fu4', 'engaged'), conn('fu5', 'engaged'), conn('fu6', 'engaged'),
-      conn('fu7', 'engaged'), conn('fu8', 'engaged'), conn('fu9', 'engaged'),
-      conn('fu10', 'engaged'),
-      // To dead
-      conn('fu10', 'dead-ghost', '', true),
-      conn('new', 'dead-declined', '', true),
-      conn('fu5', 'dead-later', '', true),
-      // Engaged to meeting
-      conn('engaged', 'meeting-set'),
-      // Meeting to closed
-      conn('meeting-set', 'closed'),
-    ],
-    labels: [
-      lbl('l1', '💀 DEAD', 80, 100, 16, '#64748b', '#1e293b'),
-      lbl('l2', '📞 10-TOUCH FOLLOW-UP SEQUENCE', 900, 50, 20, '#06b6d4'),
-      lbl('l3', '📧→📞→💬→📱→🔔', 900, 85, 14, '#94a3b8'),
-    ],
-    emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  },
+Thank you for your interest in finding your perfect vehicle! I'm excited to help you.
 
-  // ========================================
-  // ADVANCED: DEAD LEAD RESURRECTION
-  // ========================================
-  {
-    id: 'dead-resurrection-advanced',
-    name: '💀 Dead Lead Resurrection Pro',
-    description: 'Advanced dead lead revival system. Categorize → Analyze → Revive with targeted campaigns.',
-    icon: '💀',
-    complexity: 'advanced',
-    category: 'dead-leads',
-    tags: ['dead-leads', 'resurrection', 're-engagement'],
-    stages: [
-      // Incoming Dead
-      stage('all-dead', '💀 All Dead Leads', 'dead', 40, 350, '💀', 'slate', { w: 260, h: 300 }),
-      
-      // Categories
-      stage('cat-timing', '⏰ Bad Timing', 'dead', 360, 80, '⏰', 'yellow', { w: 220, h: 180, dead: 'bad-timing' }),
-      stage('cat-money', '💰 Budget Issue', 'dead', 360, 280, '💰', 'orange', { w: 220, h: 180, dead: 'no-money' }),
-      stage('cat-interest', '🤷 Lost Interest', 'dead', 360, 480, '🤷', 'red', { w: 220, h: 180, dead: 'not-interested' }),
-      stage('cat-competitor', '🏃 Went Competitor', 'dead', 360, 680, '🏃', 'purple', { w: 220, h: 180, dead: 'competitor' }),
-      
-      // Revival Strategies
-      stage('revive-wait3mo', '📆 Wait 3 Months', 'circle-back', 640, 80, '📆', 'cyan', { w: 220, h: 180, email: 'email-reengage-1' }),
-      stage('revive-offer', '🎁 Special Offer', 'circle-back', 640, 280, '🎁', 'green', { w: 220, h: 180, email: 'email-reengage-2' }),
-      stage('revive-checkin', '👋 Friendly Check', 'circle-back', 640, 480, '👋', 'blue', { w: 220, h: 180, email: 'email-gentle-1', followUp: 'phone' }),
-      stage('revive-referral', '🤝 Ask Referral', 'circle-back', 640, 680, '🤝', 'pink', { w: 220, h: 180, email: 'email-postsale-referral' }),
-      
-      // Second Attempt
-      stage('attempt2-email', '📧 Re-engage Email', 'circle-back', 920, 180, '📧', 'yellow', { w: 220, h: 180, email: 'email-reengage-3', followUp: 'email' }),
-      stage('attempt2-call', '📞 Re-engage Call', 'circle-back', 920, 380, '📞', 'orange', { w: 220, h: 180, followUp: 'phone' }),
-      stage('attempt2-sms', '💬 Re-engage SMS', 'circle-back', 920, 580, '💬', 'red', { w: 220, h: 180, followUp: 'text' }),
-      
-      // Outcomes
-      stage('back-active', '🎯 BACK ACTIVE!', 'new', 1200, 200, '🎯', 'green', { w: 240, h: 200 }),
-      stage('referral-given', '🤝 Gave Referral', 'working', 1200, 430, '🤝', 'purple', { w: 240, h: 200 }),
-      stage('archive', '📦 Archive', 'dead', 1200, 660, '📦', 'slate', { w: 240, h: 200, dead: 'archive' }),
-    ],
-    connections: [
-      // Sort into categories
-      conn('all-dead', 'cat-timing'), conn('all-dead', 'cat-money'),
-      conn('all-dead', 'cat-interest'), conn('all-dead', 'cat-competitor'),
-      // Category to revival strategy
-      conn('cat-timing', 'revive-wait3mo'), conn('cat-money', 'revive-offer'),
-      conn('cat-interest', 'revive-checkin'), conn('cat-competitor', 'revive-referral'),
-      // Revival to second attempt
-      conn('revive-wait3mo', 'attempt2-email'), conn('revive-offer', 'attempt2-email'),
-      conn('revive-checkin', 'attempt2-call'), conn('revive-referral', 'attempt2-sms'),
-      // Second attempt to outcomes
-      conn('attempt2-email', 'back-active'), conn('attempt2-call', 'back-active'),
-      conn('attempt2-sms', 'back-active'),
-      conn('attempt2-email', 'archive', '', true), conn('attempt2-call', 'archive', '', true),
-      conn('revive-referral', 'referral-given'),
-      conn('attempt2-sms', 'referral-given'),
-    ],
-    labels: [
-      lbl('l1', '💀 DEAD LEAD RESURRECTION', 600, 20, 22, '#ef4444'),
-      lbl('l2', 'Categorize → Strategize → Revive', 600, 55, 14, '#64748b'),
-    ],
-    emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  },
+I've received your information and will be reaching out shortly to discuss your needs. In the meantime, feel free to reply to this email with any questions.
 
-  // ========================================
-  // ADVANCED: NEW LEAD MAXIMUM FLOW
-  // ========================================
-  {
-    id: 'new-lead-max',
-    name: '📥 New Lead Power Flow',
-    description: 'Maximum conversion new lead handling. Immediate multi-channel contact, qualification, and fast-track to meeting.',
-    icon: '📥',
-    complexity: 'advanced',
-    category: 'new-leads',
-    tags: ['new-leads', 'fast', 'multi-channel', 'qualification'],
-    stages: [
-      // Dead on left
-      stage('dead-fake', '🚫 Fake/Spam', 'dead', 40, 150, '🚫', 'red', { w: 200, h: 160, dead: 'fake' }),
-      stage('dead-unqualified', '❌ Unqualified', 'dead', 40, 330, '❌', 'orange', { w: 200, h: 160, dead: 'unqualified' }),
-      stage('dead-ghosted', '👻 No Response', 'dead', 40, 510, '👻', 'slate', { w: 200, h: 160, dead: 'no-contact' }),
+Best regards,
+{{agent_name}}
+My Next Ride Ontario`,
+        { subject: 'Welcome to My Next Ride Ontario!', auto: true, trigger: 'on-enter', linked: ['new-incoming'] }
+      ),
       
-      // New Lead Entry
-      stage('incoming', '🆕 INCOMING', 'new', 300, 300, '🆕', 'blue', { w: 280, h: 280, notification: true }),
+      // Follow Up Messages
+      msg('msg-followup-1', 'email', 'Follow Up #1', '📧', 1400, 1660, 'yellow',
+        `Hi {{name}},
+
+I wanted to follow up on your vehicle inquiry. Have you had a chance to think about what you're looking for?
+
+I have some great options that might be perfect for you. Would you like to schedule a quick call to discuss?
+
+Best,
+{{agent_name}}`,
+        { subject: 'Quick Follow Up - Your Vehicle Search', auto: true, delay: delay(24, 'hours'), linked: ['followup-day1'] }
+      ),
       
-      // Immediate Response (within 5 min)
-      stage('response-email', '⚡ Auto Email', 'working', 620, 100, '⚡', 'cyan', { w: 220, h: 180, email: 'email-welcome-1', followUp: 'email' }),
-      stage('response-sms', '⚡ Auto SMS', 'working', 620, 300, '⚡', 'green', { w: 220, h: 180, followUp: 'text' }),
-      stage('response-call', '📞 Call Now', 'working', 620, 500, '📞', 'yellow', { w: 220, h: 180, followUp: 'phone' }),
+      msg('msg-followup-2', 'sms', 'SMS Follow Up', '💬', 1400, 1920, 'cyan',
+        `Hi {{name}}, just checking in on your vehicle search. Any questions I can help with? - {{agent_name}}, My Next Ride`,
+        { auto: true, delay: delay(3, 'days'), linked: ['followup-day3'] }
+      ),
       
-      // Qualification
-      stage('qualify-basic', '📋 Basic Info', 'working', 880, 150, '📋', 'purple', { w: 220, h: 180 }),
-      stage('qualify-needs', '🎯 Needs Assessment', 'working', 880, 350, '🎯', 'purple', { w: 220, h: 180 }),
-      stage('qualify-budget', '💰 Budget Check', 'working', 880, 550, '💰', 'purple', { w: 220, h: 180 }),
+      msg('msg-followup-3', 'email', 'Final Follow Up', '📧', 1400, 2180, 'orange',
+        `Hi {{name}},
+
+I haven't heard back from you, so I wanted to reach out one more time. If you're still looking for a vehicle, I'm here to help.
+
+If not, no worries at all - just let me know and I'll close out your file.
+
+Best,
+{{agent_name}}`,
+        { subject: 'Still Looking for a Vehicle?', auto: true, delay: delay(1, 'weeks'), linked: ['followup-week1'] }
+      ),
       
-      // Qualified Tracks
-      stage('hot-lead', '🔥 HOT LEAD', 'working', 1140, 150, '🔥', 'orange', { w: 220, h: 180 }),
-      stage('warm-lead', '☀️ Warm Lead', 'working', 1140, 350, '☀️', 'yellow', { w: 220, h: 180 }),
-      stage('cold-lead', '❄️ Cold Lead', 'circle-back', 1140, 550, '❄️', 'cyan', { w: 220, h: 180 }),
+      // Meeting Reminders
+      msg('msg-meeting-reminder', 'sms', 'Meeting Reminder', '📅', 2750, 1440, 'purple',
+        `Hi {{name}}, just a reminder about our meeting tomorrow at {{time}}. Looking forward to seeing you! - {{agent_name}}`,
+        { auto: true, delay: delay(24, 'hours'), linked: ['meeting-video', 'meeting-phone', 'meeting-office', 'meeting-testdrive'] }
+      ),
       
-      // Meeting Fast Track
-      stage('meeting-same-day', '🚀 Same Day Meet', 'working', 1400, 150, '🚀', 'green', { w: 220, h: 180, meeting: 'test-drive' }),
-      stage('meeting-scheduled', '📅 Meeting Set', 'working', 1400, 350, '📅', 'green', { w: 220, h: 180, meeting: 'online-video' }),
-      stage('nurture', '🌱 Nurture Track', 'circle-back', 1400, 550, '🌱', 'cyan', { w: 220, h: 180, email: 'email-followup-1week' }),
+      // Closing Messages
+      msg('msg-proposal', 'email', 'Proposal Email', '📋', 3200, 1520, 'emerald',
+        `Hi {{name}},
+
+As discussed, please find attached your personalized vehicle proposal.
+
+Highlights:
+- Vehicle: {{vehicle}}
+- Price: {{price}}
+- Monthly Payment: {{monthly}}
+
+Please review and let me know if you have any questions. I'm available to discuss anytime.
+
+Best regards,
+{{agent_name}}`,
+        { subject: 'Your Vehicle Proposal - {{vehicle}}', linked: ['closing-proposal'] }
+      ),
       
-      // Closing
-      stage('closing', '🎯 CLOSING', 'approval', 1660, 250, '🎯', 'green', { w: 240, h: 200 }),
-      stage('won', '🏆 WON!', 'approval', 1920, 250, '🏆', 'green', { w: 220, h: 180 }),
+      // Post-Sale Messages
+      msg('msg-thankyou', 'email', 'Thank You Email', '🙏', 3650, 1220, 'emerald',
+        `Dear {{name}},
+
+Congratulations on your new {{vehicle}}! 🎉
+
+Thank you for choosing My Next Ride Ontario. We're thrilled to have helped you find your perfect vehicle.
+
+If you have any questions about your new vehicle, please don't hesitate to reach out.
+
+Enjoy the ride!
+
+Best regards,
+{{agent_name}}`,
+        { subject: 'Congratulations on Your New Vehicle!', auto: true, trigger: 'on-enter', linked: ['won-deal'] }
+      ),
+      
+      msg('msg-checkin-week1', 'email', 'Week 1 Check-in', '👋', 4100, 1660, 'blue',
+        `Hi {{name}},
+
+How's the first week been with your new {{vehicle}}? I hope you're loving it!
+
+If you have any questions about features or need any assistance, I'm always here to help.
+
+Enjoy!
+{{agent_name}}`,
+        { subject: 'How\'s Your First Week?', auto: true, delay: delay(1, 'weeks'), linked: ['postsale-week1'] }
+      ),
+      
+      // Resurrection Messages
+      msg('msg-resurrect-timing', 'email', 'Bad Timing Check-in', '📅', 50, 3110, 'purple',
+        `Hi {{name}},
+
+It's been a few months since we last spoke about your vehicle search. I wanted to check in and see if the timing might be better now?
+
+If you're still interested, I'd love to help. Lot has changed in the market and there might be some great options for you.
+
+Best,
+{{agent_name}}`,
+        { subject: 'Is Now a Better Time?', auto: true, delay: delay(3, 'months'), linked: ['resurrect-timing'] }
+      ),
+      
+      msg('msg-resurrect-budget', 'email', 'Budget Check-in', '💰', 50, 3370, 'purple',
+        `Hi {{name}},
+
+I hope things have been going well! I wanted to reach out because we have some new financing options and inventory that might work better with your budget.
+
+Would you be interested in taking another look?
+
+Best,
+{{agent_name}}`,
+        { subject: 'New Options Available', auto: true, delay: delay(6, 'months'), linked: ['resurrect-budget'] }
+      ),
+      
+      // Referral Messages
+      msg('msg-referral-ask', 'email', 'Referral Request', '🌟', 4550, 1120, 'yellow',
+        `Hi {{name}},
+
+I hope you're still enjoying your {{vehicle}}! It's been great working with you.
+
+If you know anyone else who's looking for a vehicle, I'd love to help them too. As a thank you, we offer a $100 referral bonus for any successful referral.
+
+Just have them mention your name when they contact me!
+
+Thanks,
+{{agent_name}}`,
+        { subject: 'Know Anyone Looking for a Vehicle?', auto: true, delay: delay(1, 'months'), linked: ['referral-ask'] }
+      ),
     ],
     connections: [
-      // Incoming to responses
-      conn('incoming', 'response-email'), conn('incoming', 'response-sms'), conn('incoming', 'response-call'),
-      // Responses to qualification
-      conn('response-email', 'qualify-basic'), conn('response-sms', 'qualify-basic'), conn('response-call', 'qualify-basic'),
+      // New leads flow
+      conn('new-incoming', 'new-qualified'),
+      conn('new-qualified', 'contact-attempt1'),
+      
+      // Contact attempts
+      conn('contact-attempt1', 'contact-attempt2', 'stage', 'stage', { auto: true, delay: delay(4, 'hours'), condition: 'no-response' }),
+      conn('contact-attempt2', 'contact-attempt3', 'stage', 'stage', { auto: true, delay: delay(24, 'hours'), condition: 'no-response' }),
+      conn('contact-attempt3', 'contact-attempt4', 'stage', 'stage', { auto: true, delay: delay(48, 'hours'), condition: 'no-response' }),
+      conn('contact-attempt4', 'contact-attempt5', 'stage', 'stage', { auto: true, delay: delay(72, 'hours'), condition: 'no-response' }),
+      conn('contact-attempt5', 'dead-no-response', 'stage', 'stage', { dashed: true, label: 'No Response' }),
+      
+      // Contact to engaged
+      conn('contact-attempt1', 'engaged-hot'),
+      conn('contact-attempt2', 'engaged-warm'),
+      conn('contact-attempt3', 'engaged-cool'),
+      
+      // Engaged to qualification
+      conn('engaged-hot', 'qualify-needs'),
+      conn('engaged-warm', 'qualify-needs'),
+      conn('engaged-cool', 'followup-day1'),
+      
+      // Follow up sequence
+      conn('followup-day1', 'followup-day3', 'stage', 'stage', { auto: true, delay: delay(2, 'days'), condition: 'no-response' }),
+      conn('followup-day3', 'followup-week1', 'stage', 'stage', { auto: true, delay: delay(4, 'days'), condition: 'no-response' }),
+      conn('followup-week1', 'followup-week2', 'stage', 'stage', { auto: true, delay: delay(1, 'weeks'), condition: 'no-response' }),
+      conn('followup-week2', 'followup-month1', 'stage', 'stage', { auto: true, delay: delay(2, 'weeks'), condition: 'no-response' }),
+      conn('followup-month1', 'dead-no-response', 'stage', 'stage', { dashed: true, label: 'No Response' }),
+      
+      // Follow up to engaged
+      conn('followup-day1', 'engaged-warm'),
+      conn('followup-day3', 'engaged-warm'),
+      conn('followup-week1', 'engaged-cool'),
+      
       // Qualification flow
-      conn('qualify-basic', 'qualify-needs'), conn('qualify-needs', 'qualify-budget'),
-      conn('qualify-basic', 'dead-fake', '', true), conn('qualify-needs', 'dead-unqualified', '', true),
-      // Budget to lead type
-      conn('qualify-budget', 'hot-lead'), conn('qualify-budget', 'warm-lead'), conn('qualify-budget', 'cold-lead'),
-      // Lead type to action
-      conn('hot-lead', 'meeting-same-day'), conn('warm-lead', 'meeting-scheduled'), conn('cold-lead', 'nurture'),
-      // Meetings to closing
-      conn('meeting-same-day', 'closing'), conn('meeting-scheduled', 'closing'),
-      conn('nurture', 'meeting-scheduled', '', true), conn('nurture', 'dead-ghosted', '', true),
-      // Closing to won
+      conn('qualify-needs', 'qualify-budget'),
+      conn('qualify-budget', 'qualify-timeline'),
+      conn('qualify-timeline', 'qualify-ready'),
+      conn('qualify-needs', 'dead-not-interested', 'stage', 'stage', { dashed: true }),
+      conn('qualify-budget', 'dead-budget', 'stage', 'stage', { dashed: true }),
+      
+      // Meeting flow
+      conn('qualify-ready', 'meeting-video'),
+      conn('qualify-ready', 'meeting-phone'),
+      conn('qualify-ready', 'meeting-office'),
+      conn('qualify-ready', 'meeting-testdrive'),
+      
+      // Meeting to closing
+      conn('meeting-video', 'closing-proposal'),
+      conn('meeting-phone', 'closing-proposal'),
+      conn('meeting-office', 'closing-proposal'),
+      conn('meeting-testdrive', 'closing-proposal'),
+      
+      // Closing flow
+      conn('closing-proposal', 'closing-negotiation'),
+      conn('closing-negotiation', 'closing-financing'),
+      conn('closing-financing', 'closing-approved'),
+      conn('closing-approved', 'won-deal'),
+      conn('closing-negotiation', 'dead-competitor', 'stage', 'stage', { dashed: true }),
+      conn('closing-financing', 'dead-credit', 'stage', 'stage', { dashed: true }),
+      
+      // Won flow
+      conn('won-deal', 'won-delivery'),
+      conn('won-delivery', 'won-delivered'),
+      conn('won-delivered', 'postsale-week1'),
+      
+      // Post-sale flow
+      conn('postsale-week1', 'postsale-month1', 'stage', 'stage', { auto: true, delay: delay(3, 'weeks') }),
+      conn('postsale-month1', 'postsale-month3', 'stage', 'stage', { auto: true, delay: delay(2, 'months') }),
+      conn('postsale-month3', 'postsale-month6', 'stage', 'stage', { auto: true, delay: delay(3, 'months') }),
+      conn('postsale-month6', 'postsale-year1', 'stage', 'stage', { auto: true, delay: delay(6, 'months') }),
+      conn('postsale-month3', 'referral-ask'),
+      conn('postsale-year1', 'referral-ask'),
+      
+      // Referral flow
+      conn('referral-ask', 'referral-received'),
+      conn('referral-received', 'new-incoming'),
+      conn('referral-received', 'referral-converted'),
+      
+      // Resurrection flow
+      conn('dead-bad-timing', 'resurrect-timing', 'stage', 'stage', { auto: true, delay: delay(3, 'months') }),
+      conn('dead-budget', 'resurrect-budget', 'stage', 'stage', { auto: true, delay: delay(6, 'months') }),
+      conn('dead-credit', 'resurrect-credit', 'stage', 'stage', { auto: true, delay: delay(6, 'months') }),
+      conn('resurrect-timing', 'engaged-warm'),
+      conn('resurrect-budget', 'engaged-warm'),
+      conn('resurrect-credit', 'engaged-warm'),
+      conn('resurrect-timing', 'dead-not-interested', 'stage', 'stage', { dashed: true }),
+      conn('resurrect-budget', 'dead-not-interested', 'stage', 'stage', { dashed: true }),
+      conn('resurrect-credit', 'dead-not-interested', 'stage', 'stage', { dashed: true }),
+      
+      // Message node connections
+      conn('new-incoming', 'msg-welcome', 'stage', 'message'),
+      conn('followup-day1', 'msg-followup-1', 'stage', 'message'),
+      conn('followup-day3', 'msg-followup-2', 'stage', 'message'),
+      conn('followup-week1', 'msg-followup-3', 'stage', 'message'),
+      conn('closing-proposal', 'msg-proposal', 'stage', 'message'),
+      conn('won-deal', 'msg-thankyou', 'stage', 'message'),
+      conn('postsale-week1', 'msg-checkin-week1', 'stage', 'message'),
+      conn('referral-ask', 'msg-referral-ask', 'stage', 'message'),
+      conn('resurrect-timing', 'msg-resurrect-timing', 'stage', 'message'),
+      conn('resurrect-budget', 'msg-resurrect-budget', 'stage', 'message'),
+    ],
+    labels: [
+      lbl('lbl-dead', '💀 DEAD LEADS', 60, 20, 28, '#ef4444'),
+      lbl('lbl-new', '📥 NEW LEADS', 510, 20, 28, '#3b82f6'),
+      lbl('lbl-contact', '📞 FIRST CONTACT', 960, 20, 28, '#06b6d4'),
+      lbl('lbl-followup', '🔄 FOLLOW UP', 1410, 20, 28, '#eab308'),
+      lbl('lbl-engaged', '🔥 ENGAGED', 1860, 20, 28, '#f97316'),
+      lbl('lbl-qualify', '✅ QUALIFICATION', 2310, 20, 28, '#22c55e'),
+      lbl('lbl-meeting', '📅 MEETINGS', 2760, 20, 28, '#a855f7'),
+      lbl('lbl-closing', '🎯 CLOSING', 3210, 20, 28, '#10b981'),
+      lbl('lbl-won', '🏆 CLOSED WON', 3660, 20, 28, '#10b981'),
+      lbl('lbl-postsale', '🤝 POST-SALE', 4110, 20, 28, '#3b82f6'),
+      lbl('lbl-referral', '🌟 REFERRALS', 4560, 20, 28, '#eab308'),
+    ],
+  },
+
+  // ========================================
+  // STANDARD: BASIC SALES FUNNEL
+  // ========================================
+  {
+    id: 'standard-basic',
+    name: 'Standard Sales Funnel',
+    description: 'A straightforward 15-stage sales funnel perfect for getting started. Includes basic follow-up automation and dead lead tracking.',
+    icon: '📊',
+    complexity: 'standard',
+    category: 'sales',
+    estimatedSetupTime: '30 minutes',
+    features: [
+      '15 pipeline stages',
+      '5 automated messages',
+      'Basic dead lead tracking',
+      'Simple follow-up sequence',
+    ],
+    stages: [
+      // Dead leads
+      stage('dead-all', 'Dead Leads', 'dead', 50, 300, '💀', 'red', { w: 320, h: 500 }),
+      
+      // Main funnel
+      stage('new', 'New Leads', 'new', 500, 200, '📥', 'blue', { w: 380, h: 380 }),
+      stage('contacted', 'Contacted', 'working', 950, 200, '📞', 'cyan', { w: 360, h: 340 }),
+      stage('interested', 'Interested', 'working', 1400, 200, '👍', 'yellow', { w: 360, h: 340 }),
+      stage('qualified', 'Qualified', 'working', 1850, 200, '✅', 'green', { w: 360, h: 340 }),
+      stage('meeting', 'Meeting Set', 'working', 2300, 200, '📅', 'purple', { w: 360, h: 340 }),
+      stage('proposal', 'Proposal Sent', 'approval', 2750, 200, '📋', 'emerald', { w: 360, h: 340 }),
+      stage('won', 'Closed Won', 'approval', 3200, 200, '🏆', 'emerald', { w: 380, h: 380 }),
+      
+      // Follow up track
+      stage('followup-1', 'Follow Up 1', 'circle-back', 950, 620, '📧', 'yellow', { w: 340, h: 280 }),
+      stage('followup-2', 'Follow Up 2', 'circle-back', 1400, 620, '📧', 'orange', { w: 340, h: 280 }),
+      stage('followup-3', 'Follow Up 3', 'circle-back', 1850, 620, '📧', 'red', { w: 340, h: 280 }),
+    ],
+    messageNodes: [
+      msg('msg-welcome', 'email', 'Welcome Email', '✉️', 500, 620, 'blue', 
+        'Hi {{name}}, thank you for your interest! We will be in touch shortly.',
+        { subject: 'Welcome!', auto: true, linked: ['new'] }
+      ),
+      msg('msg-fu1', 'email', 'Follow Up 1', '📧', 950, 940, 'yellow',
+        'Hi {{name}}, just checking in. Any questions?',
+        { subject: 'Following Up', auto: true, delay: delay(24, 'hours'), linked: ['followup-1'] }
+      ),
+      msg('msg-fu2', 'sms', 'SMS Follow Up', '💬', 1400, 940, 'cyan',
+        'Hi {{name}}, still interested? Let me know! - {{agent_name}}',
+        { auto: true, delay: delay(48, 'hours'), linked: ['followup-2'] }
+      ),
+    ],
+    connections: [
+      conn('new', 'contacted'),
+      conn('contacted', 'interested'),
+      conn('interested', 'qualified'),
+      conn('qualified', 'meeting'),
+      conn('meeting', 'proposal'),
+      conn('proposal', 'won'),
+      
+      // To dead
+      conn('contacted', 'dead-all', 'stage', 'stage', { dashed: true }),
+      conn('interested', 'dead-all', 'stage', 'stage', { dashed: true }),
+      conn('qualified', 'dead-all', 'stage', 'stage', { dashed: true }),
+      conn('proposal', 'dead-all', 'stage', 'stage', { dashed: true }),
+      
+      // Follow up
+      conn('contacted', 'followup-1'),
+      conn('followup-1', 'followup-2', 'stage', 'stage', { auto: true, delay: delay(3, 'days') }),
+      conn('followup-2', 'followup-3', 'stage', 'stage', { auto: true, delay: delay(1, 'weeks') }),
+      conn('followup-3', 'dead-all', 'stage', 'stage', { dashed: true }),
+      conn('followup-1', 'interested'),
+      conn('followup-2', 'interested'),
+      
+      // Messages
+      conn('new', 'msg-welcome', 'stage', 'message'),
+      conn('followup-1', 'msg-fu1', 'stage', 'message'),
+      conn('followup-2', 'msg-fu2', 'stage', 'message'),
+    ],
+    labels: [
+      lbl('lbl-main', 'SALES PIPELINE', 1400, 50, 32, '#3b82f6'),
+    ],
+  },
+
+  // ========================================
+  // STARTER: SIMPLE 4-STAGE
+  // ========================================
+  {
+    id: 'starter-simple',
+    name: 'Simple 4-Stage Pipeline',
+    description: 'The simplest pipeline to get started. Just 4 stages: New, Working, Closing, Won. Perfect for beginners.',
+    icon: '🎯',
+    complexity: 'starter',
+    category: 'basic',
+    estimatedSetupTime: '5 minutes',
+    features: [
+      '4 pipeline stages',
+      'No automation',
+      'Quick setup',
+    ],
+    stages: [
+      stage('new', 'New Leads', 'new', 200, 300, '📥', 'blue', { w: 400, h: 400 }),
+      stage('working', 'Working', 'working', 700, 300, '⚙️', 'yellow', { w: 400, h: 400 }),
+      stage('closing', 'Closing', 'approval', 1200, 300, '🎯', 'emerald', { w: 400, h: 400 }),
+      stage('won', 'Won', 'approval', 1700, 300, '🏆', 'emerald', { w: 400, h: 400 }),
+    ],
+    messageNodes: [],
+    connections: [
+      conn('new', 'working'),
+      conn('working', 'closing'),
       conn('closing', 'won'),
     ],
     labels: [
-      lbl('l1', '📥 NEW LEAD POWER FLOW', 900, 20, 22, '#3b82f6'),
-      lbl('l2', '5-Min Response → Qualify → Convert', 900, 55, 14, '#64748b'),
+      lbl('lbl-title', 'SIMPLE PIPELINE', 850, 100, 36, '#ffffff'),
     ],
-    emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  },
-
-  // ========================================
-  // ADVANCED: POST-PURCHASE COMPLETE
-  // ========================================
-  {
-    id: 'post-purchase-complete',
-    name: '🎉 Complete Post-Purchase Journey',
-    description: 'Full customer retention cycle: Thank you → Check-ins → Referrals → Repeat business.',
-    icon: '🎉',
-    complexity: 'advanced',
-    category: 'post-sale',
-    tags: ['post-sale', 'retention', 'referral', 'repeat'],
-    stages: [
-      // Entry
-      stage('sold', '🎉 SOLD!', 'approval', 40, 300, '🎉', 'green', { w: 260, h: 260 }),
-      
-      // Immediate
-      stage('day1-thanks', '🙏 Thank You (Day 1)', 'working', 360, 200, '🙏', 'blue', { w: 220, h: 180, email: 'email-postsale-thanks' }),
-      stage('day1-call', '📞 Delivery Call', 'working', 360, 400, '📞', 'cyan', { w: 220, h: 180, followUp: 'phone' }),
-      
-      // Week 1
-      stage('1week', '📧 1 Week Check', 'working', 620, 300, '📧', 'cyan', { w: 220, h: 180, email: 'email-postsale-1week', followUp: 'email' }),
-      
-      // Month 1
-      stage('1month', '📞 1 Month Call', 'working', 880, 200, '📞', 'yellow', { w: 220, h: 180, followUp: 'phone' }),
-      stage('1month-review', '⭐ Ask Review', 'working', 880, 400, '⭐', 'yellow', { w: 220, h: 180, email: 'email-review-request' }),
-      
-      // 3 Months
-      stage('3month', '📞 3 Month Check', 'working', 1140, 200, '📞', 'orange', { w: 220, h: 180, followUp: 'phone' }),
-      stage('3month-referral', '🤝 Ask Referral', 'working', 1140, 400, '🤝', 'purple', { w: 220, h: 180, email: 'email-postsale-referral' }),
-      
-      // 6 Months
-      stage('6month', '📧 6 Month Update', 'circle-back', 1400, 300, '📧', 'pink', { w: 220, h: 180, email: 'email-postsale-6month', followUp: 'email' }),
-      
-      // 1 Year
-      stage('1year', '🎂 1 Year Anniversary', 'circle-back', 1660, 200, '🎂', 'purple', { w: 220, h: 180, email: 'email-postsale-1year' }),
-      stage('1year-upgrade', '🚀 Upgrade Offer', 'circle-back', 1660, 400, '🚀', 'green', { w: 220, h: 180, email: 'email-upgrade-offer' }),
-      
-      // Outcomes
-      stage('referral-received', '🤝 Got Referral!', 'working', 1920, 150, '🤝', 'green', { w: 220, h: 180 }),
-      stage('repeat-customer', '🔄 Repeat Customer', 'approval', 1920, 350, '🔄', 'green', { w: 220, h: 180 }),
-      stage('ambassador', '👑 Brand Ambassador', 'approval', 1920, 550, '👑', 'yellow', { w: 220, h: 180 }),
-    ],
-    connections: [
-      conn('sold', 'day1-thanks'), conn('sold', 'day1-call'),
-      conn('day1-thanks', '1week'), conn('day1-call', '1week'),
-      conn('1week', '1month'), conn('1week', '1month-review'),
-      conn('1month', '3month'), conn('1month-review', '3month'),
-      conn('3month', '3month-referral'), conn('3month', '6month'),
-      conn('3month-referral', 'referral-received'),
-      conn('6month', '1year'), conn('6month', '1year-upgrade'),
-      conn('1year', 'repeat-customer'), conn('1year-upgrade', 'repeat-customer'),
-      conn('referral-received', 'ambassador'),
-      conn('repeat-customer', 'ambassador'),
-    ],
-    labels: [
-      lbl('l1', '🎉 POST-PURCHASE JOURNEY', 900, 80, 22, '#22c55e'),
-      lbl('l2', 'Day 1 → Week 1 → Month 1 → 3mo → 6mo → 1yr', 900, 115, 14, '#64748b'),
-    ],
-    emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  },
-
-  // ========================================
-  // MEDIUM: MEETING-FOCUSED PIPELINE
-  // ========================================
-  {
-    id: 'meeting-focused-pro',
-    name: '📅 Meeting-Focused Pro',
-    description: 'All roads lead to meetings: Video, Phone, Office, Test Drive. Perfect for high-touch sales.',
-    icon: '📅',
-    complexity: 'medium',
-    category: 'meetings',
-    tags: ['meetings', 'high-touch', 'in-person'],
-    stages: [
-      stage('dead', '💀 Dead', 'dead', 40, 300, '💀', 'red', { w: 200, h: 180 }),
-      
-      stage('lead', '📥 New Lead', 'new', 300, 300, '📥', 'blue', { w: 280, h: 280, email: 'email-welcome-1' }),
-      stage('contact', '📞 First Contact', 'working', 620, 300, '📞', 'cyan', { w: 260, h: 240, followUp: 'phone' }),
-      
-      stage('mtg-video', '📹 Video Call', 'working', 940, 80, '📹', 'purple', { w: 240, h: 200, meeting: 'online-video' }),
-      stage('mtg-phone', '📱 Phone Apt', 'working', 940, 300, '📱', 'purple', { w: 240, h: 200, meeting: 'online-phone' }),
-      stage('mtg-office', '🏢 Office Visit', 'working', 940, 520, '🏢', 'purple', { w: 240, h: 200, meeting: 'in-person-office' }),
-      
-      stage('test-drive', '🚗 Test Drive', 'approval', 1260, 200, '🚗', 'green', { w: 260, h: 220, meeting: 'test-drive' }),
-      stage('proposal', '📋 Proposal', 'approval', 1260, 440, '📋', 'yellow', { w: 260, h: 220, email: 'email-closing-1' }),
-      
-      stage('close', '🏆 CLOSED', 'approval', 1560, 300, '🏆', 'green', { w: 240, h: 220, email: 'email-closing-2' }),
-    ],
-    connections: [
-      conn('lead', 'contact'), conn('lead', 'dead', '', true),
-      conn('contact', 'mtg-video'), conn('contact', 'mtg-phone'), conn('contact', 'mtg-office'),
-      conn('contact', 'dead', '', true),
-      conn('mtg-video', 'test-drive'), conn('mtg-phone', 'test-drive'), conn('mtg-office', 'test-drive'),
-      conn('mtg-video', 'proposal'), conn('mtg-phone', 'proposal'),
-      conn('test-drive', 'close'), conn('proposal', 'close'),
-    ],
-    labels: [
-      lbl('l1', '📅 MEETING-FOCUSED PIPELINE', 900, 20, 20, '#a855f7'),
-    ],
-    emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  },
-
-  // ========================================
-  // MEDIUM: HOT LEAD SPEED TRACK
-  // ========================================
-  {
-    id: 'hot-speed-track',
-    name: '🔥 Hot Lead Speed Track',
-    description: 'Same-day close for urgent buyers. Immediate contact → Meet today → Close today.',
-    icon: '🔥',
-    complexity: 'medium',
-    category: 'hot-leads',
-    tags: ['hot', 'urgent', 'same-day', 'fast'],
-    stages: [
-      stage('lost', '❌ Lost', 'dead', 40, 300, '❌', 'red', { w: 200, h: 180 }),
-      
-      stage('hot', '🔥 HOT LEAD', 'new', 300, 300, '🔥', 'orange', { w: 300, h: 300 }),
-      stage('call-now', '📞 CALL NOW', 'working', 660, 200, '📞', 'yellow', { w: 280, h: 240, followUp: 'phone' }),
-      stage('sms-now', '💬 SMS NOW', 'working', 660, 460, '💬', 'green', { w: 280, h: 240, followUp: 'text' }),
-      
-      stage('meet-today', '🚀 Meet TODAY', 'working', 1000, 300, '🚀', 'cyan', { w: 280, h: 260, meeting: 'test-drive' }),
-      stage('close-today', '🎯 Close TODAY', 'approval', 1340, 300, '🎯', 'green', { w: 280, h: 260, email: 'email-closing-2' }),
-      stage('won', '🏆 WON!', 'approval', 1680, 300, '🏆', 'green', { w: 240, h: 220 }),
-    ],
-    connections: [
-      conn('hot', 'call-now', 'ASAP'), conn('hot', 'sms-now', 'ASAP'),
-      conn('call-now', 'meet-today', 'Today'), conn('sms-now', 'meet-today', 'Today'),
-      conn('call-now', 'lost', '', true), conn('sms-now', 'lost', '', true),
-      conn('meet-today', 'close-today', 'Now'), conn('close-today', 'won'),
-    ],
-    labels: [
-      lbl('l1', '🔥 SAME DAY CLOSE', 800, 100, 24, '#f97316'),
-      lbl('l2', 'Response time = Everything', 800, 140, 14, '#64748b'),
-    ],
-    emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  },
-
-  // ========================================
-  // SIMPLE: BASIC 4-STAGE
-  // ========================================
-  {
-    id: 'simple-4-stage',
-    name: '📊 Simple 4-Stage',
-    description: 'Basic pipeline: New → Contact → Qualify → Close. Perfect for beginners.',
-    icon: '📊',
-    complexity: 'simple',
-    category: 'basic',
-    tags: ['simple', 'beginner', 'basic'],
-    stages: [
-      stage('new', '📥 NEW', 'new', 80, 300, '📥', 'blue', { w: 300, h: 320, email: 'email-welcome-1' }),
-      stage('contacted', '📞 Contacted', 'working', 440, 300, '📞', 'cyan', { w: 280, h: 280, followUp: 'phone' }),
-      stage('qualified', '✅ Qualified', 'working', 780, 300, '✅', 'yellow', { w: 280, h: 280 }),
-      stage('closed', '🏆 Closed', 'approval', 1120, 300, '🏆', 'green', { w: 280, h: 280 }),
-    ],
-    connections: [
-      conn('new', 'contacted'), conn('contacted', 'qualified'), conn('qualified', 'closed'),
-    ],
-    labels: [],
-    emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  },
-
-  // ========================================
-  // SIMPLE: WITH DEAD SORTING
-  // ========================================
-  {
-    id: 'simple-with-dead',
-    name: '💀 Simple + Dead Sorting',
-    description: 'Basic pipeline with dead lead tracking on the left.',
-    icon: '💀',
-    complexity: 'simple',
-    category: 'basic',
-    tags: ['simple', 'dead-leads'],
-    stages: [
-      stage('dead', '💀 Dead Leads', 'dead', 40, 300, '💀', 'red', { w: 240, h: 260 }),
-      
-      stage('new', '📥 NEW', 'new', 340, 300, '📥', 'blue', { w: 280, h: 300, email: 'email-welcome-1' }),
-      stage('working', '⚙️ Working', 'working', 680, 300, '⚙️', 'yellow', { w: 280, h: 280 }),
-      stage('done', '✅ Done', 'approval', 1020, 300, '✅', 'green', { w: 280, h: 280 }),
-    ],
-    connections: [
-      conn('new', 'working'), conn('working', 'done'),
-      conn('new', 'dead', '', true), conn('working', 'dead', '', true),
-    ],
-    labels: [],
-    emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  },
-
-  // ========================================
-  // SIMPLE: VIP CONCIERGE
-  // ========================================
-  {
-    id: 'vip-concierge',
-    name: '👑 VIP Concierge',
-    description: 'White-glove treatment for high-value leads. Personal touch at every step.',
-    icon: '👑',
-    complexity: 'medium',
-    category: 'vip',
-    tags: ['vip', 'luxury', 'high-touch'],
-    stages: [
-      stage('vip-in', '👑 VIP Inquiry', 'new', 40, 300, '👑', 'yellow', { w: 280, h: 280, email: 'email-welcome-2' }),
-      stage('vip-call', '📞 Personal Call', 'working', 380, 180, '📞', 'purple', { w: 260, h: 220, followUp: 'phone' }),
-      stage('vip-video', '📹 Video Consult', 'working', 380, 420, '📹', 'indigo', { w: 260, h: 220, meeting: 'online-video' }),
-      stage('vip-visit', '🏢 Private Showing', 'working', 700, 300, '🏢', 'blue', { w: 260, h: 240, meeting: 'in-person-office' }),
-      stage('vip-drive', '🚗 VIP Test Drive', 'working', 1020, 300, '🚗', 'cyan', { w: 260, h: 240, meeting: 'test-drive' }),
-      stage('vip-close', '🏆 VIP Closing', 'approval', 1340, 300, '🏆', 'green', { w: 280, h: 260, email: 'email-closing-2' }),
-    ],
-    connections: [
-      conn('vip-in', 'vip-call'), conn('vip-in', 'vip-video', '', true),
-      conn('vip-call', 'vip-visit'), conn('vip-video', 'vip-visit'),
-      conn('vip-visit', 'vip-drive'), conn('vip-drive', 'vip-close'),
-    ],
-    labels: [
-      lbl('l1', '👑 VIP CONCIERGE SERVICE', 700, 100, 22, '#eab308'),
-    ],
-    emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  },
-
-  // ========================================
-  // ADVANCED: COLD LEAD NURTURING
-  // ========================================
-  {
-    id: 'cold-nurturing',
-    name: '❄️ Cold Lead Nurturing',
-    description: 'Long-term email drip campaign for cold leads over 8+ weeks.',
-    icon: '❄️',
-    complexity: 'advanced',
-    category: 'nurturing',
-    tags: ['cold', 'drip', 'nurturing', 'long-term'],
-    stages: [
-      stage('cold', '❄️ Cold Pool', 'new', 40, 300, '❄️', 'cyan', { w: 260, h: 280 }),
-      
-      stage('drip1', '💧 Week 1', 'working', 360, 150, '💧', 'blue', { w: 220, h: 180, email: 'email-followup-24h', followUp: 'email' }),
-      stage('drip2', '💧 Week 2', 'working', 360, 350, '💧', 'blue', { w: 220, h: 180, email: 'email-followup-48h', followUp: 'email' }),
-      stage('drip3', '💧 Week 3', 'working', 360, 550, '💧', 'blue', { w: 220, h: 180, email: 'email-followup-1week', followUp: 'email' }),
-      
-      stage('drip4', '💧 Week 4', 'working', 620, 150, '💧', 'teal', { w: 220, h: 180, email: 'email-gentle-1', followUp: 'email' }),
-      stage('drip5', '💧 Week 5', 'circle-back', 620, 350, '💧', 'teal', { w: 220, h: 180, email: 'email-gentle-2', followUp: 'email' }),
-      stage('drip6', '💧 Week 6', 'circle-back', 620, 550, '💧', 'teal', { w: 220, h: 180, email: 'email-reengage-1', followUp: 'email' }),
-      
-      stage('drip7', '💧 Week 7', 'circle-back', 880, 250, '💧', 'yellow', { w: 220, h: 180, email: 'email-reengage-2', followUp: 'email' }),
-      stage('drip8', '💧 Week 8', 'circle-back', 880, 450, '💧', 'orange', { w: 220, h: 180, email: 'email-reengage-3', followUp: 'phone' }),
-      
-      stage('warming', '☀️ Warming Up', 'working', 1140, 200, '☀️', 'orange', { w: 240, h: 200 }),
-      stage('convert', '🎯 CONVERTED', 'approval', 1140, 420, '🎯', 'green', { w: 240, h: 200 }),
-      
-      stage('dormant', '💤 Dormant', 'dead', 1400, 300, '💤', 'slate', { w: 220, h: 180, dead: 'not-ready' }),
-    ],
-    connections: [
-      conn('cold', 'drip1'), conn('cold', 'drip2', '', true), conn('cold', 'drip3', '', true),
-      conn('drip1', 'drip4'), conn('drip2', 'drip5'), conn('drip3', 'drip6'),
-      conn('drip4', 'drip7'), conn('drip5', 'drip7'), conn('drip6', 'drip8'),
-      conn('drip7', 'drip8'), conn('drip8', 'warming', 'Engaged'),
-      conn('warming', 'convert'), conn('warming', 'dormant', '', true),
-      conn('drip4', 'warming', 'Opened'), conn('drip5', 'warming', 'Clicked'),
-    ],
-    labels: [
-      lbl('l1', '❄️ COLD LEAD NURTURING', 700, 60, 22, '#06b6d4'),
-      lbl('l2', '8-Week Automated Drip Campaign', 700, 95, 14, '#64748b'),
-    ],
-    emailTemplates: DEFAULT_EMAIL_TEMPLATES,
   },
 ];
 
 export const PRESET_CATEGORIES = [
-  { id: 'all', label: 'All', icon: '📁' },
-  { id: 'complete', label: 'Complete', icon: '🚀' },
-  { id: 'followup', label: 'Follow-Up', icon: '📞' },
-  { id: 'dead-leads', label: 'Dead Leads', icon: '💀' },
-  { id: 'new-leads', label: 'New Leads', icon: '📥' },
-  { id: 'post-sale', label: 'Post-Sale', icon: '🎉' },
-  { id: 'meetings', label: 'Meetings', icon: '📅' },
-  { id: 'hot-leads', label: 'Hot Leads', icon: '🔥' },
-  { id: 'basic', label: 'Basic', icon: '📊' },
-  { id: 'vip', label: 'VIP', icon: '👑' },
-  { id: 'nurturing', label: 'Nurturing', icon: '🌱' },
+  { id: 'all', label: 'All Presets', icon: '📁' },
+  { id: 'automotive', label: 'Automotive', icon: '🚗' },
+  { id: 'sales', label: 'Sales', icon: '📊' },
+  { id: 'basic', label: 'Basic', icon: '🎯' },
 ];
-
-// Complexity filter helper
-export const getPresetsByComplexity = (complexity: string) => {
-  if (complexity === 'all') return ALL_PRESETS;
-  return ALL_PRESETS.filter(p => p.complexity === complexity);
-};
-
-// Category filter helper
-export const getPresetsByCategory = (category: string) => {
-  if (category === 'all') return ALL_PRESETS;
-  return ALL_PRESETS.filter(p => p.category === category);
-};

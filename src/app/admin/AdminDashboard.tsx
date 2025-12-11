@@ -13,7 +13,7 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type TabType = 'dashboard' | 'leads' | 'pipeline' | 'templates' | 'showcase' | 'settings';
+type TabType = 'dashboard' | 'leads' | 'pipeline' | 'templates' | 'showcase' | 'analytics' | 'settings';
 
 export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -139,39 +139,56 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     dead: leads.filter(l => l.status === 'dead').length,
   };
 
+  // Calculate advanced analytics
+  const analytics = {
+    conversionRate: stats.total > 0 ? Math.round((stats.approval / stats.total) * 100) : 0,
+    deadRate: stats.total > 0 ? Math.round((stats.dead / stats.total) * 100) : 0,
+    activeRate: stats.total > 0 ? Math.round(((stats.working + stats.circleBack) / stats.total) * 100) : 0,
+    deadReasons: deadReasonOptions.map(r => ({
+      ...r,
+      count: leads.filter(l => l.status === 'dead' && l.deadReason === r.value).length,
+    })).filter(r => r.count > 0),
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-200/50">
-        <div className="h-14 px-6 flex items-center justify-between max-w-[2000px] mx-auto">
+      {/* Header - LARGER */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200/80">
+        <div className="h-16 px-8 flex items-center justify-between max-w-[2200px] mx-auto">
           <Logo size="sm" />
 
-          <nav className="flex gap-1 bg-slate-100 p-1 rounded-xl">
-            {(['dashboard', 'leads', 'pipeline', 'templates', 'showcase'] as TabType[]).map(tab => (
+          <nav className="flex gap-1 bg-slate-100 p-1.5 rounded-xl">
+            {(['dashboard', 'leads', 'pipeline', 'analytics', 'templates', 'showcase'] as TabType[]).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-4 py-1.5 text-sm font-medium rounded-lg capitalize transition-all ${
+                className={`px-5 py-2.5 text-base font-semibold rounded-lg capitalize transition-all ${
                   activeTab === tab 
-                    ? 'bg-white text-primary-600 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-white text-primary-600 shadow-md' 
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
                 }`}
               >
+                {tab === 'dashboard' && '🏠 '}
+                {tab === 'leads' && '👥 '}
+                {tab === 'pipeline' && '🚀 '}
+                {tab === 'analytics' && '📊 '}
+                {tab === 'templates' && '✉️ '}
+                {tab === 'showcase' && '🚗 '}
                 {tab}
               </button>
             ))}
           </nav>
 
-          <button onClick={onLogout} className="text-sm text-slate-500 hover:text-slate-800 font-medium">
+          <button onClick={onLogout} className="text-base text-slate-500 hover:text-slate-800 font-semibold px-4 py-2 rounded-lg hover:bg-slate-100 transition-all">
             Sign Out
           </button>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="pt-14 min-h-screen">
+      <main className="pt-16 min-h-screen">
         <AnimatePresence mode="wait">
-          {activeTab === 'dashboard' && <DashboardView key="dash" stats={stats} leads={leads} onNav={setActiveTab} />}
+          {activeTab === 'dashboard' && <DashboardView key="dash" stats={stats} analytics={analytics} leads={leads} onNav={setActiveTab} />}
           {activeTab === 'leads' && (
             <LeadsView
               key="leads"
@@ -193,7 +210,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             />
           )}
           {activeTab === 'pipeline' && (
-            <motion.div key="pipeline" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-[calc(100vh-56px)]">
+            <motion.div key="pipeline" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-[calc(100vh-64px)]">
               <FuturisticPipeline
                 leads={leads}
                 onStatusChange={updateStatus}
@@ -203,6 +220,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
               />
             </motion.div>
           )}
+          {activeTab === 'analytics' && <AnalyticsView key="analytics" stats={stats} analytics={analytics} leads={leads} />}
           {activeTab === 'templates' && <TemplatesView key="templates" templates={templates} />}
           {activeTab === 'showcase' && (
             <ShowcaseView
@@ -241,50 +259,87 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   );
 }
 
-// Dashboard View
-function DashboardView({ stats, leads, onNav }: { stats: any; leads: Lead[]; onNav: (tab: TabType) => void }) {
-  const approvalRate = stats.total > 0 ? Math.round((stats.approval / stats.total) * 100) : 0;
-
+// Dashboard View - LARGER TEXT
+function DashboardView({ stats, analytics, leads, onNav }: { stats: any; analytics: any; leads: Lead[]; onNav: (tab: TabType) => void }) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-10">
+      <div className="max-w-7xl mx-auto">
+        {/* Welcome Header */}
+        <div className="mb-10">
+          <h1 className="text-4xl font-bold text-slate-900 mb-2">Welcome Back 👋</h1>
+          <p className="text-xl text-slate-500">Here's what's happening with your leads today.</p>
+        </div>
+
+        {/* Stats Grid - LARGER */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-5 mb-10">
           {[
-            { label: 'Total', value: stats.total, color: 'bg-slate-600' },
-            { label: 'New', value: stats.new, color: 'bg-blue-500' },
-            { label: 'Working', value: stats.working, color: 'bg-yellow-500' },
-            { label: 'Follow Up', value: stats.circleBack, color: 'bg-cyan-500' },
-            { label: 'Approved', value: stats.approval, color: 'bg-green-500' },
-            { label: 'Dead', value: stats.dead, color: 'bg-red-500' },
+            { label: 'Total Leads', value: stats.total, icon: '📊', color: 'bg-slate-600' },
+            { label: 'New', value: stats.new, icon: '🆕', color: 'bg-blue-500' },
+            { label: 'Working', value: stats.working, icon: '⚙️', color: 'bg-yellow-500' },
+            { label: 'Follow Up', value: stats.circleBack, icon: '🔄', color: 'bg-cyan-500' },
+            { label: 'Approved', value: stats.approval, icon: '✅', color: 'bg-green-500' },
+            { label: 'Dead', value: stats.dead, icon: '💀', color: 'bg-red-500' },
           ].map((s) => (
-            <div key={s.label} className="bg-white rounded-2xl p-5 border border-slate-200/50 shadow-sm">
-              <div className={`w-3 h-3 rounded-full ${s.color} mb-3`} />
-              <p className="text-3xl font-bold text-slate-900">{s.value}</p>
-              <p className="text-sm text-slate-500">{s.label}</p>
+            <div key={s.label} className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-lg hover:shadow-xl transition-shadow">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-2xl">{s.icon}</span>
+                <div className={`w-3 h-3 rounded-full ${s.color}`} />
+              </div>
+              <p className="text-4xl font-bold text-slate-900 mb-1">{s.value}</p>
+              <p className="text-base text-slate-500 font-medium">{s.label}</p>
             </div>
           ))}
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6 mb-8">
-          <button onClick={() => onNav('leads')} className="bg-white rounded-2xl p-6 border border-slate-200/50 shadow-sm text-left hover:border-primary-300 transition-colors">
-            <h3 className="font-semibold text-slate-900 mb-1">View Leads</h3>
-            <p className="text-sm text-slate-500">Manage your pipeline</p>
+        {/* Quick Actions - LARGER */}
+        <div className="grid md:grid-cols-3 gap-6 mb-10">
+          <button onClick={() => onNav('leads')} className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-lg text-left hover:border-primary-400 hover:shadow-xl transition-all">
+            <span className="text-4xl block mb-4">👥</span>
+            <h3 className="text-2xl font-bold text-slate-900 mb-2">View All Leads</h3>
+            <p className="text-base text-slate-500">Manage and filter your pipeline</p>
           </button>
-          <button onClick={() => onNav('pipeline')} className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-6 text-left hover:from-slate-800 hover:to-slate-700 transition-colors">
-            <h3 className="font-semibold text-white mb-1">🚀 Pipeline View</h3>
-            <p className="text-sm text-slate-400">Interactive funnel system</p>
+          <button onClick={() => onNav('pipeline')} className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-8 text-left hover:from-slate-800 hover:to-slate-700 transition-colors shadow-lg">
+            <span className="text-4xl block mb-4">🚀</span>
+            <h3 className="text-2xl font-bold text-white mb-2">Visual Pipeline</h3>
+            <p className="text-base text-slate-400">Interactive funnel builder</p>
+          </button>
+          <button onClick={() => onNav('analytics')} className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-8 text-left hover:from-blue-500 hover:to-blue-600 transition-colors shadow-lg">
+            <span className="text-4xl block mb-4">📊</span>
+            <h3 className="text-2xl font-bold text-white mb-2">View Analytics</h3>
+            <p className="text-base text-blue-200">Detailed performance metrics</p>
           </button>
         </div>
 
-        <div className="bg-white rounded-2xl p-8 border border-slate-200/50 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-800 mb-6">Performance</h3>
-          <div className="flex items-center gap-8">
-            <div className="text-center">
-              <p className="text-5xl font-bold text-primary-600">{approvalRate}%</p>
-              <p className="text-sm text-slate-500 mt-1">Approval Rate</p>
+        {/* Performance Cards - LARGER */}
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-lg">
+            <h3 className="text-xl font-bold text-slate-800 mb-6">Conversion Rate</h3>
+            <div className="flex items-center gap-8">
+              <div className="text-center">
+                <p className="text-6xl font-bold text-primary-600">{analytics.conversionRate}%</p>
+                <p className="text-base text-slate-500 mt-2">Of leads approved</p>
+              </div>
+              <div className="flex-1 h-6 bg-slate-100 rounded-full overflow-hidden">
+                <motion.div initial={{ width: 0 }} animate={{ width: `${analytics.conversionRate}%` }} transition={{ duration: 1 }} className="h-full bg-primary-600 rounded-full" />
+              </div>
             </div>
-            <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">
-              <motion.div initial={{ width: 0 }} animate={{ width: `${approvalRate}%` }} transition={{ duration: 1 }} className="h-full bg-primary-600 rounded-full" />
+          </div>
+
+          <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-lg">
+            <h3 className="text-xl font-bold text-slate-800 mb-6">Pipeline Health</h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-base text-slate-600">Active Rate</span>
+                <span className="text-xl font-bold text-emerald-600">{analytics.activeRate}%</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-base text-slate-600">Dead Lead Rate</span>
+                <span className="text-xl font-bold text-red-500">{analytics.deadRate}%</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-base text-slate-600">Pending Follow-ups</span>
+                <span className="text-xl font-bold text-amber-600">{stats.circleBack}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -293,24 +348,136 @@ function DashboardView({ stats, leads, onNav }: { stats: any; leads: Lead[]; onN
   );
 }
 
-// Leads View
+// Analytics View - NEW
+function AnalyticsView({ stats, analytics, leads }: { stats: any; analytics: any; leads: Lead[] }) {
+  const monthlyData = leads.reduce((acc, lead) => {
+    const date = new Date(lead.createdAt);
+    const key = `${date.getMonth() + 1}/${date.getDate()}`;
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-10">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-10">
+          <h1 className="text-4xl font-bold text-slate-900 mb-2">📊 Analytics Dashboard</h1>
+          <p className="text-xl text-slate-500">Deep insights into your lead performance</p>
+        </div>
+
+        {/* Key Metrics - LARGE */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-8 text-white shadow-lg">
+            <p className="text-blue-100 text-lg mb-2">Total Leads</p>
+            <p className="text-5xl font-bold">{stats.total}</p>
+          </div>
+          <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-8 text-white shadow-lg">
+            <p className="text-emerald-100 text-lg mb-2">Conversion Rate</p>
+            <p className="text-5xl font-bold">{analytics.conversionRate}%</p>
+          </div>
+          <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-2xl p-8 text-white shadow-lg">
+            <p className="text-red-100 text-lg mb-2">Dead Lead Rate</p>
+            <p className="text-5xl font-bold">{analytics.deadRate}%</p>
+          </div>
+          <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl p-8 text-white shadow-lg">
+            <p className="text-amber-100 text-lg mb-2">Active Pipeline</p>
+            <p className="text-5xl font-bold">{analytics.activeRate}%</p>
+          </div>
+        </div>
+
+        {/* Charts Row */}
+        <div className="grid lg:grid-cols-2 gap-8 mb-10">
+          {/* Dead Lead Breakdown */}
+          <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-lg">
+            <h3 className="text-2xl font-bold text-slate-800 mb-6">💀 Dead Lead Breakdown</h3>
+            {analytics.deadReasons.length > 0 ? (
+              <div className="space-y-4">
+                {analytics.deadReasons.map((r: any) => (
+                  <div key={r.value} className="flex items-center gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-base font-medium text-slate-700">{r.label}</span>
+                        <span className="text-lg font-bold text-slate-900">{r.count}</span>
+                      </div>
+                      <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-red-500 rounded-full" style={{ width: `${(r.count / stats.dead) * 100}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-slate-400 text-lg text-center py-8">No dead leads to analyze</p>
+            )}
+          </div>
+
+          {/* Pipeline Distribution */}
+          <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-lg">
+            <h3 className="text-2xl font-bold text-slate-800 mb-6">📈 Pipeline Distribution</h3>
+            <div className="space-y-4">
+              {[
+                { label: 'New Leads', value: stats.new, color: 'bg-blue-500', total: stats.total },
+                { label: 'Working', value: stats.working, color: 'bg-yellow-500', total: stats.total },
+                { label: 'Follow Up', value: stats.circleBack, color: 'bg-cyan-500', total: stats.total },
+                { label: 'Approved', value: stats.approval, color: 'bg-emerald-500', total: stats.total },
+                { label: 'Dead', value: stats.dead, color: 'bg-red-500', total: stats.total },
+              ].map((item) => (
+                <div key={item.label}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-base font-medium text-slate-700">{item.label}</span>
+                    <span className="text-lg font-bold text-slate-900">{item.value} ({item.total > 0 ? Math.round((item.value / item.total) * 100) : 0}%)</span>
+                  </div>
+                  <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-full ${item.color} rounded-full transition-all duration-500`} style={{ width: `${item.total > 0 ? (item.value / item.total) * 100 : 0}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Additional Stats */}
+        <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-lg">
+          <h3 className="text-2xl font-bold text-slate-800 mb-6">📋 Performance Summary</h3>
+          <div className="grid md:grid-cols-3 gap-8">
+            <div className="text-center">
+              <p className="text-6xl font-bold text-slate-900 mb-2">{stats.new}</p>
+              <p className="text-lg text-slate-500">Leads waiting for first contact</p>
+            </div>
+            <div className="text-center">
+              <p className="text-6xl font-bold text-slate-900 mb-2">{stats.circleBack}</p>
+              <p className="text-lg text-slate-500">Leads requiring follow-up</p>
+            </div>
+            <div className="text-center">
+              <p className="text-6xl font-bold text-slate-900 mb-2">{stats.approval}</p>
+              <p className="text-lg text-slate-500">Successfully converted</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// Leads View - LARGER TEXT
 function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter, licenseUrls, starredLeads, onMonthChange, onYearChange, onFilterChange, onToggleStar, onStatusChange, onViewDetails, onSendEmail, stats }: any) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex h-[calc(100vh-56px)]">
-      <aside className="w-56 bg-white border-r border-slate-200/50 p-5 flex-shrink-0 overflow-y-auto">
-        <div className="space-y-5">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex h-[calc(100vh-64px)]">
+      <aside className="w-72 bg-white border-r border-slate-200/80 p-6 flex-shrink-0 overflow-y-auto">
+        <div className="space-y-6">
           <div>
-            <label className="text-xs font-medium text-slate-400 uppercase">Period</label>
-            <div className="mt-2 space-y-2">
-              <Select options={Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: new Date(2000, i).toLocaleString('en', { month: 'short' }) }))} value={String(selectedMonth)} onChange={(e) => onMonthChange(parseInt(e.target.value))} />
+            <label className="text-sm font-bold text-slate-500 uppercase tracking-wide">Time Period</label>
+            <div className="mt-3 space-y-3">
+              <Select options={Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: new Date(2000, i).toLocaleString('en', { month: 'long' }) }))} value={String(selectedMonth)} onChange={(e) => onMonthChange(parseInt(e.target.value))} />
               <Select options={[{ value: String(new Date().getFullYear()), label: String(new Date().getFullYear()) }]} value={String(selectedYear)} onChange={(e) => onYearChange(parseInt(e.target.value))} />
             </div>
           </div>
           <div>
-            <label className="text-xs font-medium text-slate-400 uppercase">Status</label>
-            <div className="mt-2 space-y-1">
-              {[{ value: 'all', label: 'All' }, ...leadStatusOptions].map(s => (
-                <button key={s.value} onClick={() => onFilterChange(s.value)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all ${statusFilter === s.value ? 'bg-primary-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+            <label className="text-sm font-bold text-slate-500 uppercase tracking-wide">Filter by Status</label>
+            <div className="mt-3 space-y-2">
+              {[{ value: 'all', label: 'All Leads' }, ...leadStatusOptions].map(s => (
+                <button key={s.value} onClick={() => onFilterChange(s.value)} 
+                  className={`w-full text-left px-4 py-3 rounded-xl text-base font-medium transition-all ${statusFilter === s.value ? 'bg-primary-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-100'}`}>
                   {s.label}
                 </button>
               ))}
@@ -319,14 +486,16 @@ function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter
         </div>
       </aside>
 
-      <div className="flex-1 p-6 overflow-y-auto">
-        <h2 className="text-lg font-semibold text-slate-800 mb-4">{leads.length} Leads</h2>
+      <div className="flex-1 p-8 overflow-y-auto bg-slate-50">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold text-slate-800">{leads.length} Leads Found</h2>
+        </div>
         {isLoading ? (
-          <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-slate-200 border-t-primary-600 rounded-full animate-spin" /></div>
+          <div className="flex justify-center py-20"><div className="w-12 h-12 border-4 border-slate-200 border-t-primary-600 rounded-full animate-spin" /></div>
         ) : leads.length === 0 ? (
-          <div className="text-center py-20 text-slate-400">No leads found</div>
+          <div className="text-center py-20 text-slate-400 text-xl">No leads found</div>
         ) : (
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
             {leads.map((lead: Lead) => (
               <LeadCard key={lead.id} lead={lead} hasLicense={!!licenseUrls[lead.id]} isStarred={starredLeads.has(lead.id)} onToggleStar={() => onToggleStar(lead.id)} onViewDetails={() => onViewDetails(lead)} onSendEmail={() => onSendEmail(lead)} />
             ))}
@@ -337,28 +506,45 @@ function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter
   );
 }
 
+// Lead Card - LARGER
 function LeadCard({ lead, hasLicense, isStarred, onToggleStar, onViewDetails, onSendEmail }: any) {
   const { formData } = lead;
   const colors: Record<string, string> = { 'new': 'bg-blue-100 text-blue-700', 'working': 'bg-yellow-100 text-yellow-700', 'circle-back': 'bg-cyan-100 text-cyan-700', 'approval': 'bg-green-100 text-green-700', 'dead': 'bg-red-100 text-red-700' };
 
   return (
-    <div className={`bg-white rounded-xl p-4 border shadow-sm ${isStarred ? 'border-yellow-300 ring-1 ring-yellow-200' : 'border-slate-200/50'}`}>
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div>
-          <h3 className="font-semibold text-slate-900 truncate">{formData.fullName}</h3>
-          <span className={`inline-block mt-1 text-xs font-medium px-2 py-0.5 rounded-full ${colors[lead.status]}`}>{leadStatusOptions.find(s => s.value === lead.status)?.label}</span>
+    <div className={`bg-white rounded-2xl p-6 border-2 shadow-md hover:shadow-lg transition-all ${isStarred ? 'border-yellow-400 ring-2 ring-yellow-200' : 'border-slate-200/80'}`}>
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white text-xl font-bold">
+              {formData.fullName.charAt(0)}
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-xl font-bold text-slate-900 truncate">{formData.fullName}</h3>
+              <span className={`inline-block mt-1 text-sm font-semibold px-3 py-1 rounded-full ${colors[lead.status]}`}>
+                {leadStatusOptions.find(s => s.value === lead.status)?.label}
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          {hasLicense && <span>🪪</span>}
-          <button onClick={onToggleStar} className="text-lg">{isStarred ? '⭐' : '☆'}</button>
+        <div className="flex items-center gap-2">
+          {hasLicense && <span className="text-2xl">🪪</span>}
+          <button onClick={onToggleStar} className="text-2xl hover:scale-110 transition-transform">{isStarred ? '⭐' : '☆'}</button>
         </div>
       </div>
-      {lead.status === 'dead' && lead.deadReason && <div className="text-xs bg-red-50 text-red-600 px-2 py-1 rounded mb-2 capitalize">{lead.deadReason.replace(/-/g, ' ')}</div>}
-      <p className="text-sm text-slate-600 mb-1">{formData.phone}</p>
-      <p className="text-xs text-slate-400 truncate mb-3">{formData.email}</p>
-      <div className="flex gap-2">
-        <Button size="sm" variant="primary" onClick={onViewDetails} className="flex-1 text-xs">Details</Button>
-        <Button size="sm" variant="secondary" onClick={onSendEmail} className="text-xs">✉️</Button>
+      
+      {lead.status === 'dead' && lead.deadReason && (
+        <div className="text-sm bg-red-50 text-red-600 px-3 py-2 rounded-lg mb-4 font-medium capitalize">{lead.deadReason.replace(/-/g, ' ')}</div>
+      )}
+      
+      <div className="space-y-2 mb-4">
+        <p className="text-base text-slate-700 flex items-center gap-2">📞 {formData.phone}</p>
+        <p className="text-base text-slate-500 truncate flex items-center gap-2">✉️ {formData.email}</p>
+      </div>
+      
+      <div className="flex gap-3">
+        <Button size="sm" variant="primary" onClick={onViewDetails} className="flex-1 text-base py-3 font-semibold">View Details</Button>
+        <Button size="sm" variant="secondary" onClick={onSendEmail} className="text-base py-3 px-4">✉️</Button>
       </div>
     </div>
   );
@@ -370,53 +556,65 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClos
   const [deadReason, setDeadReason] = useState(lead.deadReason || '');
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">{formData.fullName}</h1>
-          <p className="text-sm text-slate-500">{formatDate(lead.createdAt)}</p>
+    <div className="max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white text-3xl font-bold">
+            {formData.fullName.charAt(0)}
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">{formData.fullName}</h1>
+            <p className="text-lg text-slate-500">{formatDate(lead.createdAt)}</p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <a href={`tel:${formData.phone}`}><Button size="sm">📞 Call</Button></a>
-          <Button size="sm" variant="secondary" onClick={onSendEmail}>✉️ Email</Button>
+        <div className="flex gap-3">
+          <a href={`tel:${formData.phone}`}><Button size="lg" className="text-lg">📞 Call</Button></a>
+          <Button size="lg" variant="secondary" onClick={onSendEmail} className="text-lg">✉️ Email</Button>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-4 mb-6">
-        <div className="bg-slate-50 rounded-xl p-4">
-          <h3 className="text-xs font-medium text-slate-400 uppercase mb-3">Contact</h3>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-slate-500">Phone</span><span className="text-slate-800">{formData.phone}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">Email</span><span className="text-slate-800 truncate ml-4">{formData.email}</span></div>
+      <div className="grid md:grid-cols-2 gap-6 mb-8">
+        <div className="bg-slate-50 rounded-2xl p-6">
+          <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4">Contact Information</h3>
+          <div className="space-y-4 text-lg">
+            <div className="flex justify-between"><span className="text-slate-500">Phone</span><span className="font-medium text-slate-800">{formData.phone}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Email</span><span className="font-medium text-slate-800 truncate ml-4">{formData.email}</span></div>
           </div>
         </div>
-        <div className="bg-slate-50 rounded-xl p-4">
-          <h3 className="text-xs font-medium text-slate-400 uppercase mb-3">Vehicle</h3>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-slate-500">Type</span><span className="text-slate-800">{formData.vehicleType}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">Budget</span><span className="text-slate-800">{formData.paymentType === 'finance' ? formData.financeBudget : formData.cashBudget}</span></div>
+        <div className="bg-slate-50 rounded-2xl p-6">
+          <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4">Vehicle Preferences</h3>
+          <div className="space-y-4 text-lg">
+            <div className="flex justify-between"><span className="text-slate-500">Type</span><span className="font-medium text-slate-800">{formData.vehicleType}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Budget</span><span className="font-medium text-slate-800">{formData.paymentType === 'finance' ? formData.financeBudget : formData.cashBudget}</span></div>
           </div>
         </div>
       </div>
 
-      {licenseUrl && <div className="mb-6"><img src={licenseUrl} alt="License" className="w-full max-w-md rounded-lg" /></div>}
+      {licenseUrl && <div className="mb-8"><img src={licenseUrl} alt="License" className="w-full max-w-lg rounded-2xl shadow-lg" /></div>}
 
-      <div className="bg-slate-50 rounded-xl p-4 mb-6">
-        <h3 className="text-xs font-medium text-slate-400 uppercase mb-3">Status</h3>
-        <div className="grid grid-cols-5 gap-2 mb-3">
+      <div className="bg-slate-50 rounded-2xl p-6 mb-8">
+        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4">Update Status</h3>
+        <div className="grid grid-cols-5 gap-3 mb-4">
           {leadStatusOptions.map(opt => (
-            <button key={opt.value} onClick={() => onStatusChange(lead.id, opt.value)} className={`py-2 rounded-lg text-xs font-medium ${lead.status === opt.value ? 'bg-primary-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-100 border'}`}>
+            <button key={opt.value} onClick={() => onStatusChange(lead.id, opt.value)} 
+              className={`py-4 rounded-xl text-base font-semibold transition-all ${lead.status === opt.value ? 'bg-primary-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border-2 border-slate-200'}`}>
               {opt.label}
             </button>
           ))}
         </div>
-        {lead.status === 'dead' && <Select label="Reason" value={deadReason} onChange={(e) => { setDeadReason(e.target.value); onStatusChange(lead.id, 'dead', e.target.value); }} options={[{ value: '', label: 'Select...' }, ...deadReasonOptions]} />}
+        {lead.status === 'dead' && (
+          <Select label="Dead Lead Reason" value={deadReason} onChange={(e) => { setDeadReason(e.target.value); onStatusChange(lead.id, 'dead', e.target.value); }} 
+            options={[{ value: '', label: 'Select a reason...' }, ...deadReasonOptions]} />
+        )}
       </div>
 
-      <div className="bg-slate-50 rounded-xl p-4">
-        <h3 className="text-xs font-medium text-slate-400 uppercase mb-3">Notes</h3>
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Add notes..." className="w-full h-24 p-3 rounded-lg border border-slate-200 focus:border-primary-500 outline-none resize-none text-sm" />
-        <div className="mt-2 flex justify-end"><Button size="sm" onClick={() => onSaveNotes(lead.id, notes)}>Save</Button></div>
+      <div className="bg-slate-50 rounded-2xl p-6">
+        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4">Notes</h3>
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Add notes about this lead..." 
+          className="w-full h-32 p-4 rounded-xl border-2 border-slate-200 focus:border-primary-500 outline-none resize-none text-lg" />
+        <div className="mt-4 flex justify-end">
+          <Button size="lg" onClick={() => onSaveNotes(lead.id, notes)} className="text-lg">Save Notes</Button>
+        </div>
       </div>
     </div>
   );
@@ -424,15 +622,20 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClos
 
 function TemplatesView({ templates }: { templates: EmailTemplate[] }) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8">
-      <div className="max-w-5xl mx-auto">
-        <h2 className="text-lg font-semibold text-slate-800 mb-6">Email Templates</h2>
-        <div className="grid md:grid-cols-2 gap-4">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-10">
+      <div className="max-w-6xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-slate-800 mb-2">✉️ Email Templates</h1>
+          <p className="text-lg text-slate-500">Pre-built templates for common scenarios</p>
+        </div>
+        <div className="grid md:grid-cols-2 gap-6">
           {templates.map(t => (
-            <div key={t.id} className="bg-white rounded-xl p-5 border border-slate-200/50">
-              <h3 className="font-semibold text-slate-900 mb-1">{t.name}</h3>
-              <p className="text-xs text-slate-500 mb-3">{t.subject}</p>
-              <div className="bg-slate-50 rounded-lg p-3 max-h-28 overflow-y-auto"><pre className="text-xs text-slate-600 whitespace-pre-wrap font-sans">{t.body}</pre></div>
+            <div key={t.id} className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-md hover:shadow-lg transition-shadow">
+              <h3 className="text-xl font-bold text-slate-900 mb-2">{t.name}</h3>
+              <p className="text-base text-slate-500 mb-4">{t.subject}</p>
+              <div className="bg-slate-50 rounded-xl p-4 max-h-40 overflow-y-auto">
+                <pre className="text-base text-slate-600 whitespace-pre-wrap font-sans">{t.body}</pre>
+              </div>
             </div>
           ))}
         </div>
@@ -469,37 +672,64 @@ function EmailComposer({ lead, templates, onClose }: { lead: Lead; templates: Em
     finally { setSending(false); }
   };
 
-  if (sent) return <div className="text-center py-8"><div className="text-4xl mb-4">✅</div><h3 className="text-lg font-semibold">Sent!</h3><Button onClick={onClose} className="mt-4">Close</Button></div>;
+  if (sent) return (
+    <div className="text-center py-12">
+      <div className="text-6xl mb-6">✅</div>
+      <h3 className="text-2xl font-bold text-slate-900 mb-2">Email Sent!</h3>
+      <p className="text-lg text-slate-500 mb-6">Your message has been delivered.</p>
+      <Button size="lg" onClick={onClose}>Close</Button>
+    </div>
+  );
 
   return (
-    <div className="space-y-4">
-      <div className="bg-slate-50 rounded-lg p-3"><p className="text-sm">To: <strong>{lead.formData.fullName}</strong></p></div>
-      <Select label="Template" options={[{ value: '', label: 'Choose...' }, ...templates.map(t => ({ value: t.id, label: t.name }))]} value={templateId} onChange={(e) => applyTemplate(e.target.value)} />
+    <div className="space-y-6">
+      <div className="bg-slate-50 rounded-xl p-4">
+        <p className="text-lg">To: <strong className="text-slate-900">{lead.formData.fullName}</strong> ({lead.formData.email})</p>
+      </div>
+      <Select label="Choose Template" options={[{ value: '', label: 'Select a template...' }, ...templates.map(t => ({ value: t.id, label: t.name }))]} value={templateId} onChange={(e) => applyTemplate(e.target.value)} />
       <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
-      <div><label className="block text-sm font-medium text-slate-700 mb-1">Message</label><textarea value={body} onChange={(e) => setBody(e.target.value)} rows={6} className="w-full p-3 rounded-lg border border-slate-200 focus:border-primary-500 outline-none resize-none text-sm" /></div>
-      <div className="flex gap-2 justify-end"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={send} isLoading={sending} disabled={!subject || !body}>Send</Button></div>
+      <div>
+        <label className="block text-base font-semibold text-slate-700 mb-2">Message</label>
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} className="w-full p-4 rounded-xl border-2 border-slate-200 focus:border-primary-500 outline-none resize-none text-base" />
+      </div>
+      <div className="flex gap-3 justify-end">
+        <Button size="lg" variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button size="lg" onClick={send} isLoading={sending} disabled={!subject || !body}>Send Email</Button>
+      </div>
     </div>
   );
 }
 
 function ShowcaseView({ vehicles, enabled, onToggle, onDelete, onRefresh }: any) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div><h2 className="text-lg font-semibold text-slate-800">Showcase</h2><p className="text-sm text-slate-500">{vehicles.length} vehicles</p></div>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 cursor-pointer"><span className="text-sm text-slate-600">Show on Homepage</span><button onClick={onToggle} className={`w-12 h-6 rounded-full transition-colors ${enabled ? 'bg-primary-600' : 'bg-slate-300'}`}><div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-6' : 'translate-x-0.5'}`} /></button></label>
-            <Button variant="secondary" size="sm" onClick={onRefresh}>Refresh</Button>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-10">
+      <div className="max-w-6xl mx-auto">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-800 mb-2">🚗 Vehicle Showcase</h1>
+            <p className="text-lg text-slate-500">{vehicles.length} vehicles in showcase</p>
+          </div>
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <span className="text-lg text-slate-600 font-medium">Show on Homepage</span>
+              <button onClick={onToggle} className={`w-14 h-7 rounded-full transition-colors ${enabled ? 'bg-primary-600' : 'bg-slate-300'}`}>
+                <div className={`w-6 h-6 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-7' : 'translate-x-0.5'}`} />
+              </button>
+            </label>
+            <Button variant="secondary" size="lg" onClick={onRefresh}>Refresh</Button>
           </div>
         </div>
-        {!enabled && <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6"><p className="text-sm text-amber-800">⚠️ Showcase hidden on homepage</p></div>}
-        {vehicles.length === 0 ? <div className="text-center py-16 text-slate-400">No vehicles</div> : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {!enabled && <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-6 mb-8"><p className="text-lg text-amber-800 font-medium">⚠️ Showcase is currently hidden from the homepage</p></div>}
+        {vehicles.length === 0 ? <div className="text-center py-20 text-slate-400 text-xl">No vehicles in showcase</div> : (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {vehicles.map((v: ShowcaseVehicle) => (
-              <div key={v.id} className="bg-white rounded-xl overflow-hidden border border-slate-200/50">
-                <div className="aspect-video bg-slate-100">{v.imageUrl ? <img src={v.imageUrl} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-3xl">🚗</div>}</div>
-                <div className="p-4"><h3 className="font-semibold text-slate-900">{v.year} {v.make} {v.model}</h3>{v.price && <p className="text-sm text-primary-600">{v.price}</p>}<button onClick={() => onDelete(v.id)} className="mt-2 text-sm text-red-600 hover:text-red-800">Remove</button></div>
+              <div key={v.id} className="bg-white rounded-2xl overflow-hidden border border-slate-200/80 shadow-md hover:shadow-lg transition-shadow">
+                <div className="aspect-video bg-slate-100">{v.imageUrl ? <img src={v.imageUrl} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-5xl">🚗</div>}</div>
+                <div className="p-6">
+                  <h3 className="text-xl font-bold text-slate-900 mb-1">{v.year} {v.make} {v.model}</h3>
+                  {v.price && <p className="text-lg font-semibold text-primary-600 mb-3">{v.price}</p>}
+                  <button onClick={() => onDelete(v.id)} className="text-base text-red-600 hover:text-red-800 font-medium">Remove from showcase</button>
+                </div>
               </div>
             ))}
           </div>
