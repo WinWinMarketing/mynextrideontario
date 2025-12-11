@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminSession } from '@/lib/auth';
-import { getShowcaseVehiclesWithUrls, addShowcaseVehicle, deleteShowcaseVehicle, saveShowcaseVehicles } from '@/lib/s3';
+import { getShowcaseVehiclesWithUrls, addShowcaseVehicle, deleteShowcaseVehicle, saveShowcaseVehicles, getShowcaseSettings, saveShowcaseSettings } from '@/lib/s3';
 import { MAX_SHOWCASE_VEHICLES } from '@/lib/validation';
 
 export async function GET() {
@@ -10,12 +10,38 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get vehicles with fresh signed URLs
-    const vehicles = await getShowcaseVehiclesWithUrls();
-    return NextResponse.json({ vehicles, maxVehicles: MAX_SHOWCASE_VEHICLES });
+    // Get vehicles with fresh signed URLs and settings
+    const [vehicles, settings] = await Promise.all([
+      getShowcaseVehiclesWithUrls(),
+      getShowcaseSettings(),
+    ]);
+    
+    return NextResponse.json({ vehicles, settings, maxVehicles: MAX_SHOWCASE_VEHICLES });
   } catch (error) {
     console.error('Error fetching showcase:', error);
     return NextResponse.json({ error: 'Failed to fetch showcase' }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const isAuthenticated = await verifyAdminSession();
+    if (!isAuthenticated) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { enabled } = body;
+
+    if (typeof enabled === 'boolean') {
+      await saveShowcaseSettings({ enabled });
+      return NextResponse.json({ success: true, settings: { enabled } });
+    }
+
+    return NextResponse.json({ error: 'Invalid settings' }, { status: 400 });
+  } catch (error) {
+    console.error('Error updating showcase settings:', error);
+    return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 });
   }
 }
 

@@ -86,7 +86,7 @@ export default function AboutPage() {
               {[
                 { number: '17', label: 'Partner Lenders' },
                 { number: '24h', label: 'Response Time' },
-                { number: '100%', label: 'Free Service' },
+                { number: 'Zero', label: 'Hidden Fees' },
                 { number: 'All', label: 'Credit Types' },
               ].map((stat) => (
                 <div key={stat.label} className="bg-slate-50 rounded-2xl p-6 text-center border border-slate-100">

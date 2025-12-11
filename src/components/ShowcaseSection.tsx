@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui';
 import { ShowcaseVehicle } from '@/lib/validation';
@@ -9,6 +9,7 @@ import Link from 'next/link';
 export function ShowcaseSection() {
   const [vehicles, setVehicles] = useState<ShowcaseVehicle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isEnabled, setIsEnabled] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -27,6 +28,7 @@ export function ShowcaseSection() {
         if (response.ok) {
           const data = await response.json();
           setVehicles(data.vehicles || []);
+          setIsEnabled(data.enabled !== false);
         }
       } catch (err) {
         console.error('Error fetching showcase:', err);
@@ -56,15 +58,10 @@ export function ShowcaseSection() {
 
   const prev = () => setCurrentIndex((prev) => Math.max(prev - 1, 0));
 
-  // HIDE SECTION COMPLETELY if no vehicles
-  if (!isLoading && vehicles.length === 0) {
-    return null;
-  }
-
-  // Still loading
-  if (isLoading) {
-    return null;
-  }
+  // HIDE SECTION COMPLETELY if disabled or no vehicles
+  if (isLoading) return null;
+  if (!isEnabled) return null;
+  if (vehicles.length === 0) return null;
 
   const cardWidth = isMobile ? 300 : 380;
   const gap = 24;

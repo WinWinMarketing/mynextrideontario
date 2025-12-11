@@ -31,6 +31,7 @@ export const config = {
 
 // Settings stored in S3
 export const SETTINGS_KEY = 'settings/email-settings.json';
+export const SHOWCASE_SETTINGS_KEY = 'settings/showcase-settings.json';
 
 export interface EmailSettings {
   recipientEmail: string;
@@ -38,8 +39,16 @@ export interface EmailSettings {
   enabled: boolean;
 }
 
+export interface ShowcaseSettings {
+  enabled: boolean;
+}
+
 export const defaultEmailSettings: EmailSettings = {
   recipientEmail: config.email.defaultRecipient,
   fromName: config.email.fromName,
+  enabled: true,
+};
+
+export const defaultShowcaseSettings: ShowcaseSettings = {
   enabled: true,
 };

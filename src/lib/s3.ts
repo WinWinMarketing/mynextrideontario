@@ -8,7 +8,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Lead, LeadStatus, DeadReason, ShowcaseVehicle, MAX_SHOWCASE_VEHICLES } from './validation';
 import { generateId, getMonthYearKey } from './utils';
-import { config, SETTINGS_KEY, EmailSettings, defaultEmailSettings } from './config';
+import { config, SETTINGS_KEY, SHOWCASE_SETTINGS_KEY, EmailSettings, ShowcaseSettings, defaultEmailSettings, defaultShowcaseSettings } from './config';
 
 // Initialize S3 client with environment variables
 function getS3Client(): S3Client {
@@ -410,4 +410,39 @@ export async function getShowcaseImageSignedUrl(imageKey: string): Promise<strin
   });
   
   return await getSignedUrl(s3, command, { expiresIn: 3600 });
+}
+
+// ============ SHOWCASE SETTINGS ============
+
+export async function getShowcaseSettings(): Promise<ShowcaseSettings> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  
+  try {
+    const result = await s3.send(new GetObjectCommand({
+      Bucket: bucket,
+      Key: SHOWCASE_SETTINGS_KEY,
+    }));
+    
+    const body = await result.Body?.transformToString();
+    if (body) {
+      return JSON.parse(body) as ShowcaseSettings;
+    }
+  } catch {
+    console.log('No showcase settings found, using defaults');
+  }
+  
+  return defaultShowcaseSettings;
+}
+
+export async function saveShowcaseSettings(settings: ShowcaseSettings): Promise<void> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  
+  await s3.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: SHOWCASE_SETTINGS_KEY,
+    Body: JSON.stringify(settings, null, 2),
+    ContentType: 'application/json',
+  }));
 }
