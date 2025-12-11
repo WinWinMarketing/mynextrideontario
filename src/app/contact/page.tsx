@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { Button } from '@/components/ui';
+import { Logo } from '@/components/Logo';
 
 export default function ContactPage() {
   return (
@@ -10,13 +11,8 @@ export default function ContactPage() {
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shadow-lg shadow-primary-500/20">
-              <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>
-              </svg>
-            </div>
-            <span className="font-bold text-slate-900">My Next Ride Ontario</span>
+          <Link href="/" className="group">
+            <Logo size="md" />
           </Link>
           <nav className="flex items-center gap-6">
             <Link href="/about" className="text-sm font-medium text-slate-600 hover:text-slate-900">Our Mission</Link>
@@ -174,9 +170,10 @@ export default function ContactPage() {
       {/* Footer */}
       <footer className="py-8 px-6 bg-slate-900 border-t border-slate-800">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-slate-500 text-sm">
-            © {new Date().getFullYear()} My Next Ride Ontario. All rights reserved.
-          </p>
+          <div className="flex items-center gap-4">
+            <Logo size="sm" className="[&_span]:text-white [&_span]:!text-slate-400" />
+            <p className="text-slate-500 text-sm">© {new Date().getFullYear()} All rights reserved.</p>
+          </div>
           <div className="flex items-center gap-6">
             <Link href="/about" className="text-slate-400 hover:text-white text-sm">Our Mission</Link>
             <Link href="/contact" className="text-slate-400 hover:text-white text-sm">Contact</Link>

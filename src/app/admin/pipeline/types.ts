@@ -1,6 +1,30 @@
-// Pipeline Types and Interfaces
+// Pipeline Types - Complete System
 import { LeadStatus } from '@/lib/validation';
 
+// WORKSPACE PROFILE
+export interface WorkspaceProfile {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  stages: PipelineStage[];
+  connections: NodeConnection[];
+  labels: TextLabel[];
+  emailTemplates: EmailTemplate[];
+  settings: WorkspaceSettings;
+}
+
+export interface WorkspaceSettings {
+  zoom: number;
+  panX: number;
+  panY: number;
+  showGrid: boolean;
+  showConnections: boolean;
+  defaultStageWidth: number;
+  defaultStageHeight: number;
+}
+
+// STAGE/NODE
 export interface PipelineStage {
   id: string;
   label: string;
@@ -14,12 +38,18 @@ export interface PipelineStage {
   icon: string;
   contactMethods: ContactMethod[];
   automationSettings: AutomationSettings;
-  displayMode: 'single' | 'double' | 'compact';
-  maxVisibleLeads: number;
+  emailTemplateId?: string;
+  followUpMethod?: FollowUpMethod;
+  meetingType?: MeetingType;
 }
 
 export type StageColor = 'blue' | 'yellow' | 'green' | 'red' | 'purple' | 'cyan' | 'orange' | 'pink' | 'teal' | 'indigo' | 'slate';
 
+export type FollowUpMethod = 'email' | 'phone' | 'text' | 'whatsapp' | 'meeting' | 'manual' | 'auto-sequence';
+
+export type MeetingType = 'online-video' | 'online-phone' | 'in-person-office' | 'in-person-location' | 'test-drive';
+
+// CONTACT METHODS
 export interface ContactMethod {
   id: string;
   type: 'email' | 'phone' | 'text' | 'whatsapp' | 'meeting' | 'reminder' | 'manual';
@@ -49,22 +79,26 @@ export interface AutomationSettings {
   pushNotifications: boolean;
 }
 
+// CONNECTIONS
 export interface NodeConnection {
   id: string;
   fromStageId: string;
   toStageId: string;
+  fromAnchor: 'right' | 'bottom';
+  toAnchor: 'left' | 'top';
   condition?: ConnectionCondition;
-  contactMethod?: string;
-  style: 'solid' | 'dashed' | 'dotted';
-  animated: boolean;
   label?: string;
+  style: 'solid' | 'dashed' | 'dotted';
+  color: string;
 }
 
 export interface ConnectionCondition {
-  type: 'opened' | 'clicked' | 'replied' | 'no-response' | 'delay' | 'always';
+  type: 'always' | 'opened' | 'clicked' | 'replied' | 'no-response' | 'delay' | 'positive' | 'negative';
   value?: number;
+  label?: string;
 }
 
+// LABELS
 export interface TextLabel {
   id: string;
   text: string;
@@ -74,6 +108,17 @@ export interface TextLabel {
   color: string;
 }
 
+// EMAIL TEMPLATES
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  category: 'welcome' | 'follow-up' | 'reminder' | 'closing' | 're-engagement' | 'custom';
+  variables: string[];
+}
+
+// TEMPLATES FOR ADDING NODES
 export interface NodeTemplate {
   id: string;
   label: string;
@@ -84,162 +129,72 @@ export interface NodeTemplate {
   defaultStatusId: LeadStatus | 'dead';
   contactMethods: ContactMethod[];
   suggestedConnections: string[];
+  defaultWidth: number;
+  defaultHeight: number;
 }
 
-export type TemplateCategory = 
-  | 'custom'
-  | 'lead-stages'
-  | 'communication'
-  | 'automation'
-  | 'segmentation'
-  | 'conditionals'
-  | 'contact-methods'
-  | 'advanced';
+export type TemplateCategory = 'custom' | 'lead-stages' | 'communication' | 'automation' | 'meetings' | 'advanced';
 
+// PRESET
 export interface Preset {
   id: string;
   name: string;
   description: string;
-  category: PresetCategory;
-  subcategory?: string;
+  icon: string;
+  complexity: 'simple' | 'medium' | 'advanced';
   stages: PipelineStage[];
   connections: NodeConnection[];
   labels: TextLabel[];
-  icon: string;
-  complexity: 'simple' | 'medium' | 'advanced' | 'power-user';
-  tags: string[];
-  recommendedZoom: number;
+  emailTemplates: EmailTemplate[];
 }
 
-export type PresetCategory = 
-  | 'personality-types'
-  | 'agent-styles'
-  | 'pipeline-purposes'
-  | 'complexity-levels';
+// CONSTANTS
+export const STAGE_COLORS: { id: StageColor; name: string; bg: string; border: string; text: string; glow: string }[] = [
+  { id: 'blue', name: 'Blue', bg: 'from-blue-500/30 to-blue-600/20', border: 'border-blue-400/60', text: 'text-blue-300', glow: 'shadow-blue-500/30' },
+  { id: 'yellow', name: 'Yellow', bg: 'from-yellow-500/30 to-yellow-600/20', border: 'border-yellow-400/60', text: 'text-yellow-300', glow: 'shadow-yellow-500/30' },
+  { id: 'green', name: 'Green', bg: 'from-emerald-500/30 to-emerald-600/20', border: 'border-emerald-400/60', text: 'text-emerald-300', glow: 'shadow-emerald-500/30' },
+  { id: 'red', name: 'Red', bg: 'from-red-500/30 to-red-600/20', border: 'border-red-400/60', text: 'text-red-300', glow: 'shadow-red-500/30' },
+  { id: 'purple', name: 'Purple', bg: 'from-purple-500/30 to-purple-600/20', border: 'border-purple-400/60', text: 'text-purple-300', glow: 'shadow-purple-500/30' },
+  { id: 'cyan', name: 'Cyan', bg: 'from-cyan-500/30 to-cyan-600/20', border: 'border-cyan-400/60', text: 'text-cyan-300', glow: 'shadow-cyan-500/30' },
+  { id: 'orange', name: 'Orange', bg: 'from-orange-500/30 to-orange-600/20', border: 'border-orange-400/60', text: 'text-orange-300', glow: 'shadow-orange-500/30' },
+  { id: 'pink', name: 'Pink', bg: 'from-pink-500/30 to-pink-600/20', border: 'border-pink-400/60', text: 'text-pink-300', glow: 'shadow-pink-500/30' },
+  { id: 'teal', name: 'Teal', bg: 'from-teal-500/30 to-teal-600/20', border: 'border-teal-400/60', text: 'text-teal-300', glow: 'shadow-teal-500/30' },
+  { id: 'indigo', name: 'Indigo', bg: 'from-indigo-500/30 to-indigo-600/20', border: 'border-indigo-400/60', text: 'text-indigo-300', glow: 'shadow-indigo-500/30' },
+  { id: 'slate', name: 'Slate', bg: 'from-slate-500/30 to-slate-600/20', border: 'border-slate-400/60', text: 'text-slate-300', glow: 'shadow-slate-500/30' },
+];
 
-export interface PipelineSettings {
-  zoom: number;
-  pan: { x: number; y: number };
-  sidebarWidth: number;
-  defaultStageWidth: number;
-  defaultStageHeight: number;
-  gridSnap: boolean;
-  gridSize: number;
-  showConnections: boolean;
-  animateConnections: boolean;
-  theme: 'dark' | 'darker' | 'midnight';
-}
-
-export interface HotkeyAction {
-  key: string;
-  modifiers?: ('ctrl' | 'shift' | 'alt')[];
-  action: string;
-  description: string;
-  category: 'navigation' | 'editing' | 'view' | 'stages' | 'leads' | 'quick';
-}
-
-// SVG Emoji Bank
 export const EMOJI_BANK = [
-  // Status
   '📥', '📤', '✅', '❌', '⏸️', '▶️', '🔄', '⚡', '🎯', '🏆',
-  // Heat
   '🔥', '☀️', '❄️', '💨', '🌡️', '⭐', '✨', '💎', '🎉', '🚀',
-  // Communication
   '✉️', '📧', '📞', '💬', '📱', '📲', '🗣️', '👋', '🤝', '📅',
-  // Actions
   '📝', '📋', '📊', '📈', '📉', '🔍', '🔎', '💡', '⚙️', '🛠️',
-  // People
   '👤', '👥', '🧑‍💼', '👨‍💻', '👩‍💻', '🤵', '👔', '💼', '🎭', '🧠',
-  // Money
   '💰', '💵', '💳', '🏦', '📦', '🎁', '🏷️', '💲', '📑', '🧾',
-  // Time
   '⏰', '⏳', '📆', '🗓️', '⌛', '🕐', '🕑', '🕒', '🕓', '🕔',
-  // Alerts
   '🔔', '🔕', '📢', '📣', '⚠️', '🚨', '❗', '❓', '💯', '🆕',
-  // Categories
-  '🅰️', '🅱️', '🔢', '🔤', '#️⃣', '*️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣',
-  // Misc
-  '🎨', '🖼️', '📁', '📂', '🗂️', '🗃️', '💾', '🔒', '🔓', '🔑',
+  '🚗', '🚙', '🏎️', '🚕', '🛻', '🚐', '🏍️', '🛵', '✈️', '🚁',
+  '🏠', '🏢', '🏪', '🏬', '🏭', '🗺️', '📍', '🧭', '🌐', '🔗',
 ];
 
-export const STAGE_COLORS: { id: StageColor; name: string; bg: string; border: string; text: string }[] = [
-  { id: 'blue', name: 'Blue', bg: 'from-blue-500/25 to-blue-600/15', border: 'border-blue-500/50', text: 'text-blue-400' },
-  { id: 'yellow', name: 'Yellow', bg: 'from-yellow-500/25 to-yellow-600/15', border: 'border-yellow-500/50', text: 'text-yellow-400' },
-  { id: 'green', name: 'Green', bg: 'from-emerald-500/25 to-emerald-600/15', border: 'border-emerald-500/50', text: 'text-emerald-400' },
-  { id: 'red', name: 'Red', bg: 'from-red-500/25 to-red-600/15', border: 'border-red-500/50', text: 'text-red-400' },
-  { id: 'purple', name: 'Purple', bg: 'from-purple-500/25 to-purple-600/15', border: 'border-purple-500/50', text: 'text-purple-400' },
-  { id: 'cyan', name: 'Cyan', bg: 'from-cyan-500/25 to-cyan-600/15', border: 'border-cyan-500/50', text: 'text-cyan-400' },
-  { id: 'orange', name: 'Orange', bg: 'from-orange-500/25 to-orange-600/15', border: 'border-orange-500/50', text: 'text-orange-400' },
-  { id: 'pink', name: 'Pink', bg: 'from-pink-500/25 to-pink-600/15', border: 'border-pink-500/50', text: 'text-pink-400' },
-  { id: 'teal', name: 'Teal', bg: 'from-teal-500/25 to-teal-600/15', border: 'border-teal-500/50', text: 'text-teal-400' },
-  { id: 'indigo', name: 'Indigo', bg: 'from-indigo-500/25 to-indigo-600/15', border: 'border-indigo-500/50', text: 'text-indigo-400' },
-  { id: 'slate', name: 'Slate', bg: 'from-slate-500/25 to-slate-600/15', border: 'border-slate-500/50', text: 'text-slate-400' },
+export const MEETING_TYPES: { id: MeetingType; label: string; icon: string; desc: string }[] = [
+  { id: 'online-video', label: 'Video Call', icon: '📹', desc: 'Zoom, Google Meet, etc.' },
+  { id: 'online-phone', label: 'Phone Call', icon: '📞', desc: 'Scheduled phone call' },
+  { id: 'in-person-office', label: 'Office Visit', icon: '🏢', desc: 'Meet at your office' },
+  { id: 'in-person-location', label: 'Meet Anywhere', icon: '📍', desc: 'Coffee shop, etc.' },
+  { id: 'test-drive', label: 'Test Drive', icon: '🚗', desc: 'Vehicle test drive' },
 ];
 
-// All hotkeys
-export const ALL_HOTKEYS: HotkeyAction[] = [
-  // Navigation
-  { key: 'ArrowUp', action: 'panUp', description: 'Pan canvas up', category: 'navigation' },
-  { key: 'ArrowDown', action: 'panDown', description: 'Pan canvas down', category: 'navigation' },
-  { key: 'ArrowLeft', action: 'panLeft', description: 'Pan canvas left', category: 'navigation' },
-  { key: 'ArrowRight', action: 'panRight', description: 'Pan canvas right', category: 'navigation' },
-  { key: 'Home', action: 'goToStart', description: 'Go to first stage', category: 'navigation' },
-  { key: 'End', action: 'goToEnd', description: 'Go to last stage', category: 'navigation' },
-  { key: 'Tab', action: 'nextStage', description: 'Select next stage', category: 'navigation' },
-  { key: 'Tab', modifiers: ['shift'], action: 'prevStage', description: 'Select previous stage', category: 'navigation' },
-  
-  // View
-  { key: 'r', action: 'resetView', description: 'Reset view', category: 'view' },
-  { key: 'p', action: 'predict', description: 'Predict/fit all in view', category: 'view' },
-  { key: 'f', action: 'fitSelected', description: 'Fit selected in view', category: 'view' },
-  { key: '+', action: 'zoomIn', description: 'Zoom in', category: 'view' },
-  { key: '=', action: 'zoomIn', description: 'Zoom in', category: 'view' },
-  { key: '-', action: 'zoomOut', description: 'Zoom out', category: 'view' },
-  { key: '0', action: 'zoom100', description: 'Zoom to 100%', category: 'view' },
-  { key: '1', action: 'zoom50', description: 'Zoom to 50%', category: 'view' },
-  { key: '2', action: 'zoom75', description: 'Zoom to 75%', category: 'view' },
-  { key: '3', action: 'zoom125', description: 'Zoom to 125%', category: 'view' },
-  { key: 'g', action: 'toggleGrid', description: 'Toggle grid', category: 'view' },
-  { key: 'c', action: 'toggleConnections', description: 'Toggle connections', category: 'view' },
-  
-  // Editing
-  { key: 'a', modifiers: ['ctrl'], action: 'selectAll', description: 'Select all stages', category: 'editing' },
-  { key: 'd', modifiers: ['ctrl'], action: 'duplicate', description: 'Duplicate selected', category: 'editing' },
-  { key: 'z', modifiers: ['ctrl'], action: 'undo', description: 'Undo', category: 'editing' },
-  { key: 'y', modifiers: ['ctrl'], action: 'redo', description: 'Redo', category: 'editing' },
-  { key: 'Delete', action: 'delete', description: 'Delete selected', category: 'editing' },
-  { key: 'Backspace', action: 'delete', description: 'Delete selected', category: 'editing' },
-  { key: 'Escape', action: 'deselect', description: 'Deselect all', category: 'editing' },
-  { key: 'Enter', action: 'editSelected', description: 'Edit selected stage', category: 'editing' },
-  { key: 'F2', action: 'rename', description: 'Rename selected', category: 'editing' },
-  
-  // Stages
-  { key: 'n', action: 'newStage', description: 'New custom stage', category: 'stages' },
-  { key: 'l', action: 'newLabel', description: 'New text label', category: 'stages' },
-  { key: 'w', action: 'increaseWidth', description: 'Increase stage width', category: 'stages' },
-  { key: 'w', modifiers: ['shift'], action: 'decreaseWidth', description: 'Decrease stage width', category: 'stages' },
-  { key: 'h', action: 'increaseHeight', description: 'Increase stage height', category: 'stages' },
-  { key: 'h', modifiers: ['shift'], action: 'decreaseHeight', description: 'Decrease stage height', category: 'stages' },
-  { key: '[', action: 'sendBack', description: 'Send to back', category: 'stages' },
-  { key: ']', action: 'bringFront', description: 'Bring to front', category: 'stages' },
-  
-  // Leads
-  { key: 'v', action: 'viewLeadDetails', description: 'View lead details', category: 'leads' },
-  { key: 's', action: 'starLead', description: 'Star/unstar lead', category: 'leads' },
-  { key: 'e', action: 'emailLead', description: 'Email selected lead', category: 'leads' },
-  { key: 't', action: 'textLead', description: 'Text selected lead', category: 'leads' },
-  
-  // Quick Actions
-  { key: 'm', action: 'toggleMode', description: 'Toggle Node/D&D mode', category: 'quick' },
-  { key: 's', modifiers: ['ctrl'], action: 'save', description: 'Save pipeline', category: 'quick' },
-  { key: 'b', action: 'toggleSidebar', description: 'Toggle sidebar', category: 'quick' },
-  { key: '/', action: 'search', description: 'Search', category: 'quick' },
-  { key: '?', action: 'showHelp', description: 'Show help', category: 'quick' },
-  { key: 'q', action: 'quickAdd', description: 'Quick add stage', category: 'quick' },
-  { key: 'Space', action: 'panMode', description: 'Hold to pan', category: 'quick' },
+export const FOLLOW_UP_METHODS: { id: FollowUpMethod; label: string; icon: string }[] = [
+  { id: 'email', label: 'Email', icon: '✉️' },
+  { id: 'phone', label: 'Phone Call', icon: '📞' },
+  { id: 'text', label: 'Text/SMS', icon: '💬' },
+  { id: 'whatsapp', label: 'WhatsApp', icon: '📱' },
+  { id: 'meeting', label: 'Meeting', icon: '📅' },
+  { id: 'manual', label: 'Manual Task', icon: '✋' },
+  { id: 'auto-sequence', label: 'Auto Sequence', icon: '🤖' },
 ];
 
-export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
+export const DEFAULT_AUTOMATION: AutomationSettings = {
   autoSend: false,
   maxMessagesPerDay: 3,
   noResponseAction: 'retry',
@@ -257,3 +212,122 @@ export const DEFAULT_CONTACT_SETTINGS: ContactMethodSettings = {
   tone: 'professional',
   goal: 'nurturing',
 };
+
+export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
+  zoom: 0.6,
+  panX: 0,
+  panY: 0,
+  showGrid: true,
+  showConnections: true,
+  defaultStageWidth: 340,
+  defaultStageHeight: 320,
+};
+
+// DEFAULT EMAIL TEMPLATES
+export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
+  {
+    id: 'welcome-1',
+    name: 'Welcome - Warm Intro',
+    subject: 'Welcome to My Next Ride Ontario, {{name}}!',
+    body: `Hi {{name}},
+
+Thank you for reaching out about finding your next vehicle! I'm excited to help you find the perfect match.
+
+I noticed you're interested in a {{vehicle}}. I have access to a wide network of dealers and 17 different lenders, so we can find options that fit your budget and preferences.
+
+I'll be reviewing your application and will reach out within 24 hours with some options tailored just for you.
+
+In the meantime, feel free to reply to this email if you have any questions!
+
+Best regards,
+My Next Ride Ontario Team`,
+    category: 'welcome',
+    variables: ['{{name}}', '{{vehicle}}'],
+  },
+  {
+    id: 'followup-1',
+    name: 'Follow Up - 48 Hours',
+    subject: 'Quick follow up on your vehicle search, {{name}}',
+    body: `Hi {{name}},
+
+I wanted to follow up on my previous message about your vehicle search.
+
+I've been looking into options for the {{vehicle}} you mentioned, and I have a few possibilities that might interest you.
+
+Would you have a few minutes for a quick call this week? I'd love to discuss what I've found and answer any questions you might have.
+
+Just reply to this email with a time that works for you, or give me a call at your convenience.
+
+Looking forward to hearing from you!
+
+Best,
+My Next Ride Ontario Team`,
+    category: 'follow-up',
+    variables: ['{{name}}', '{{vehicle}}'],
+  },
+  {
+    id: 'reminder-1',
+    name: 'Gentle Reminder',
+    subject: 'Still looking for your {{vehicle}}, {{name}}?',
+    body: `Hi {{name}},
+
+I hope this message finds you well! I wanted to check in and see if you're still in the market for a {{vehicle}}.
+
+If your situation has changed or you've found something already, no worries at all - just let me know and I'll update my records.
+
+But if you're still searching, I'm here to help whenever you're ready. The market is always changing, and I might have some new options that could work for you.
+
+Feel free to reach out anytime!
+
+Best regards,
+My Next Ride Ontario Team`,
+    category: 'reminder',
+    variables: ['{{name}}', '{{vehicle}}'],
+  },
+  {
+    id: 'closing-1',
+    name: 'Ready to Close',
+    subject: 'Great news about your {{vehicle}}, {{name}}!',
+    body: `Hi {{name}},
+
+I have some exciting news! I've found a {{vehicle}} that matches what you're looking for, and I've secured some great financing options.
+
+Here are the details:
+- Vehicle: {{vehicle}}
+- Monthly Payment: Starting from {{budget}}/month
+- Down Payment: Flexible options available
+
+This is a great opportunity, and I'd love to walk you through everything.
+
+Can we schedule a call or meeting to discuss the next steps?
+
+Best,
+My Next Ride Ontario Team`,
+    category: 'closing',
+    variables: ['{{name}}', '{{vehicle}}', '{{budget}}'],
+  },
+  {
+    id: 're-engage-1',
+    name: 'Re-Engagement',
+    subject: "It's been a while, {{name}} - Let's reconnect!",
+    body: `Hi {{name}},
+
+It's been a while since we last connected about your vehicle search. I hope everything is going well!
+
+I wanted to reach out because:
+1. The market has changed since we last spoke
+2. New inventory is available
+3. There might be better financing options now
+
+If you're still interested in finding your perfect vehicle, I'd love to help. No pressure at all - just reply to this email and we can catch up.
+
+Wishing you all the best,
+My Next Ride Ontario Team`,
+    category: 're-engagement',
+    variables: ['{{name}}'],
+  },
+];
+
+export const MAX_PROFILES = 5;
+export const STORAGE_KEY = 'pipeline_profiles';
+export const ACTIVE_PROFILE_KEY = 'pipeline_active_profile';
