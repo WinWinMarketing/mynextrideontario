@@ -4,8 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Lead, LeadStatus } from '@/lib/validation';
 import { 
-  PipelineStage, MessageNode, NodeConnection, TextLabel, WorkspaceProfile,
-  STAGE_COLORS, DEFAULT_WORKSPACE_SETTINGS, DEAD_LEAD_CATEGORIES, TIMER_PRESETS,
+  PipelineStage, MessageNode, NodeConnection, TextLabel, WorkspaceProfile, InlineAction,
+  STAGE_COLORS, DEFAULT_WORKSPACE_SETTINGS, DEAD_LEAD_CATEGORIES, TIMER_PRESETS, NODE_SIZES,
   MAX_PROFILES, STORAGE_KEY, ACTIVE_PROFILE_KEY, StageColor, PipelineAnalytics
 } from './types';
 import { ALL_PRESETS, Preset, PRESET_CATEGORIES } from './presets';
@@ -37,8 +37,8 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [profileName, setProfileName] = useState('');
   
   // Canvas
-  const [zoom, setZoom] = useState(0.4);
-  const [pan, setPan] = useState({ x: 50, y: 50 });
+  const [zoom, setZoom] = useState(0.35);
+  const [pan, setPan] = useState({ x: 80, y: 80 });
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const lastPos = useRef({ x: 0, y: 0 });
   
@@ -48,7 +48,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [connections, setConnections] = useState<NodeConnection[]>([]);
   const [labels, setLabels] = useState<TextLabel[]>([]);
   
-  // UI
+  // UI State
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedNodeType, setSelectedNodeType] = useState<'stage' | 'message' | null>(null);
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
@@ -56,9 +56,19 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   
   // Sidebar
-  const [sidebarTab, setSidebarTab] = useState<'presets' | 'stages' | 'messages' | 'analytics'>('presets');
+  const [sidebarTab, setSidebarTab] = useState<'presets' | 'stages' | 'messages' | 'templates' | 'settings'>('presets');
   const [presetCategory, setPresetCategory] = useState<string>('all');
   const [presetPreview, setPresetPreview] = useState<Preset | null>(null);
+
+  // Node Editor
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [showInlineActions, setShowInlineActions] = useState<string | null>(null);
+
+  // Grid Settings
+  const [gridSize, setGridSize] = useState(40);
+  const [snapToGrid, setSnapToGrid] = useState(true);
+  const [nodeSize, setNodeSize] = useState<'small' | 'medium' | 'large' | 'xlarge'>('large');
+  const [showGrid, setShowGrid] = useState(true);
 
   // Analytics
   const [analytics, setAnalytics] = useState<PipelineAnalytics | null>(null);
@@ -74,6 +84,16 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [historyIndex, setHistoryIndex] = useState(-1);
   const isUndoRedoAction = useRef(false);
 
+  // Auto-save interval
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (hasUnsavedChanges && activeProfileId) {
+        manualSave();
+      }
+    }, 60000); // Auto-save every minute
+    return () => clearInterval(interval);
+  }, [hasUnsavedChanges, activeProfileId]);
+
   // Save current state to history
   const saveToHistory = useCallback(() => {
     if (isUndoRedoAction.current) {
@@ -84,7 +104,6 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setHistory(prev => {
       const newHistory = prev.slice(0, historyIndex + 1);
       newHistory.push(newState);
-      // Keep max 50 history states
       if (newHistory.length > 50) newHistory.shift();
       return newHistory;
     });
@@ -111,8 +130,8 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       setLabels(prevState.labels);
       setHistoryIndex(prev => prev - 1);
       setHasUnsavedChanges(true);
-      setSaveNotification('↩️ Undo successful');
-      setTimeout(() => setSaveNotification(null), 2000);
+      setSaveNotification('↩️ Undo');
+      setTimeout(() => setSaveNotification(null), 1500);
     }
   }, [history, historyIndex]);
 
@@ -127,12 +146,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       setLabels(nextState.labels);
       setHistoryIndex(prev => prev + 1);
       setHasUnsavedChanges(true);
-      setSaveNotification('↪️ Redo successful');
-      setTimeout(() => setSaveNotification(null), 2000);
+      setSaveNotification('↪️ Redo');
+      setTimeout(() => setSaveNotification(null), 1500);
     }
   }, [history, historyIndex]);
 
-  // Keyboard shortcuts for undo/redo
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
@@ -147,15 +166,32 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         e.preventDefault();
         manualSave();
       }
+      if (e.key === 'Delete' && selectedNode) {
+        deleteSelectedNode();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, selectedNode]);
 
-  // Save reminder - show after 2 minutes of unsaved changes
+  // Delete selected node
+  const deleteSelectedNode = () => {
+    if (!selectedNode) return;
+    if (selectedNodeType === 'stage') {
+      setStages(stages.filter(s => s.id !== selectedNode));
+      setConnections(connections.filter(c => c.fromNodeId !== selectedNode && c.toNodeId !== selectedNode));
+    } else {
+      setMessageNodes(messageNodes.filter(m => m.id !== selectedNode));
+      setConnections(connections.filter(c => c.fromNodeId !== selectedNode && c.toNodeId !== selectedNode));
+    }
+    setSelectedNode(null);
+    setSelectedNodeType(null);
+  };
+
+  // Save reminder
   useEffect(() => {
     if (hasUnsavedChanges) {
-      const timer = setTimeout(() => setShowSaveReminder(true), 120000); // 2 minutes
+      const timer = setTimeout(() => setShowSaveReminder(true), 120000);
       return () => clearTimeout(timer);
     } else {
       setShowSaveReminder(false);
@@ -174,7 +210,16 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           messageNodes,
           connections, 
           labels, 
-          settings: { ...DEFAULT_WORKSPACE_SETTINGS, zoom, panX: pan.x, panY: pan.y } 
+          settings: { 
+            ...DEFAULT_WORKSPACE_SETTINGS, 
+            zoom, 
+            panX: pan.x, 
+            panY: pan.y,
+            gridSize,
+            snapToGrid,
+            nodeSize,
+            showGrid,
+          } 
         } : p
       );
       setProfiles(updated);
@@ -182,10 +227,10 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       setLastSaveTime(new Date());
       setHasUnsavedChanges(false);
       setShowSaveReminder(false);
-      setSaveNotification('✅ Saved successfully!');
-      setTimeout(() => setSaveNotification(null), 3000);
+      setSaveNotification('✅ Saved!');
+      setTimeout(() => setSaveNotification(null), 2000);
     }
-  }, [activeProfileId, stages, messageNodes, connections, labels, zoom, pan, profiles]);
+  }, [activeProfileId, stages, messageNodes, connections, labels, zoom, pan, profiles, gridSize, snapToGrid, nodeSize, showGrid]);
 
   // ============ LOAD ============
   useEffect(() => {
@@ -242,10 +287,13 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setMessageNodes(p.messageNodes || []);
     setConnections(p.connections || []); 
     setLabels(p.labels || []);
-    setZoom(p.settings?.zoom || 0.4); 
-    setPan({ x: p.settings?.panX || 50, y: p.settings?.panY || 50 });
+    setZoom(p.settings?.zoom || 0.35); 
+    setPan({ x: p.settings?.panX || 80, y: p.settings?.panY || 80 });
+    setGridSize(p.settings?.gridSize || 40);
+    setSnapToGrid(p.settings?.snapToGrid ?? true);
+    setNodeSize(p.settings?.nodeSize || 'large');
+    setShowGrid(p.settings?.showGrid ?? true);
     setHasUnsavedChanges(false);
-    // Initialize history with loaded state
     setHistory([{ stages: p.stages || [], messageNodes: p.messageNodes || [], connections: p.connections || [], labels: p.labels || [] }]);
     setHistoryIndex(0);
   };
@@ -287,7 +335,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
   // ============ CANVAS ============
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.node-card, .message-node, .label-node, .sidebar')) return;
+    if ((e.target as HTMLElement).closest('.node-card, .message-node, .label-node, .sidebar, .inline-panel')) return;
     if (connectingFrom) { setConnectingFrom(null); return; }
     e.preventDefault();
     setIsDraggingCanvas(true); 
@@ -305,25 +353,41 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   };
 
   const handleCanvasMouseUp = () => setIsDraggingCanvas(false);
-  const handleWheel = (e: React.WheelEvent) => { e.preventDefault(); setZoom(z => Math.max(0.15, Math.min(1.2, z + (e.deltaY > 0 ? -0.04 : 0.04)))); };
+  const handleWheel = (e: React.WheelEvent) => { e.preventDefault(); setZoom(z => Math.max(0.15, Math.min(1.5, z + (e.deltaY > 0 ? -0.04 : 0.04)))); };
 
   const fitView = () => {
-    if (stages.length === 0) { setZoom(0.4); setPan({ x: 50, y: 50 }); return; }
+    if (stages.length === 0) { setZoom(0.35); setPan({ x: 80, y: 80 }); return; }
     const allNodes = [...stages, ...messageNodes];
     const xs = allNodes.map(s => s.x), ys = allNodes.map(s => s.y);
-    const maxX = Math.max(...xs) + 400, maxY = Math.max(...ys) + 400;
+    const maxX = Math.max(...xs) + 500, maxY = Math.max(...ys) + 500;
     const cw = containerRef.current?.clientWidth || 1200, ch = containerRef.current?.clientHeight || 800;
-    const nz = Math.min(cw / maxX, ch / maxY, 0.6) * 0.7;
-    setZoom(Math.max(0.2, Math.min(0.6, nz))); 
-    setPan({ x: 50, y: 50 });
+    const nz = Math.min(cw / maxX, ch / maxY, 0.5) * 0.7;
+    setZoom(Math.max(0.2, Math.min(0.5, nz))); 
+    setPan({ x: 80, y: 80 });
+  };
+
+  // Snap to grid helper
+  const snapPosition = (pos: number) => {
+    if (!snapToGrid) return pos;
+    return Math.round(pos / gridSize) * gridSize;
   };
 
   // ============ NODE MOVEMENT ============
   const handleNodeMove = (id: string, type: 'stage' | 'message', dx: number, dy: number) => {
     if (type === 'stage') {
-      setStages(prev => prev.map(s => s.id === id ? { ...s, x: s.x + dx / zoom, y: s.y + dy / zoom } : s));
+      setStages(prev => prev.map(s => {
+        if (s.id !== id) return s;
+        const newX = snapPosition(s.x + dx / zoom);
+        const newY = snapPosition(s.y + dy / zoom);
+        return { ...s, x: newX, y: newY };
+      }));
     } else {
-      setMessageNodes(prev => prev.map(m => m.id === id ? { ...m, x: m.x + dx / zoom, y: m.y + dy / zoom } : m));
+      setMessageNodes(prev => prev.map(m => {
+        if (m.id !== id) return m;
+        const newX = snapPosition(m.x + dx / zoom);
+        const newY = snapPosition(m.y + dy / zoom);
+        return { ...m, x: newX, y: newY };
+      }));
     }
   };
 
@@ -361,7 +425,6 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setLabels(p.labels); 
     setPresetPreview(null);
     setHasUnsavedChanges(true);
-    // Initialize history
     setHistory([{ stages: p.stages, messageNodes: p.messageNodes, connections: p.connections, labels: p.labels }]);
     setHistoryIndex(0);
     setTimeout(fitView, 100); 
@@ -379,26 +442,36 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   };
 
+  // Get current node sizes
+  const currentNodeSize = NODE_SIZES[nodeSize];
+
   const filteredPresets = presetCategory === 'all' ? ALL_PRESETS : ALL_PRESETS.filter(p => p.category === presetCategory);
   const deadCount = leads.filter(l => l.status === 'dead').length;
 
   return (
-    <div className="h-full bg-slate-950 relative overflow-hidden flex">
-      {/* LEFT SIDEBAR */}
-      <div className="w-96 bg-slate-900/95 border-r border-slate-700 flex flex-col z-40 flex-shrink-0 sidebar">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden flex">
+      {/* PREMIUM LEFT SIDEBAR */}
+      <div className="w-[420px] bg-slate-900/95 border-r border-slate-700/50 flex flex-col z-40 flex-shrink-0 sidebar backdrop-blur-xl">
         {/* Header */}
-        <div className="p-5 border-b border-slate-700 bg-slate-800/50">
-          <h1 className="text-xl font-bold text-white mb-1">Pipeline Builder</h1>
-          <p className="text-sm text-slate-400">Professional CRM System</p>
+        <div className="p-6 border-b border-slate-700/50 bg-gradient-to-r from-slate-800/80 to-slate-900/80">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+              <span className="text-xl">🚀</span>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-white">Runway Pipeline</h1>
+              <p className="text-sm text-slate-400">Visual Automation Builder</p>
+            </div>
+          </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-700">
+        <div className="flex border-b border-slate-700/50 bg-slate-800/30">
           {[
-            { id: 'presets', label: 'Presets', icon: '📊' }, 
+            { id: 'presets', label: 'Templates', icon: '📊' }, 
             { id: 'stages', label: 'Stages', icon: '📦' }, 
-            { id: 'messages', label: 'Messages', icon: '✉️' },
-            { id: 'analytics', label: 'Analytics', icon: '📈' },
+            { id: 'messages', label: 'Actions', icon: '⚡' },
+            { id: 'settings', label: 'Settings', icon: '⚙️' },
           ].map(t => (
             <button key={t.id} onClick={() => setSidebarTab(t.id as any)} 
               className={`flex-1 py-4 text-sm font-semibold transition-all ${sidebarTab === t.id ? 'text-blue-400 border-b-2 border-blue-400 bg-slate-800/50' : 'text-slate-400 hover:text-white hover:bg-slate-800/30'}`}>
@@ -408,45 +481,49 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-5">
           {/* PRESETS TAB */}
           {sidebarTab === 'presets' && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div className="flex flex-wrap gap-2">
                 {PRESET_CATEGORIES.map(c => (
                   <button key={c.id} onClick={() => setPresetCategory(c.id)} 
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${presetCategory === c.id ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${presetCategory === c.id ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
                     {c.icon} {c.label}
                   </button>
                 ))}
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {filteredPresets.map(p => (
                   <motion.div key={p.id} 
                     onMouseEnter={() => setPresetPreview(p)} 
                     onMouseLeave={() => setPresetPreview(null)}
-                    className="bg-slate-800/80 rounded-xl border border-slate-700 overflow-hidden hover:border-blue-500/50 transition-all">
+                    whileHover={{ scale: 1.02 }}
+                    className="bg-gradient-to-br from-slate-800/90 to-slate-800/60 rounded-2xl border border-slate-700/50 overflow-hidden hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10 transition-all">
                     <button onClick={() => applyPreset(p)} className="w-full p-5 text-left">
-                      <div className="flex items-center gap-3 mb-3">
-                        <span className="text-3xl">{p.icon}</span>
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-3xl shadow-inner">
+                          {p.icon}
+                        </div>
                         <div className="flex-1">
                           <h3 className="text-lg font-bold text-white">{p.name}</h3>
-                          <span className={`inline-block mt-1 px-3 py-1 rounded-full text-xs font-semibold ${
-                            p.complexity === 'starter' ? 'bg-green-500/20 text-green-400' : 
-                            p.complexity === 'standard' ? 'bg-yellow-500/20 text-yellow-400' : 
-                            p.complexity === 'advanced' ? 'bg-orange-500/20 text-orange-400' :
-                            'bg-purple-500/20 text-purple-400'
+                          <span className={`inline-block mt-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wide ${
+                            p.complexity === 'starter' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 
+                            p.complexity === 'standard' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 
+                            p.complexity === 'advanced' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
+                            p.complexity === 'runway' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
+                            'bg-blue-500/20 text-blue-400 border border-blue-500/30'
                           }`}>
                             {p.complexity.toUpperCase()}
                           </span>
                         </div>
                       </div>
-                      <p className="text-sm text-slate-400 mb-3 line-clamp-2">{p.description}</p>
-                      <div className="flex items-center gap-4 text-xs text-slate-500">
-                        <span>📦 {p.stages.length} stages</span>
-                        <span>✉️ {p.messageNodes.length} messages</span>
-                        <span>⏱️ {p.estimatedSetupTime}</span>
+                      <p className="text-sm text-slate-400 mb-4 line-clamp-2">{p.description}</p>
+                      <div className="flex items-center gap-4 text-xs">
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">📦 {p.stages.length} stages</span>
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">⚡ {p.messageNodes.length} actions</span>
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">⏱️ {p.estimatedSetupTime}</span>
                       </div>
                     </button>
                   </motion.div>
@@ -457,62 +534,70 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
           {/* STAGES TAB */}
           {sidebarTab === 'stages' && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-bold text-white mb-4">Add New Stage</h3>
+            <div className="space-y-5">
+              <h3 className="text-lg font-bold text-white">Add Pipeline Stage</h3>
               
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'New Lead', icon: '📥', color: 'blue' as StageColor, status: 'new' as const },
                   { label: 'Working', icon: '⚙️', color: 'yellow' as StageColor, status: 'working' as const },
                   { label: 'Follow Up', icon: '🔄', color: 'orange' as StageColor, status: 'circle-back' as const },
+                  { label: 'Hot Lead', icon: '🔥', color: 'orange' as StageColor, status: 'working' as const },
                   { label: 'Meeting', icon: '📅', color: 'purple' as StageColor, status: 'working' as const },
-                  { label: 'Closing', icon: '🎯', color: 'emerald' as StageColor, status: 'approval' as const },
-                  { label: 'Won', icon: '🏆', color: 'emerald' as StageColor, status: 'approval' as const },
+                  { label: 'Qualified', icon: '✅', color: 'green' as StageColor, status: 'working' as const },
+                  { label: 'Proposal', icon: '📋', color: 'emerald' as StageColor, status: 'approval' as const },
+                  { label: 'Won!', icon: '🏆', color: 'emerald' as StageColor, status: 'approval' as const },
                 ].map(s => (
                   <button key={s.label} onClick={() => {
+                    const size = NODE_SIZES[nodeSize];
                     const newStage: PipelineStage = {
                       id: `stage-${Date.now()}`,
                       label: s.label,
                       statusId: s.status,
-                      x: 500 + stages.length * 50,
-                      y: 300 + stages.length * 30,
-                      width: 340,
-                      height: 300,
+                      x: snapPosition(500 + stages.length * 50),
+                      y: snapPosition(300 + stages.length * 30),
+                      width: size.width,
+                      height: size.height,
                       color: s.color,
                       icon: s.icon,
                       autoActions: [],
+                      inlineActions: [],
                     };
                     setStages([...stages, newStage]);
-                  }} className={`p-4 rounded-xl bg-gradient-to-br ${STAGE_COLORS.find(c => c.id === s.color)?.bg} border border-slate-600 text-left hover:border-white/30 transition-all`}>
+                  }} className={`p-4 rounded-xl bg-gradient-to-br ${STAGE_COLORS.find(c => c.id === s.color)?.bg} border border-slate-600/50 text-left hover:border-white/30 hover:shadow-lg transition-all`}>
                     <span className="text-2xl block mb-2">{s.icon}</span>
                     <span className="text-base font-semibold text-white">{s.label}</span>
                   </button>
                 ))}
               </div>
 
-              <div className="mt-6">
-                <h4 className="text-base font-bold text-red-400 mb-3">💀 Dead Lead Categories</h4>
-                <div className="space-y-2">
+              <div className="mt-6 pt-6 border-t border-slate-700/50">
+                <h4 className="text-base font-bold text-red-400 mb-4 flex items-center gap-2">
+                  <span>💀</span> Dead Lead Categories
+                </h4>
+                <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   {DEAD_LEAD_CATEGORIES.map(cat => (
                     <button key={cat.id} onClick={() => {
+                      const size = NODE_SIZES[nodeSize];
                       const newStage: PipelineStage = {
                         id: `dead-${cat.id}-${Date.now()}`,
                         label: cat.label,
                         description: cat.description,
                         statusId: 'dead',
                         deadReason: cat.id,
-                        x: 50,
-                        y: 200 + stages.filter(s => s.statusId === 'dead').length * 320,
-                        width: 320,
-                        height: 280,
+                        x: snapPosition(50),
+                        y: snapPosition(200 + stages.filter(s => s.statusId === 'dead').length * (size.height + 40)),
+                        width: size.width,
+                        height: size.height,
                         color: cat.color,
                         icon: cat.icon,
                         autoActions: [],
+                        inlineActions: [],
                       };
                       setStages([...stages, newStage]);
-                    }} className="w-full p-4 rounded-xl bg-slate-800 border border-slate-700 text-left hover:border-red-500/50 transition-all">
+                    }} className="w-full p-4 rounded-xl bg-slate-800/80 border border-slate-700/50 text-left hover:border-red-500/50 transition-all group">
                       <div className="flex items-center gap-3">
-                        <span className="text-2xl">{cat.icon}</span>
+                        <span className="text-2xl group-hover:scale-110 transition-transform">{cat.icon}</span>
                         <div>
                           <span className="text-base font-semibold text-white block">{cat.label}</span>
                           <span className="text-sm text-slate-400">{cat.description}</span>
@@ -527,17 +612,18 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
           {/* MESSAGES TAB */}
           {sidebarTab === 'messages' && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-bold text-white mb-4">Message Templates</h3>
-              <p className="text-sm text-slate-400 mb-4">Add message nodes and connect them to stages for automated follow-ups.</p>
+            <div className="space-y-5">
+              <h3 className="text-lg font-bold text-white">Add Action Node</h3>
+              <p className="text-sm text-slate-400">Connect actions to stages for automated workflows.</p>
               
               <div className="space-y-3">
                 {[
-                  { type: 'email' as const, label: 'Email Template', icon: '✉️', color: 'blue' as StageColor },
-                  { type: 'sms' as const, label: 'SMS Template', icon: '💬', color: 'cyan' as StageColor },
-                  { type: 'call' as const, label: 'Call Script', icon: '📞', color: 'yellow' as StageColor },
-                  { type: 'notification' as const, label: 'Notification', icon: '🔔', color: 'orange' as StageColor },
-                  { type: 'wait' as const, label: 'Wait Timer', icon: '⏰', color: 'purple' as StageColor },
+                  { type: 'email' as const, label: 'Email Action', icon: '✉️', color: 'blue' as StageColor, desc: 'Send automated emails' },
+                  { type: 'sms' as const, label: 'SMS Action', icon: '💬', color: 'cyan' as StageColor, desc: 'Send text messages' },
+                  { type: 'call' as const, label: 'Call Reminder', icon: '📞', color: 'yellow' as StageColor, desc: 'Schedule call reminders' },
+                  { type: 'notification' as const, label: 'Notification', icon: '🔔', color: 'orange' as StageColor, desc: 'Internal alerts' },
+                  { type: 'wait' as const, label: 'Wait Timer', icon: '⏰', color: 'purple' as StageColor, desc: 'Delay next action' },
+                  { type: 'webhook' as const, label: 'Webhook', icon: '🔗', color: 'indigo' as StageColor, desc: 'External integrations' },
                 ].map(m => (
                   <button key={m.type} onClick={() => {
                     const newMsg: MessageNode = {
@@ -545,25 +631,26 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                       type: m.type,
                       label: m.label,
                       icon: m.icon,
-                      x: 600 + messageNodes.length * 50,
-                      y: 500 + messageNodes.length * 30,
-                      width: 280,
-                      height: 200,
+                      x: snapPosition(600 + messageNodes.length * 50),
+                      y: snapPosition(500 + messageNodes.length * 30),
+                      width: 340,
+                      height: 260,
                       color: m.color,
-                      message: 'Enter your message here...',
+                      message: 'Configure your action here...',
                       autoTrigger: false,
                       triggerCondition: 'manual',
                       linkedStageIds: [],
+                      inlineActions: [],
                     };
                     setMessageNodes([...messageNodes, newMsg]);
-                  }} className="w-full p-4 rounded-xl bg-slate-800 border border-slate-700 text-left hover:border-blue-500/50 transition-all">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${STAGE_COLORS.find(c => c.id === m.color)?.bg} flex items-center justify-center text-2xl`}>
+                  }} className="w-full p-4 rounded-xl bg-slate-800/80 border border-slate-700/50 text-left hover:border-blue-500/50 transition-all group">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${STAGE_COLORS.find(c => c.id === m.color)?.bg} flex items-center justify-center text-2xl shadow-lg group-hover:scale-110 transition-transform`}>
                         {m.icon}
                       </div>
                       <div>
                         <span className="text-base font-semibold text-white block">{m.label}</span>
-                        <span className="text-sm text-slate-400">Add to canvas</span>
+                        <span className="text-sm text-slate-400">{m.desc}</span>
                       </div>
                     </div>
                   </button>
@@ -572,40 +659,76 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
             </div>
           )}
 
-          {/* ANALYTICS TAB */}
-          {sidebarTab === 'analytics' && analytics && (
-            <div className="space-y-5">
-              <h3 className="text-lg font-bold text-white mb-4">Pipeline Analytics</h3>
+          {/* SETTINGS TAB */}
+          {sidebarTab === 'settings' && (
+            <div className="space-y-6">
+              <h3 className="text-lg font-bold text-white">Canvas Settings</h3>
               
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-4 rounded-xl bg-blue-500/20 border border-blue-500/30">
-                  <p className="text-3xl font-bold text-blue-400">{analytics.totalLeads}</p>
-                  <p className="text-sm text-blue-300">Total Leads</p>
-                </div>
-                <div className="p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/30">
-                  <p className="text-3xl font-bold text-emerald-400">{analytics.conversionRate}%</p>
-                  <p className="text-sm text-emerald-300">Conversion</p>
-                </div>
-                <div className="p-4 rounded-xl bg-red-500/20 border border-red-500/30">
-                  <p className="text-3xl font-bold text-red-400">{analytics.deadLeadRate}%</p>
-                  <p className="text-sm text-red-300">Dead Rate</p>
-                </div>
-                <div className="p-4 rounded-xl bg-yellow-500/20 border border-yellow-500/30">
-                  <p className="text-3xl font-bold text-yellow-400">{analytics.pendingFollowUps}</p>
-                  <p className="text-sm text-yellow-300">Follow-ups</p>
+              {/* Node Size */}
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-slate-300">Node Size</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {(['small', 'medium', 'large', 'xlarge'] as const).map(size => (
+                    <button key={size} onClick={() => setNodeSize(size)}
+                      className={`py-2.5 px-3 rounded-lg text-sm font-medium transition-all ${nodeSize === size ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                      {size.charAt(0).toUpperCase() + size.slice(1)}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {analytics.deadReasonBreakdown.length > 0 && (
-                <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-                  <h4 className="text-base font-bold text-red-400 mb-3">💀 Dead Lead Reasons</h4>
-                  <div className="space-y-2">
-                    {analytics.deadReasonBreakdown.map(d => (
-                      <div key={d.reason} className="flex items-center justify-between">
-                        <span className="text-sm text-slate-300">{d.reason}</span>
-                        <span className="text-sm font-medium text-slate-400">{d.count}</span>
-                      </div>
-                    ))}
+              {/* Grid Size */}
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-slate-300">Grid Size: {gridSize}px</label>
+                <input 
+                  type="range" 
+                  min="20" 
+                  max="100" 
+                  value={gridSize} 
+                  onChange={(e) => setGridSize(Number(e.target.value))}
+                  className="w-full accent-blue-500"
+                />
+              </div>
+
+              {/* Toggles */}
+              <div className="space-y-3">
+                <label className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl">
+                  <span className="text-sm font-medium text-slate-300">Show Grid</span>
+                  <button onClick={() => setShowGrid(!showGrid)}
+                    className={`w-12 h-6 rounded-full transition-all ${showGrid ? 'bg-blue-500' : 'bg-slate-700'}`}>
+                    <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${showGrid ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                  </button>
+                </label>
+                <label className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl">
+                  <span className="text-sm font-medium text-slate-300">Snap to Grid</span>
+                  <button onClick={() => setSnapToGrid(!snapToGrid)}
+                    className={`w-12 h-6 rounded-full transition-all ${snapToGrid ? 'bg-blue-500' : 'bg-slate-700'}`}>
+                    <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${snapToGrid ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                  </button>
+                </label>
+              </div>
+
+              {/* Analytics Preview */}
+              {analytics && (
+                <div className="space-y-4 pt-4 border-t border-slate-700/50">
+                  <h4 className="text-base font-bold text-white">Quick Stats</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-4 rounded-xl bg-blue-500/20 border border-blue-500/30">
+                      <p className="text-2xl font-bold text-blue-400">{analytics.totalLeads}</p>
+                      <p className="text-xs text-blue-300">Total Leads</p>
+                    </div>
+                    <div className="p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/30">
+                      <p className="text-2xl font-bold text-emerald-400">{analytics.conversionRate}%</p>
+                      <p className="text-xs text-emerald-300">Conversion</p>
+                    </div>
+                    <div className="p-4 rounded-xl bg-red-500/20 border border-red-500/30">
+                      <p className="text-2xl font-bold text-red-400">{analytics.deadLeadRate}%</p>
+                      <p className="text-xs text-red-300">Dead Rate</p>
+                    </div>
+                    <div className="p-4 rounded-xl bg-yellow-500/20 border border-yellow-500/30">
+                      <p className="text-2xl font-bold text-yellow-400">{analytics.scheduledMessages}</p>
+                      <p className="text-xs text-yellow-300">Automated</p>
+                    </div>
                   </div>
                 </div>
               )}
@@ -616,57 +739,68 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
       {/* MAIN CANVAS */}
       <div className="flex-1 relative">
-        <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(rgba(148,163,184,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.1) 1px, transparent 1px)', backgroundSize: '50px 50px' }} />
+        {/* Grid Background */}
+        {showGrid && (
+          <div className="absolute inset-0 opacity-30" style={{ 
+            backgroundImage: `linear-gradient(rgba(148,163,184,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.15) 1px, transparent 1px)`, 
+            backgroundSize: `${gridSize}px ${gridSize}px` 
+          }} />
+        )}
 
-        {/* Header */}
-        <header className="absolute top-0 left-0 right-0 z-30 px-6 py-3 bg-gradient-to-b from-slate-950 via-slate-950/95 to-transparent">
+        {/* Premium Header */}
+        <header className="absolute top-0 left-0 right-0 z-30 px-6 py-4 bg-gradient-to-b from-slate-950 via-slate-950/95 to-transparent">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <h1 className="text-lg font-bold text-white">🚀 Visual Pipeline</h1>
-              <span className="text-sm text-slate-400">{stages.length} stages • {messageNodes.length} messages</span>
+            <div className="flex items-center gap-5">
+              <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-slate-800/80 border border-slate-700/50">
+                <span className="text-lg">🚀</span>
+                <span className="text-base font-semibold text-white">{stages.length} Stages</span>
+                <span className="text-slate-500">•</span>
+                <span className="text-base text-slate-400">{messageNodes.length} Actions</span>
+              </div>
             </div>
             
             <div className="flex items-center gap-3">
-              {/* Undo/Redo Buttons */}
-              <div className="flex items-center gap-1 bg-slate-800 rounded-lg border border-slate-700">
+              {/* Undo/Redo */}
+              <div className="flex items-center bg-slate-800/80 rounded-xl border border-slate-700/50 overflow-hidden">
                 <button onClick={undo} disabled={historyIndex <= 0} title="Undo (Ctrl+Z)"
-                  className={`px-3 py-2 text-lg transition-all ${historyIndex <= 0 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300 hover:text-white hover:bg-slate-700'}`}>
+                  className={`px-4 py-2.5 text-lg transition-all border-r border-slate-700/50 ${historyIndex <= 0 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300 hover:text-white hover:bg-slate-700/50'}`}>
                   ↩️
                 </button>
                 <button onClick={redo} disabled={historyIndex >= history.length - 1} title="Redo (Ctrl+Y)"
-                  className={`px-3 py-2 text-lg transition-all ${historyIndex >= history.length - 1 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300 hover:text-white hover:bg-slate-700'}`}>
+                  className={`px-4 py-2.5 text-lg transition-all ${historyIndex >= history.length - 1 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300 hover:text-white hover:bg-slate-700/50'}`}>
                   ↪️
                 </button>
               </div>
 
-              {/* Save Button */}
+              {/* Save */}
               <button onClick={manualSave} title="Save (Ctrl+S)"
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all ${
                   hasUnsavedChanges 
-                    ? 'bg-yellow-500 text-black hover:bg-yellow-400 animate-pulse' 
-                    : 'bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700'
+                    ? 'bg-gradient-to-r from-yellow-500 to-amber-500 text-black hover:from-yellow-400 hover:to-amber-400 shadow-lg shadow-yellow-500/30' 
+                    : 'bg-slate-800/80 text-slate-300 border border-slate-700/50 hover:bg-slate-700/80'
                 }`}>
-                💾 {hasUnsavedChanges ? 'Save Changes' : 'Saved'}
+                💾 {hasUnsavedChanges ? 'Save' : 'Saved'}
               </button>
 
-              {/* Zoom Controls */}
-              <div className="flex items-center gap-1 bg-slate-800 rounded-lg px-3 py-2 border border-slate-700">
-                <button onClick={() => setZoom(z => Math.max(0.15, z - 0.08))} className="text-slate-400 px-2 text-lg hover:text-white">−</button>
-                <span className="text-sm text-white font-medium w-12 text-center">{Math.round(zoom * 100)}%</span>
-                <button onClick={() => setZoom(z => Math.min(1.2, z + 0.08))} className="text-slate-400 px-2 text-lg hover:text-white">+</button>
+              {/* Zoom */}
+              <div className="flex items-center gap-2 bg-slate-800/80 rounded-xl px-4 py-2.5 border border-slate-700/50">
+                <button onClick={() => setZoom(z => Math.max(0.15, z - 0.1))} className="text-slate-400 px-2 text-lg hover:text-white transition-colors">−</button>
+                <span className="text-sm text-white font-semibold w-14 text-center">{Math.round(zoom * 100)}%</span>
+                <button onClick={() => setZoom(z => Math.min(1.5, z + 0.1))} className="text-slate-400 px-2 text-lg hover:text-white transition-colors">+</button>
               </div>
               
-              <button onClick={fitView} className="px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm font-medium hover:bg-slate-700 transition-all">
+              <button onClick={fitView} className="px-5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700/50 text-white text-sm font-semibold hover:bg-slate-700/80 transition-all">
                 ⊡ Fit
               </button>
               
               {deadCount > 0 && (
-                <div className="px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/50 text-red-400 text-sm font-medium">
+                <div className="px-4 py-2.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-400 text-sm font-semibold">
                   💀 {deadCount}
                 </div>
               )}
               
-              <button onClick={() => setShowProfilesSidebar(!showProfilesSidebar)} className="px-4 py-2 rounded-lg bg-blue-500/20 border border-blue-500/50 text-blue-400 text-sm font-medium hover:bg-blue-500/30 transition-all">
+              <button onClick={() => setShowProfilesSidebar(!showProfilesSidebar)} 
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-500/40 text-blue-400 text-sm font-semibold hover:from-blue-500/30 hover:to-purple-500/30 transition-all">
                 👤 Profiles
               </button>
             </div>
@@ -676,28 +810,9 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         {/* Save Notification */}
         <AnimatePresence>
           {saveNotification && (
-            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className="absolute top-16 left-1/2 -translate-x-1/2 z-50 px-6 py-3 bg-emerald-500/90 text-white rounded-xl font-medium shadow-lg">
+            <motion.div initial={{ opacity: 0, y: -20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -20, scale: 0.9 }}
+              className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-6 py-3 bg-gradient-to-r from-emerald-500 to-green-600 text-white rounded-xl font-semibold shadow-xl shadow-emerald-500/30">
               {saveNotification}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Save Reminder */}
-        <AnimatePresence>
-          {showSaveReminder && hasUnsavedChanges && (
-            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-              className="absolute top-16 right-6 z-50 p-4 bg-yellow-500/90 text-black rounded-xl shadow-lg max-w-xs">
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">⚠️</span>
-                <div>
-                  <p className="font-bold">Don't forget to save!</p>
-                  <p className="text-sm mt-1">You have unsaved changes.</p>
-                  <button onClick={manualSave} className="mt-2 px-4 py-1.5 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800">
-                    💾 Save Now
-                  </button>
-                </div>
-              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -710,12 +825,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           onMouseUp={handleCanvasMouseUp}
           onMouseLeave={() => { handleCanvasMouseUp(); setConnectingFrom(null); }} 
           onWheel={handleWheel}>
-          <div ref={canvasRef} className="absolute" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0', width: '8000px', height: '6000px' }}>
+          <div ref={canvasRef} className="absolute" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0', width: '10000px', height: '8000px' }}>
             
             {/* Labels */}
             {labels.map(l => (
-              <div key={l.id} className="label-node absolute select-none" style={{ left: l.x, top: l.y }}>
-                <div className="px-4 py-2 rounded-lg font-bold" style={{ fontSize: l.fontSize, color: l.color, backgroundColor: l.bgColor || 'transparent' }}>
+              <div key={l.id} className="label-node absolute select-none pointer-events-none" style={{ left: l.x, top: l.y }}>
+                <div className="px-4 py-2" style={{ fontSize: l.fontSize, color: l.color, fontWeight: l.fontWeight || '800', letterSpacing: '0.02em' }}>
                   {l.text}
                 </div>
               </div>
@@ -723,6 +838,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
             {/* Connections */}
             <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
+              <defs>
+                <linearGradient id="connGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#3b82f6" />
+                  <stop offset="100%" stopColor="#8b5cf6" />
+                </linearGradient>
+              </defs>
               {connections.map(c => {
                 const from = getNodeCenter(c.fromNodeId, c.fromType, 'right');
                 const to = getNodeCenter(c.toNodeId, c.toType, 'left');
@@ -730,12 +851,13 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 return (
                   <g key={c.id}>
                     <path d={`M ${from.x} ${from.y} C ${mx} ${from.y}, ${mx} ${to.y}, ${to.x} ${to.y}`} 
-                      fill="none" stroke={c.color} strokeWidth={3} strokeDasharray={c.style === 'dashed' ? '8 4' : 'none'} opacity={0.8} />
-                    <circle cx={to.x - 8} cy={to.y} r={4} fill={c.color} />
+                      fill="none" stroke={c.style === 'dashed' ? '#64748b' : 'url(#connGradient)'} strokeWidth={c.thickness || 3} 
+                      strokeDasharray={c.style === 'dashed' ? '10 6' : 'none'} opacity={0.85} />
+                    <circle cx={to.x - 8} cy={to.y} r={5} fill={c.style === 'dashed' ? '#64748b' : '#8b5cf6'} />
                     {c.triggerDelay && (
                       <g>
-                        <rect x={mx - 40} y={(from.y + to.y) / 2 - 12} width={80} height={24} rx={4} fill="#1e293b" stroke="#475569" />
-                        <text x={mx} y={(from.y + to.y) / 2 + 4} fill="#94a3b8" fontSize="12" textAnchor="middle" fontWeight="500">
+                        <rect x={mx - 50} y={(from.y + to.y) / 2 - 14} width={100} height={28} rx={6} fill="#1e293b" stroke="#475569" strokeWidth={1} />
+                        <text x={mx} y={(from.y + to.y) / 2 + 5} fill="#94a3b8" fontSize="13" textAnchor="middle" fontWeight="600">
                           ⏱️ {c.triggerDelay.label}
                         </text>
                       </g>
@@ -745,13 +867,13 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               })}
               {connectingFrom && (() => {
                 const from = getNodeCenter(connectingFrom.id, connectingFrom.type, 'right');
-                return <line x1={from.x} y1={from.y} x2={mousePos.x} y2={mousePos.y} stroke="#fbbf24" strokeWidth={3} strokeDasharray="6 4" />;
+                return <line x1={from.x} y1={from.y} x2={mousePos.x} y2={mousePos.y} stroke="#fbbf24" strokeWidth={3} strokeDasharray="8 5" />;
               })()}
             </svg>
 
             {/* Stage Nodes */}
             {stages.map(stage => (
-              <StageNode 
+              <RunwayStageNode 
                 key={stage.id} 
                 stage={stage} 
                 leads={getStageLeads(stage)} 
@@ -768,12 +890,14 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 onViewLead={onViewDetails}
                 onToggleStar={onToggleStar}
                 starredLeads={starredLeads}
+                showInlineActions={showInlineActions === stage.id}
+                onToggleInlineActions={() => setShowInlineActions(showInlineActions === stage.id ? null : stage.id)}
               />
             ))}
 
             {/* Message Nodes */}
             {messageNodes.map(msg => (
-              <MessageNodeComponent
+              <RunwayMessageNode
                 key={msg.id}
                 node={msg}
                 isSelected={selectedNode === msg.id && selectedNodeType === 'message'}
@@ -790,8 +914,8 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
         {/* Connection Helper */}
         {connectingFrom && (
-          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 px-6 py-3 bg-yellow-500/20 border border-yellow-500/50 rounded-xl text-yellow-400 text-base font-medium">
-            🔗 Click another node to connect
+          <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-40 px-6 py-3 bg-gradient-to-r from-yellow-500/30 to-amber-500/30 border border-yellow-500/50 rounded-xl text-yellow-400 text-base font-semibold backdrop-blur-sm">
+            🔗 Click another node to create connection
           </div>
         )}
       </div>
@@ -799,28 +923,30 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       {/* PROFILES SIDEBAR */}
       <AnimatePresence>
         {showProfilesSidebar && (
-          <motion.div initial={{ x: 320 }} animate={{ x: 0 }} exit={{ x: 320 }}
-            className="absolute right-0 top-0 bottom-0 w-80 bg-slate-900/98 border-l border-slate-700 z-50 flex flex-col">
-            <div className="p-5 border-b border-slate-700 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">👤 Profiles</h2>
-              <button onClick={() => setShowProfilesSidebar(false)} className="text-slate-400 hover:text-white text-xl">×</button>
+          <motion.div initial={{ x: 340 }} animate={{ x: 0 }} exit={{ x: 340 }}
+            className="absolute right-0 top-0 bottom-0 w-[340px] bg-slate-900/98 border-l border-slate-700/50 z-50 flex flex-col backdrop-blur-xl">
+            <div className="p-6 border-b border-slate-700/50 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <span>👤</span> Saved Profiles
+              </h2>
+              <button onClick={() => setShowProfilesSidebar(false)} className="text-slate-400 hover:text-white text-2xl transition-colors">×</button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
               {profiles.map(p => (
                 <button key={p.id} onClick={() => loadProfile(p.id)}
-                  className={`w-full p-4 rounded-xl border text-left transition-all ${activeProfileId === p.id ? 'bg-blue-500/20 border-blue-500/50' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}`}>
+                  className={`w-full p-4 rounded-xl border text-left transition-all ${activeProfileId === p.id ? 'bg-blue-500/20 border-blue-500/50 shadow-lg shadow-blue-500/10' : 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600'}`}>
                   <span className="text-base font-semibold text-white block">{p.name}</span>
-                  <span className="text-sm text-slate-400">{p.stages?.length || 0} stages</span>
+                  <span className="text-sm text-slate-400">{p.stages?.length || 0} stages • {p.messageNodes?.length || 0} actions</span>
                   {activeProfileId === p.id && <span className="text-sm text-blue-400 block mt-1">✓ Active</span>}
                 </button>
               ))}
               {profiles.length < MAX_PROFILES && (
-                <div className="p-4 rounded-xl border border-dashed border-slate-700">
+                <div className="p-4 rounded-xl border border-dashed border-slate-700/50 bg-slate-800/30">
                   <input type="text" value={profileName} onChange={(e) => setProfileName(e.target.value)}
-                    placeholder="New profile name..." className="w-full bg-transparent text-white text-sm mb-2 outline-none" />
+                    placeholder="New profile name..." className="w-full bg-transparent text-white text-sm mb-3 outline-none placeholder:text-slate-500" />
                   <button onClick={() => { if (profileName.trim()) { createProfile(profileName.trim()); setProfileName(''); } }}
-                    disabled={!profileName.trim()} className="w-full py-2 rounded-lg bg-blue-500/20 text-blue-400 text-sm font-medium disabled:opacity-50 hover:bg-blue-500/30 transition-all">
-                    + Create
+                    disabled={!profileName.trim()} className="w-full py-2.5 rounded-xl bg-blue-500/20 text-blue-400 text-sm font-semibold disabled:opacity-50 hover:bg-blue-500/30 transition-all border border-blue-500/30">
+                    + Create Profile
                   </button>
                 </div>
               )}
@@ -832,14 +958,14 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   );
 }
 
-// ============ STAGE NODE ============
-function StageNode({ stage, leads, isSelected, isConnecting, isDropTarget, zoom, onSelect, onMove, onDelete, onConnect, onDrop, onDragLead, onViewLead, onToggleStar, starredLeads }: any) {
+// ============ RUNWAY STAGE NODE ============
+function RunwayStageNode({ stage, leads, isSelected, isConnecting, isDropTarget, zoom, onSelect, onMove, onDelete, onConnect, onDrop, onDragLead, onViewLead, onToggleStar, starredLeads, showInlineActions, onToggleInlineActions }: any) {
   const [dragging, setDragging] = useState(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const color = STAGE_COLORS.find(c => c.id === stage.color) || STAGE_COLORS[0];
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.lead-card, .connect-btn')) return;
+    if ((e.target as HTMLElement).closest('.lead-card, .connect-btn, .action-btn, .inline-panel')) return;
     e.stopPropagation();
     setDragging(true);
     lastPos.current = { x: e.clientX, y: e.clientY };
@@ -849,46 +975,59 @@ function StageNode({ stage, leads, isSelected, isConnecting, isDropTarget, zoom,
     window.addEventListener('mouseup', up);
   };
 
-  const headerHeight = 70;
-  const maxLeads = 6;
+  const headerHeight = 80;
+  const maxLeads = 8;
 
   return (
     <div className="node-card absolute" style={{ left: stage.x, top: stage.y, zIndex: isSelected ? 100 : 1 }} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-      <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-700 border-2 border-slate-500" />
-      <button onClick={onConnect} className={`connect-btn absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center text-sm transition-all ${isConnecting ? 'bg-yellow-500 border-yellow-400 text-white' : 'bg-blue-500/30 border-blue-400 text-blue-400 hover:bg-blue-500/50'}`}>+</button>
+      {/* Connection Points */}
+      <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-700 border-2 border-slate-500 shadow-lg" />
+      <button onClick={onConnect} className={`connect-btn absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-all shadow-lg ${isConnecting ? 'bg-yellow-500 border-yellow-400 text-black' : 'bg-blue-500/40 border-blue-400 text-blue-300 hover:bg-blue-500/60'}`}>+</button>
       
       <motion.div onClick={onSelect} onMouseDown={handleMouseDown}
-        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all ${isSelected ? `${color.border} ring-2 ring-blue-500/30` : 'border-slate-600 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/40' : ''} ${isDropTarget ? 'ring-2 ring-green-400/40' : ''} ${dragging ? 'cursor-grabbing shadow-2xl' : 'cursor-grab'}`}
+        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all shadow-2xl ${isSelected ? `${color.border} ring-2 ring-blue-500/40 shadow-${color.glow}` : 'border-slate-600/50 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/50' : ''} ${isDropTarget ? 'ring-2 ring-green-400/50' : ''} ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         style={{ width: stage.width, height: stage.height }}>
         
-        <div className="px-5 py-4 border-b border-slate-600/40 bg-slate-900/60 flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="text-2xl">{stage.icon}</span>
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-slate-600/30 bg-slate-900/60 flex items-center justify-between">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${color.bg} flex items-center justify-center text-2xl shadow-lg`}>
+              {stage.icon}
+            </div>
             <div className="min-w-0">
-              <span className="text-base font-bold text-white block truncate">{stage.label}</span>
+              <span className="text-lg font-bold text-white block truncate">{stage.label}</span>
               {stage.description && <span className="text-xs text-slate-400 truncate block">{stage.description}</span>}
             </div>
           </div>
-          <div className={`px-3 py-1.5 rounded-lg bg-slate-900/80 ${color.text} text-lg font-bold`}>{leads.length}</div>
+          <div className="flex items-center gap-2">
+            <div className={`px-4 py-2 rounded-xl bg-slate-900/80 ${color.text} text-xl font-bold`}>{leads.length}</div>
+            {stage.inlineActions && stage.inlineActions.length > 0 && (
+              <button onClick={(e) => { e.stopPropagation(); onToggleInlineActions(); }} 
+                className="action-btn px-3 py-2 rounded-xl bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700/80 transition-all text-sm font-medium">
+                ⚡ {stage.inlineActions.length}
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="p-3 overflow-hidden" style={{ height: stage.height - headerHeight }}>
+        {/* Leads Grid */}
+        <div className="p-4 overflow-hidden" style={{ height: stage.height - headerHeight }}>
           {leads.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-slate-500">
-              <span className="text-3xl mb-2">📥</span>
-              <span className="text-sm">Drop leads here</span>
+              <span className="text-4xl mb-3 opacity-50">📥</span>
+              <span className="text-sm font-medium">Drop leads here</span>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2">
               {leads.slice(0, maxLeads).map((lead: Lead) => (
                 <div key={lead.id} draggable onDragStart={() => onDragLead(lead)} onDragEnd={() => onDragLead(null)}
                   onClick={(e) => { e.stopPropagation(); onViewLead(lead); }}
-                  className="lead-card flex items-center gap-2 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 cursor-grab transition-all border border-slate-700/50">
+                  className="lead-card flex items-center gap-2 p-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 cursor-grab transition-all border border-slate-700/50 hover:border-slate-600">
                   <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${color.bg} flex items-center justify-center ${color.text} text-sm font-bold flex-shrink-0`}>
                     {lead.formData.fullName.charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white font-medium truncate">{lead.formData.fullName}</div>
+                    <div className="text-sm text-white font-semibold truncate">{lead.formData.fullName}</div>
                     <div className="text-xs text-slate-400 truncate">{lead.formData.phone}</div>
                   </div>
                   <button onClick={(e) => { e.stopPropagation(); onToggleStar(lead.id); }} className="text-base flex-shrink-0">
@@ -897,15 +1036,44 @@ function StageNode({ stage, leads, isSelected, isConnecting, isDropTarget, zoom,
                 </div>
               ))}
               {leads.length > maxLeads && (
-                <div className="col-span-2 text-center text-sm text-slate-500 py-2">+{leads.length - maxLeads} more</div>
+                <div className="col-span-2 text-center text-sm text-slate-500 py-2 font-medium">+{leads.length - maxLeads} more leads</div>
               )}
             </div>
           )}
         </div>
 
+        {/* Inline Actions Panel */}
+        {showInlineActions && stage.inlineActions && stage.inlineActions.length > 0 && (
+          <div className="inline-panel absolute left-full top-0 ml-4 w-80 bg-slate-900/98 rounded-xl border border-slate-700/50 shadow-2xl p-4 z-50 backdrop-blur-xl">
+            <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+              <span>⚡</span> Quick Actions
+            </h4>
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {stage.inlineActions.map((action: InlineAction) => (
+                <div key={action.id} className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/50">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">
+                      {action.type === 'sms' ? '💬' : action.type === 'email' ? '✉️' : action.type === 'reminder' ? '⏰' : '📝'}
+                    </span>
+                    <span className="text-sm font-semibold text-white">{action.label}</span>
+                    {action.autoSend && <span className="px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-xs">AUTO</span>}
+                  </div>
+                  <p className="text-xs text-slate-400 line-clamp-2">{action.content}</p>
+                  {action.delay && (
+                    <p className="text-xs text-purple-400 mt-1">⏱️ After {action.delay.label}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Selected Actions */}
         {isSelected && (
-          <div className="absolute -top-10 left-0 right-0 flex items-center justify-center gap-2">
-            <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-sm font-medium hover:bg-red-500/30">🗑️ Delete</button>
+          <div className="absolute -top-12 left-0 right-0 flex items-center justify-center gap-2">
+            <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="px-4 py-2 rounded-xl bg-red-500/30 text-red-400 text-sm font-semibold hover:bg-red-500/40 border border-red-500/40 transition-all">
+              🗑️ Delete
+            </button>
           </div>
         )}
       </motion.div>
@@ -913,8 +1081,8 @@ function StageNode({ stage, leads, isSelected, isConnecting, isDropTarget, zoom,
   );
 }
 
-// ============ MESSAGE NODE ============
-function MessageNodeComponent({ node, isSelected, isConnecting, zoom, onSelect, onMove, onDelete, onConnect }: any) {
+// ============ RUNWAY MESSAGE NODE ============
+function RunwayMessageNode({ node, isSelected, isConnecting, zoom, onSelect, onMove, onDelete, onConnect }: any) {
   const [dragging, setDragging] = useState(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const color = STAGE_COLORS.find(c => c.id === node.color) || STAGE_COLORS[0];
@@ -932,29 +1100,31 @@ function MessageNodeComponent({ node, isSelected, isConnecting, zoom, onSelect, 
 
   return (
     <div className="message-node absolute" style={{ left: node.x, top: node.y, zIndex: isSelected ? 100 : 1 }}>
-      <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-700 border-2 border-slate-500" />
-      <button onClick={onConnect} className={`connect-btn absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center text-sm transition-all ${isConnecting ? 'bg-yellow-500 border-yellow-400 text-white' : 'bg-cyan-500/30 border-cyan-400 text-cyan-400 hover:bg-cyan-500/50'}`}>+</button>
+      <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-700 border-2 border-slate-500 shadow-lg" />
+      <button onClick={onConnect} className={`connect-btn absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-all shadow-lg ${isConnecting ? 'bg-yellow-500 border-yellow-400 text-black' : 'bg-cyan-500/40 border-cyan-400 text-cyan-300 hover:bg-cyan-500/60'}`}>+</button>
       
       <motion.div onClick={onSelect} onMouseDown={handleMouseDown}
-        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all ${isSelected ? `${color.border} ring-2 ring-cyan-500/30` : 'border-slate-600 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/40' : ''} ${dragging ? 'cursor-grabbing shadow-2xl' : 'cursor-grab'}`}
+        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all shadow-xl ${isSelected ? `${color.border} ring-2 ring-cyan-500/40` : 'border-slate-600/50 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/50' : ''} ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         style={{ width: node.width, height: node.height }}>
         
-        <div className="px-4 py-3 border-b border-slate-600/40 bg-slate-900/60 flex items-center gap-3">
-          <span className="text-xl">{node.icon}</span>
+        <div className="px-4 py-3 border-b border-slate-600/30 bg-slate-900/60 flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${color.bg} flex items-center justify-center text-xl shadow-lg`}>
+            {node.icon}
+          </div>
           <div className="flex-1 min-w-0">
             <span className="text-sm font-bold text-white block truncate">{node.label}</span>
-            <span className="text-xs text-slate-400 uppercase">{node.type}</span>
+            <span className="text-xs text-slate-400 uppercase tracking-wide">{node.type}</span>
           </div>
           {node.autoTrigger && (
-            <span className="px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-xs font-medium">AUTO</span>
+            <span className="px-2.5 py-1 rounded-full bg-green-500/20 text-green-400 text-xs font-semibold border border-green-500/30">AUTO</span>
           )}
         </div>
 
         <div className="p-4">
-          {node.subject && <p className="text-xs text-slate-400 mb-1">Subject: <span className="text-slate-300">{node.subject}</span></p>}
-          <p className="text-sm text-slate-300 line-clamp-3">{node.message}</p>
+          {node.subject && <p className="text-xs text-slate-400 mb-2">Subject: <span className="text-slate-300 font-medium">{node.subject}</span></p>}
+          <p className="text-sm text-slate-300 line-clamp-4">{node.message}</p>
           {node.triggerDelay && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-purple-400">
+            <div className="mt-3 flex items-center gap-2 text-xs text-purple-400 font-medium">
               <span>⏱️</span>
               <span>Triggers after {node.triggerDelay.label}</span>
             </div>
@@ -962,8 +1132,10 @@ function MessageNodeComponent({ node, isSelected, isConnecting, zoom, onSelect, 
         </div>
 
         {isSelected && (
-          <div className="absolute -top-10 left-0 right-0 flex items-center justify-center gap-2">
-            <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-sm font-medium hover:bg-red-500/30">🗑️ Delete</button>
+          <div className="absolute -top-12 left-0 right-0 flex items-center justify-center gap-2">
+            <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="px-4 py-2 rounded-xl bg-red-500/30 text-red-400 text-sm font-semibold hover:bg-red-500/40 border border-red-500/40 transition-all">
+              🗑️ Delete
+            </button>
           </div>
         )}
       </motion.div>
