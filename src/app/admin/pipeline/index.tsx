@@ -759,12 +759,15 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setHistory([{ stages: p.stages, messageNodes: p.messageNodes, connections: p.connections, labels: p.labels }]);
     setHistoryIndex(0);
     
-    // Auto fit and center on New Lead after applying preset
+    // AUTO-LAYOUT by default for all presets, then fit view
     setTimeout(() => {
-      fitView();
-      setSaveNotification(`✅ Loaded: ${p.name}`);
-      setTimeout(() => setSaveNotification(null), 2000);
-    }, 150); 
+      autoLayoutHourglass();
+      setTimeout(() => {
+        fitView();
+        setSaveNotification(`✅ Loaded: ${p.name}`);
+        setTimeout(() => setSaveNotification(null), 2000);
+      }, 150);
+    }, 100); 
   };
 
   const getNodeCenter = (id: string, type: 'stage' | 'message', anchor: 'left' | 'right') => {
@@ -789,17 +792,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden flex">
       {/* PREMIUM LEFT SIDEBAR */}
       <div className="w-[420px] bg-slate-900/95 border-r border-slate-700/50 flex flex-col z-40 flex-shrink-0 sidebar backdrop-blur-xl">
-        {/* Header - WinWin Branding with Actual Logo */}
+        {/* Header - WinWin Branding */}
         <div className="p-6 border-b border-yellow-500/30 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900">
           <div className="flex items-center gap-3">
-            {/* WinWin Logo - Exact SVG from brand file */}
-            <div className="w-14 h-14 rounded-xl bg-black flex items-center justify-center overflow-hidden border-2 border-yellow-500/40 shadow-lg shadow-yellow-500/10">
-              <svg viewBox="0 0 2428 866" className="w-12 h-5">
-                {/* Yellow W shapes - from WinWin_Logo_Mono.svg */}
-                <path fill="#F0CB35" d="M170.531342,1.000000 C182.450058,3.866698 186.959061,13.545098 192.205566,22.537260 C205.030609,44.518497 217.950500,66.444481 230.740005,88.446312 C244.519882,112.151894 258.131958,135.955109 271.933472,159.647995 C285.069214,182.197876 298.413391,204.626282 311.557037,227.171600 C323.052338,246.889618 334.346252,266.725006 345.822266,286.454346 C355.725861,303.480377 365.806061,320.403595 375.725128,337.420685 C386.720581,356.284515 397.579865,375.227722 408.574677,394.091919 C422.213867,417.493103 435.980621,440.820038 449.599823,464.232819 C460.992615,483.818176 472.240540,503.487732 483.581146,523.103516 C485.797882,526.937744 488.145569,530.696289 490.540588,534.668457 C503.158813,516.117920 515.715637,497.670624 528.259033,479.214172 C549.197815,448.404541 570.108093,417.575531 591.068420,386.780579 C606.676941,363.848572 622.362976,340.969360 637.982483,318.044800 C653.690491,294.990295 669.373962,271.919098 685.039490,248.835800 C695.342651,233.654007 715.392639,234.949387 724.786804,248.969711 C746.158264,280.865753 768.406128,312.175079 790.338257,343.694733 C806.838623,367.408142 823.442322,391.049652 839.926880,414.774048 C861.461365,445.766327 882.923645,476.808868 904.417053,507.829742 C910.397827,516.461731 916.378662,525.093689 922.672363,534.255615z"/>
-                {/* Blue i element */}
-                <path fill="#00245D" d="M1402.531372,1.000000 C1411.885132,4.341400 1418.247925,9.746492 1420.119873,19.745274 C1421.634399,27.834667 1418.185669,34.302917 1414.512817,40.751961 C1400.559204,65.252563 1386.480103,89.681671 1372.421143,114.122116 C1358.776245,137.842636 1345.098145,161.544128 1331.435547,185.254395 C1325.638672,195.314240 1320.141113,205.561691 1313.976196,215.390640 C1305.406738,229.052963 1284.071533,228.559219 1275.908203,214.665558 C1261.709473,190.499588 1247.662842,166.244278 1233.519287,142.045822 C1221.134033,120.855408 1208.723633,99.679642 1196.283081,78.521584 C1191.208862,69.891502 1189.943481,61.055435 1195.016602,52.051525 C1202.587646,38.613888 1210.398315,25.311386 1218.020142,11.901999 C1221.283813,6.159989 1226.316528,3.069968 1232.763428,1.271345z"/>
-              </svg>
+            {/* WinWin Logo - Simplified W shape in yellow */}
+            <div className="w-14 h-14 rounded-xl bg-black flex items-center justify-center overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
+              <span className="text-3xl font-black bg-gradient-to-br from-yellow-400 via-amber-400 to-yellow-500 bg-clip-text text-transparent" style={{ fontFamily: 'Arial Black, sans-serif' }}>W</span>
             </div>
             <div className="flex-1">
               <h1 className="text-xl font-bold bg-gradient-to-r from-yellow-400 to-amber-500 bg-clip-text text-transparent">WinWin Pipeline</h1>
@@ -1281,206 +1279,130 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               </div>
             ))}
 
-            {/* Connections - Hidden in Builder mode - Elegant Curved Paths with Centered Arrows */}
-            {viewMode === 'node' && (
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
-                <defs>
-                  <linearGradient id="connGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#3b82f6" />
-                    <stop offset="50%" stopColor="#6366f1" />
-                    <stop offset="100%" stopColor="#8b5cf6" />
-                  </linearGradient>
-                  <linearGradient id="connGradientDead" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#64748b" />
-                    <stop offset="100%" stopColor="#ef4444" />
-                  </linearGradient>
-                  {/* Glow filter for connections */}
-                  <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-                    <feGaussianBlur stdDeviation="2" result="blur" />
-                    <feMerge>
-                      <feMergeNode in="blur" />
-                      <feMergeNode in="SourceGraphic" />
-                    </feMerge>
-                  </filter>
-                </defs>
-                {connections.map(c => {
+            {/* FLOW ARROWS - ALWAYS VISIBLE - Big White Arrows Between Stages */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
+              <defs>
+                {/* White flow gradient for main stage connections */}
+                <linearGradient id="flowGradientWhite" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="rgba(255,255,255,0.6)" />
+                  <stop offset="50%" stopColor="rgba(255,255,255,0.9)" />
+                  <stop offset="100%" stopColor="rgba(255,255,255,0.6)" />
+                </linearGradient>
+                {/* Yellow WinWin accent gradient */}
+                <linearGradient id="flowGradientYellow" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="rgba(245,184,0,0.4)" />
+                  <stop offset="50%" stopColor="rgba(245,184,0,0.8)" />
+                  <stop offset="100%" stopColor="rgba(245,184,0,0.4)" />
+                </linearGradient>
+                {/* Red for dead lead paths */}
+                <linearGradient id="flowGradientRed" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="rgba(239,68,68,0.4)" />
+                  <stop offset="100%" stopColor="rgba(239,68,68,0.7)" />
+                </linearGradient>
+                {/* Big white arrow marker */}
+                <marker id="arrowWhite" markerWidth="16" markerHeight="16" refX="12" refY="8" orient="auto-start-reverse">
+                  <path d="M 0 0 L 16 8 L 0 16 L 4 8 Z" fill="white" />
+                </marker>
+                <marker id="arrowYellow" markerWidth="14" markerHeight="14" refX="10" refY="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 14 7 L 0 14 L 3 7 Z" fill="#F5B800" />
+                </marker>
+                <marker id="arrowRed" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 12 6 L 0 12 L 3 6 Z" fill="#ef4444" />
+                </marker>
+                {/* Glow filter */}
+                <filter id="glowWhite" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+              {/* STAGE-TO-STAGE FLOW ARROWS - Always visible in both modes */}
+              {connections
+                .filter(c => c.fromType === 'stage' && c.toType === 'stage') // Only stage connections
+                .map(c => {
                   const from = getNodeCenter(c.fromNodeId, c.fromType, 'right');
                   const to = getNodeCenter(c.toNodeId, c.toType, 'left');
-                  const isDashed = c.style === 'dashed';
+                  const isDeadPath = c.style === 'dashed' || stages.find(s => s.id === c.toNodeId)?.statusId === 'dead';
                   
-                  // Calculate smart cable management curves
+                  // Calculate smooth curve
                   const dx = to.x - from.x;
-                  const dy = to.y - from.y;
-                  
-                  // Elegant cable routing - avoid clutter with stepped offsets
-                  const connectionIndex = connections.indexOf(c);
-                  const verticalOffset = (connectionIndex % 5) * 15 - 30; // Stagger connections
-                  
-                  // Smart curve calculation - wider for longer distances, tighter for short
-                  const distance = Math.sqrt(dx * dx + dy * dy);
-                  const curveIntensity = Math.min(Math.max(distance * 0.35, 80), 250);
-                  
-                  // Control points with vertical offset for cable separation
+                  const curveIntensity = Math.min(Math.abs(dx) * 0.4, 200);
                   const cp1x = from.x + curveIntensity;
-                  const cp1y = from.y + verticalOffset * 0.5;
                   const cp2x = to.x - curveIntensity;
-                  const cp2y = to.y - verticalOffset * 0.5;
-                  
-                  // Calculate midpoint for centered arrow (t=0.5 on bezier)
-                  const t = 0.5;
-                  const midX = Math.pow(1-t,3)*from.x + 3*Math.pow(1-t,2)*t*cp1x + 3*(1-t)*Math.pow(t,2)*cp2x + Math.pow(t,3)*to.x;
-                  const midY = Math.pow(1-t,3)*from.y + 3*Math.pow(1-t,2)*t*cp1y + 3*(1-t)*Math.pow(t,2)*cp2y + Math.pow(t,3)*to.y;
-                  
-                  // Tangent angle for arrow rotation
-                  const tangentX = 3*Math.pow(1-t,2)*(cp1x-from.x) + 6*(1-t)*t*(cp2x-cp1x) + 3*Math.pow(t,2)*(to.x-cp2x);
-                  const tangentY = 3*Math.pow(1-t,2)*(cp1y-from.y) + 6*(1-t)*t*(cp2y-cp1y) + 3*Math.pow(t,2)*(to.y-cp2y);
-                  const angle = Math.atan2(tangentY, tangentX) * 180 / Math.PI;
                   
                   return (
                     <g key={c.id}>
-                      {/* Glow effect behind path */}
+                      {/* Glow behind the arrow path */}
                       <path 
-                        d={`M ${from.x} ${from.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${to.x} ${to.y}`} 
+                        d={`M ${from.x} ${from.y} C ${cp1x} ${from.y}, ${cp2x} ${to.y}, ${to.x} ${to.y}`} 
                         fill="none" 
-                        stroke={isDashed ? '#ef444440' : '#6366f140'} 
-                        strokeWidth={8} 
+                        stroke={isDeadPath ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.15)'} 
+                        strokeWidth={12} 
                         strokeLinecap="round"
+                        filter="url(#glowWhite)"
                       />
-                      
-                      {/* Main curved path */}
+                      {/* Main WHITE arrow path */}
                       <path 
-                        d={`M ${from.x} ${from.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${to.x} ${to.y}`} 
+                        d={`M ${from.x} ${from.y} C ${cp1x} ${from.y}, ${cp2x} ${to.y}, ${to.x} ${to.y}`} 
                         fill="none" 
-                        stroke={isDashed ? 'url(#connGradientDead)' : 'url(#connGradient)'} 
-                        strokeWidth={c.thickness || 3} 
-                        strokeDasharray={isDashed ? '8 4' : 'none'} 
+                        stroke={isDeadPath ? 'url(#flowGradientRed)' : 'url(#flowGradientWhite)'} 
+                        strokeWidth={4} 
                         strokeLinecap="round"
-                        opacity={0.95}
+                        markerEnd={isDeadPath ? 'url(#arrowRed)' : 'url(#arrowWhite)'}
                       />
-                      
-                      {/* Centered Arrow on the path middle */}
-                      <g transform={`translate(${midX}, ${midY}) rotate(${angle})`}>
-                        <polygon 
-                          points="-8,-6 8,0 -8,6 -4,0" 
-                          fill={isDashed ? '#ef4444' : '#8b5cf6'}
-                          stroke={isDashed ? '#ef4444' : '#6366f1'}
-                          strokeWidth={1}
-                        />
-                      </g>
-                      
-                      {/* Connection end dot */}
-                      <circle cx={to.x} cy={to.y} r={4} fill={isDashed ? '#ef4444' : '#8b5cf6'} />
-                      
-                      {/* Timer label on connection */}
-                      {c.triggerDelay && (
-                        <g>
-                          <rect x={midX - 45} y={midY + 15} width={90} height={24} rx={12} fill="#1e293b" stroke="#3b82f6" strokeWidth={1.5} />
-                          <text x={midX} y={midY + 31} fill="#60a5fa" fontSize="11" textAnchor="middle" fontWeight="600">
-                            ⏱ {c.triggerDelay.label}
-                          </text>
-                        </g>
-                      )}
+                      {/* Start dot */}
+                      <circle cx={from.x} cy={from.y} r={6} fill={isDeadPath ? '#ef4444' : 'white'} opacity={0.8} />
                     </g>
                   );
-                })}
-                
-                {/* Connection in progress */}
-                {connectingFrom && (() => {
-                  const from = getNodeCenter(connectingFrom.id, connectingFrom.type, 'right');
-                  const mx = (from.x + mousePos.x) / 2;
+              })}
+              
+              {/* ACTION NODE CONNECTIONS - Only visible in Node View */}
+              {viewMode === 'node' && connections
+                .filter(c => c.fromType === 'message' || c.toType === 'message') // Action node connections
+                .map(c => {
+                  const from = getNodeCenter(c.fromNodeId, c.fromType, 'right');
+                  const to = getNodeCenter(c.toNodeId, c.toType, 'left');
+                  const dx = to.x - from.x;
+                  const curveIntensity = Math.min(Math.abs(dx) * 0.35, 150);
+                  const cp1x = from.x + curveIntensity;
+                  const cp2x = to.x - curveIntensity;
+                  
                   return (
-                    <g>
+                    <g key={c.id}>
                       <path 
-                        d={`M ${from.x} ${from.y} C ${mx} ${from.y}, ${mx} ${mousePos.y}, ${mousePos.x} ${mousePos.y}`}
-                        fill="none" stroke="#fbbf24" strokeWidth={3} strokeDasharray="8 5" strokeLinecap="round"
+                        d={`M ${from.x} ${from.y} C ${cp1x} ${from.y}, ${cp2x} ${to.y}, ${to.x} ${to.y}`} 
+                        fill="none" 
+                        stroke="url(#flowGradientYellow)" 
+                        strokeWidth={3} 
+                        strokeLinecap="round"
+                        strokeDasharray="6 4"
+                        markerEnd="url(#arrowYellow)"
                       />
-                      <circle cx={mousePos.x} cy={mousePos.y} r={10} fill="#fbbf24" opacity={0.4} />
-                      <circle cx={mousePos.x} cy={mousePos.y} r={5} fill="#fbbf24" />
                     </g>
                   );
-                })()}
-              </svg>
-            )}
+              })}
+              
+              {/* Connection in progress */}
+              {connectingFrom && (() => {
+                const from = getNodeCenter(connectingFrom.id, connectingFrom.type, 'right');
+                const mx = (from.x + mousePos.x) / 2;
+                return (
+                  <g>
+                    <path 
+                      d={`M ${from.x} ${from.y} C ${mx} ${from.y}, ${mx} ${mousePos.y}, ${mousePos.x} ${mousePos.y}`}
+                      fill="none" stroke="#F5B800" strokeWidth={4} strokeDasharray="10 6" strokeLinecap="round"
+                    />
+                    <circle cx={mousePos.x} cy={mousePos.y} r={12} fill="#F5B800" opacity={0.3} />
+                    <circle cx={mousePos.x} cy={mousePos.y} r={6} fill="#F5B800" />
+                  </g>
+                );
+              })()}
+            </svg>
 
-            {/* Stage Nodes - Builder mode shows BIGGER leads for easy drag-drop */}
-            {stages.map(stage => viewMode === 'builder' ? (
-              /* Builder Mode - BIGGER stages with visible leads for easy drag-drop management */
-              <div 
-                key={stage.id}
-                className="node-card absolute cursor-grab active:cursor-grabbing"
-                style={{ 
-                  left: stage.x, 
-                  top: stage.y,
-                  width: Math.max(stage.width || 400, 350),
-                  minHeight: 200
-                }}
-                onMouseDown={(e) => {
-                  if ((e.target as HTMLElement).closest('.lead-item, button')) return;
-                  e.stopPropagation();
-                  let lastX = e.clientX, lastY = e.clientY;
-                  const move = (ev: MouseEvent) => { handleNodeMove(stage.id, 'stage', ev.clientX - lastX, ev.clientY - lastY); lastX = ev.clientX; lastY = ev.clientY; };
-                  const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
-                  window.addEventListener('mousemove', move);
-                  window.addEventListener('mouseup', up);
-                }}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleDropOnStage(stage.id)}
-              >
-                <div className={`rounded-2xl border-2 backdrop-blur-xl transition-all overflow-hidden ${
-                  stage.statusId === 'dead' ? 'bg-red-500/10 border-red-500/40' :
-                  stage.statusId === 'new' ? 'bg-gradient-to-br from-blue-500/20 to-indigo-500/10 border-blue-500/50' :
-                  stage.statusId === 'approval' ? 'bg-gradient-to-br from-emerald-500/20 to-green-500/10 border-emerald-500/50' :
-                  'bg-gradient-to-br from-slate-800/80 to-slate-900/60 border-slate-600/40'
-                }`}>
-                  {/* Stage Header */}
-                  <div className={`px-5 py-4 border-b ${
-                    stage.statusId === 'dead' ? 'border-red-500/30 bg-red-500/5' :
-                    stage.statusId === 'new' ? 'border-blue-500/30 bg-blue-500/5' :
-                    stage.statusId === 'approval' ? 'border-emerald-500/30 bg-emerald-500/5' :
-                    'border-slate-700/50 bg-slate-800/30'
-                  }`}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-3xl">{stage.icon}</span>
-                      <div className="flex-1">
-                        <h3 className="text-lg font-bold text-white">{stage.label}</h3>
-                        <p className="text-sm text-slate-400">{getStageLeads(stage).length} leads</p>
-                      </div>
-                    </div>
-                  </div>
-                  {/* BIGGER Lead Cards for Easy Drag-Drop */}
-                  <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto">
-                    {getStageLeads(stage).slice(0, 8).map(lead => (
-                      <div 
-                        key={lead.id}
-                        className="lead-item p-4 rounded-xl bg-slate-800/60 border border-slate-700/50 cursor-grab active:cursor-grabbing hover:bg-slate-700/60 hover:border-slate-600 transition-all"
-                        draggable
-                        onDragStart={() => setDraggedLead(lead)}
-                        onDragEnd={() => setDraggedLead(null)}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500/30 to-purple-500/30 flex items-center justify-center text-xl font-bold text-white border border-white/20">
-                            {lead.firstName?.[0]}{lead.lastName?.[0]}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-base font-semibold text-white truncate">{lead.firstName} {lead.lastName}</p>
-                            <p className="text-sm text-slate-400 truncate">{lead.email || lead.phone}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {getStageLeads(stage).length > 8 && (
-                      <p className="text-center text-sm text-slate-500 py-2">+{getStageLeads(stage).length - 8} more leads</p>
-                    )}
-                    {getStageLeads(stage).length === 0 && (
-                      <div className="text-center py-6 text-slate-500">
-                        <p className="text-lg">📥</p>
-                        <p className="text-sm">Drop leads here</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : (
+            {/* Stage Nodes - Same in both modes, Builder has BIGGER leads */}
+            {stages.map(stage => (
               <RunwayStageNode 
                 key={stage.id} 
                 stage={stage} 
@@ -1489,6 +1411,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 isConnecting={connectingFrom?.id === stage.id}
                 isDropTarget={!!draggedLead}
                 zoom={zoom}
+                viewMode={viewMode}
                 onSelect={() => { setSelectedNode(stage.id); setSelectedNodeType('stage'); }}
                 onMove={(dx, dy) => handleNodeMove(stage.id, 'stage', dx, dy)}
                 onDelete={() => { setStages(stages.filter(s => s.id !== stage.id)); setConnections(connections.filter(c => c.fromNodeId !== stage.id && c.toNodeId !== stage.id)); }}
@@ -1771,10 +1694,14 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 }
 
 // ============ RUNWAY STAGE NODE ============
-function RunwayStageNode({ stage, leads, isSelected, isConnecting, isDropTarget, zoom, onSelect, onMove, onDelete, onConnect, onDrop, onDragLead, onViewLead, onToggleStar, starredLeads, showInlineActions, onToggleInlineActions }: any) {
+function RunwayStageNode({ stage, leads, isSelected, isConnecting, isDropTarget, zoom, viewMode, onSelect, onMove, onDelete, onConnect, onDrop, onDragLead, onViewLead, onToggleStar, starredLeads, showInlineActions, onToggleInlineActions }: any) {
   const [dragging, setDragging] = useState(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const color = STAGE_COLORS.find(c => c.id === stage.color) || STAGE_COLORS[0];
+  
+  // Builder mode = BIGGER lead cards for easy drag-drop
+  const isBuilderMode = viewMode === 'builder';
+  const leadCardSize = isBuilderMode ? 'large' : 'normal';
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.lead-card, .connect-btn, .action-btn, .inline-panel')) return;
@@ -1788,7 +1715,7 @@ function RunwayStageNode({ stage, leads, isSelected, isConnecting, isDropTarget,
   };
 
   const headerHeight = 80;
-  const maxLeads = 8;
+  const maxLeads = isBuilderMode ? 6 : 8; // Show fewer but bigger leads in builder mode
 
   return (
     <div className="node-card absolute" style={{ left: stage.x, top: stage.y, zIndex: isSelected ? 100 : 1 }} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
@@ -1830,25 +1757,36 @@ function RunwayStageNode({ stage, leads, isSelected, isConnecting, isDropTarget,
               <span className="text-sm font-medium">Drop leads here</span>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
+            <div className={isBuilderMode ? 'flex flex-col gap-3' : 'grid grid-cols-2 gap-2'}>
               {leads.slice(0, maxLeads).map((lead: Lead) => (
                 <div key={lead.id} draggable onDragStart={() => onDragLead(lead)} onDragEnd={() => onDragLead(null)}
                   onClick={(e) => { e.stopPropagation(); onViewLead(lead); }}
-                  className="lead-card flex items-center gap-2 p-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 cursor-grab transition-all border border-slate-700/50 hover:border-slate-600">
-                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${color.bg} flex items-center justify-center ${color.text} text-sm font-bold flex-shrink-0`}>
+                  className={`lead-card flex items-center cursor-grab transition-all border hover:border-slate-600 ${
+                    isBuilderMode 
+                      ? 'gap-4 p-5 rounded-2xl bg-slate-800/95 hover:bg-slate-700/95 border-slate-600/60 shadow-lg' 
+                      : 'gap-2 p-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border-slate-700/50'
+                  }`}>
+                  <div className={`rounded-xl bg-gradient-to-br ${color.bg} flex items-center justify-center ${color.text} font-bold flex-shrink-0 ${
+                    isBuilderMode ? 'w-14 h-14 text-xl' : 'w-10 h-10 text-sm rounded-lg'
+                  }`}>
                     {lead.formData.fullName.charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white font-semibold truncate">{lead.formData.fullName}</div>
-                    <div className="text-xs text-slate-400 truncate">{lead.formData.phone}</div>
+                    <div className={`text-white font-semibold truncate ${isBuilderMode ? 'text-lg' : 'text-sm'}`}>{lead.formData.fullName}</div>
+                    <div className={`text-slate-400 truncate ${isBuilderMode ? 'text-sm' : 'text-xs'}`}>{lead.formData.phone}</div>
+                    {isBuilderMode && lead.formData.email && (
+                      <div className="text-xs text-slate-500 truncate mt-1">{lead.formData.email}</div>
+                    )}
                   </div>
-                  <button onClick={(e) => { e.stopPropagation(); onToggleStar(lead.id); }} className="text-base flex-shrink-0">
+                  <button onClick={(e) => { e.stopPropagation(); onToggleStar(lead.id); }} className={`flex-shrink-0 ${isBuilderMode ? 'text-xl' : 'text-base'}`}>
                     {starredLeads.has(lead.id) ? '⭐' : '☆'}
                   </button>
                 </div>
               ))}
               {leads.length > maxLeads && (
-                <div className="col-span-2 text-center text-sm text-slate-500 py-2 font-medium">+{leads.length - maxLeads} more leads</div>
+                <div className={`text-center text-slate-500 font-medium ${isBuilderMode ? 'col-span-1 text-base py-3' : 'col-span-2 text-sm py-2'}`}>
+                  +{leads.length - maxLeads} more leads
+                </div>
               )}
             </div>
           )}
