@@ -245,7 +245,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       );
       setProfiles(updated);
 
-      // Save to S3 via API (primary storage)
+      // Save to Cloud (AWS S3) - Primary and only storage
       try {
         const response = await fetch('/api/admin/workflows', {
           method: 'POST',
@@ -256,15 +256,22 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         if (response.ok) {
           setSaveNotification('☁️ Saved to cloud!');
         } else {
-          // Fallback to localStorage only if S3 fails
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-          setSaveNotification('💾 Saved locally');
+          setSaveNotification('⚠️ Cloud save failed - retrying...');
+          // Retry once
+          setTimeout(async () => {
+            try {
+              await fetch('/api/admin/workflows', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ profiles: updated, activeProfile: updatedProfile }),
+              });
+              setSaveNotification('☁️ Saved to cloud!');
+            } catch { setSaveNotification('⚠️ Please check connection'); }
+          }, 2000);
         }
       } catch (err) {
-        console.error('Failed to save to S3:', err);
-        // Fallback to localStorage
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        setSaveNotification('💾 Saved locally');
+        console.error('Cloud save error:', err);
+        setSaveNotification('⚠️ Connection issue - will retry');
       }
 
       setIsLoading(false);
@@ -756,20 +763,25 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden flex">
       {/* PREMIUM LEFT SIDEBAR */}
       <div className="w-[420px] bg-slate-900/95 border-r border-slate-700/50 flex flex-col z-40 flex-shrink-0 sidebar backdrop-blur-xl">
-        {/* Header */}
-        <div className="p-6 border-b border-slate-700/50 bg-gradient-to-r from-slate-800/80 to-slate-900/80">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <span className="text-xl">🚀</span>
+        {/* Header - WinWin Branding */}
+        <div className="p-6 border-b border-slate-700/50 bg-gradient-to-r from-slate-900 to-slate-800">
+          <div className="flex items-center gap-3">
+            {/* WinWin Logo */}
+            <div className="w-12 h-12 rounded-xl bg-black flex items-center justify-center overflow-hidden border border-yellow-500/30">
+              <svg viewBox="0 0 100 60" className="w-10 h-6">
+                <path d="M5 15 L20 45 L35 15 L50 45 L55 35" fill="none" stroke="#F5B800" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M45 10 L55 35 L65 10" fill="none" stroke="#1e3a5f" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M55 35 L70 45 L85 15" fill="none" stroke="#F5B800" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-white">Runway Pipeline</h1>
-              <p className="text-sm text-slate-400">Visual Automation Builder</p>
+            <div className="flex-1">
+              <h1 className="text-xl font-bold text-white">WinWin Pipeline</h1>
+              <p className="text-sm text-slate-400">Visual Workflow Builder</p>
             </div>
             {/* Upload Leads Button */}
             <button 
               onClick={() => setShowUploadModal(true)}
-              className="ml-auto px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-500/20 to-green-500/20 border border-emerald-500/40 text-emerald-400 hover:from-emerald-500/30 hover:to-green-500/30 transition-all text-sm font-medium"
+              className="px-3 py-2 rounded-lg bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-500/40 text-yellow-400 hover:from-yellow-500/30 hover:to-amber-500/30 transition-all text-sm font-medium"
               title="Upload Leads"
             >
               📤 Upload
@@ -816,11 +828,11 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                       idx === 0 ? 'border-emerald-500/50 hover:border-emerald-400/70 hover:shadow-emerald-500/10 ring-1 ring-emerald-500/20' : 
                       'border-slate-700/50 hover:border-blue-500/50 hover:shadow-blue-500/10'
                     }`}>
-                    {/* Recommended Badge */}
+                    {/* WinWin Recommended Badge */}
                     {idx === 0 && (
-                      <div className="bg-gradient-to-r from-emerald-500/20 to-green-500/20 px-4 py-2 border-b border-emerald-500/30">
-                        <span className="text-xs font-bold text-emerald-400 flex items-center gap-2">
-                          ⭐ RECOMMENDED - Best for getting started
+                      <div className="bg-gradient-to-r from-yellow-500/20 to-amber-500/20 px-4 py-2 border-b border-yellow-500/30">
+                        <span className="text-xs font-bold text-yellow-400 flex items-center gap-2">
+                          ⭐ WINWIN PICK - Best for getting started
                         </span>
                       </div>
                     )}
@@ -841,10 +853,10 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                               p.complexity === 'runway' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
                               'bg-blue-500/20 text-blue-400 border border-blue-500/30'
                             }`}>
-                              {p.complexity === 'starter' ? '🟢 BEGINNER' : 
-                               p.complexity === 'standard' ? '🟡 STANDARD' :
-                               p.complexity === 'advanced' ? '🟠 ADVANCED' :
-                               p.complexity === 'runway' ? '🟣 ENTERPRISE' : p.complexity.toUpperCase()}
+                              {p.complexity === 'starter' ? '⭐ LEVEL 1' : 
+                               p.complexity === 'standard' ? '⭐⭐ LEVEL 2' :
+                               p.complexity === 'advanced' ? '⭐⭐⭐ LEVEL 3' :
+                               p.complexity === 'runway' ? '⭐⭐⭐ LEVEL 3' : 'LEVEL 1'}
                             </span>
                           </div>
                         </div>
@@ -1179,7 +1191,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 ⊡ Fit
               </button>
               
-              <button onClick={autoLayoutHourglass} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/40 text-purple-400 text-sm font-semibold hover:from-purple-500/30 hover:to-indigo-500/30 transition-all">
+              <button onClick={autoLayoutHourglass} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-yellow-500/30 to-amber-500/30 border border-yellow-500/50 text-yellow-400 text-sm font-bold hover:from-yellow-500/40 hover:to-amber-500/40 transition-all shadow-lg shadow-yellow-500/10">
                 ✨ Auto Layout
               </button>
 
@@ -1269,24 +1281,30 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                   const to = getNodeCenter(c.toNodeId, c.toType, 'left');
                   const isDashed = c.style === 'dashed';
                   
-                  // Calculate control points for smooth S-curve
+                  // Calculate smart cable management curves
                   const dx = to.x - from.x;
                   const dy = to.y - from.y;
                   
-                  // Use wider curves for better visual understanding
-                  const curveOffset = Math.min(Math.abs(dx) * 0.4, 200);
-                  const cp1x = from.x + curveOffset;
-                  const cp1y = from.y;
-                  const cp2x = to.x - curveOffset;
-                  const cp2y = to.y;
+                  // Elegant cable routing - avoid clutter with stepped offsets
+                  const connectionIndex = connections.indexOf(c);
+                  const verticalOffset = (connectionIndex % 5) * 15 - 30; // Stagger connections
                   
-                  // Calculate midpoint for centered arrow
-                  // Bezier curve midpoint at t=0.5
+                  // Smart curve calculation - wider for longer distances, tighter for short
+                  const distance = Math.sqrt(dx * dx + dy * dy);
+                  const curveIntensity = Math.min(Math.max(distance * 0.35, 80), 250);
+                  
+                  // Control points with vertical offset for cable separation
+                  const cp1x = from.x + curveIntensity;
+                  const cp1y = from.y + verticalOffset * 0.5;
+                  const cp2x = to.x - curveIntensity;
+                  const cp2y = to.y - verticalOffset * 0.5;
+                  
+                  // Calculate midpoint for centered arrow (t=0.5 on bezier)
                   const t = 0.5;
                   const midX = Math.pow(1-t,3)*from.x + 3*Math.pow(1-t,2)*t*cp1x + 3*(1-t)*Math.pow(t,2)*cp2x + Math.pow(t,3)*to.x;
                   const midY = Math.pow(1-t,3)*from.y + 3*Math.pow(1-t,2)*t*cp1y + 3*(1-t)*Math.pow(t,2)*cp2y + Math.pow(t,3)*to.y;
                   
-                  // Calculate tangent angle at midpoint for arrow rotation
+                  // Tangent angle for arrow rotation
                   const tangentX = 3*Math.pow(1-t,2)*(cp1x-from.x) + 6*(1-t)*t*(cp2x-cp1x) + 3*Math.pow(t,2)*(to.x-cp2x);
                   const tangentY = 3*Math.pow(1-t,2)*(cp1y-from.y) + 6*(1-t)*t*(cp2y-cp1y) + 3*Math.pow(t,2)*(to.y-cp2y);
                   const angle = Math.atan2(tangentY, tangentX) * 180 / Math.PI;
@@ -1357,8 +1375,41 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               </svg>
             )}
 
-            {/* Stage Nodes */}
-            {stages.map(stage => (
+            {/* Stage Nodes - Full view in Node mode, Simplified labels in Builder mode */}
+            {stages.map(stage => viewMode === 'builder' ? (
+              /* Builder Mode - Compact stage labels for clean navigation */
+              <div 
+                key={stage.id}
+                className="node-card absolute cursor-grab active:cursor-grabbing"
+                style={{ left: stage.x, top: stage.y }}
+                onMouseDown={(e) => {
+                  if ((e.target as HTMLElement).closest('.lead-drop')) return;
+                  e.stopPropagation();
+                  let lastX = e.clientX, lastY = e.clientY;
+                  const move = (ev: MouseEvent) => { handleNodeMove(stage.id, 'stage', ev.clientX - lastX, ev.clientY - lastY); lastX = ev.clientX; lastY = ev.clientY; };
+                  const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+                  window.addEventListener('mousemove', move);
+                  window.addEventListener('mouseup', up);
+                }}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleDropOnStage(stage.id)}
+              >
+                <div className={`px-6 py-4 rounded-xl border-2 backdrop-blur-xl transition-all ${
+                  stage.statusId === 'dead' ? 'bg-red-500/10 border-red-500/40' :
+                  stage.statusId === 'new' ? 'bg-blue-500/10 border-blue-500/40' :
+                  stage.statusId === 'approval' ? 'bg-emerald-500/10 border-emerald-500/40' :
+                  'bg-slate-800/60 border-slate-600/40'
+                }`} style={{ minWidth: 180 }}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{stage.icon}</span>
+                    <div>
+                      <h3 className="text-base font-bold text-white">{stage.label}</h3>
+                      <p className="text-xs text-slate-400">{getStageLeads(stage).length} leads</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
               <RunwayStageNode 
                 key={stage.id} 
                 stage={stage} 

@@ -1092,25 +1092,37 @@ const REFERRAL_PRESET: Preset = {
 };
 ALL_PRESETS.push(REFERRAL_PRESET);
 
-// ============ SORT PRESETS BY DIFFICULTY (Easiest → Hardest) ============
-// Complexity order: starter < standard < advanced < runway
-const complexityOrder = { 'starter': 0, 'standard': 1, 'advanced': 2, 'runway': 3 };
+// ============ WINWIN PRESET LEVELS ============
+// Level 1: Essential (starter) - 5 mins setup
+// Level 2: Professional (standard) - 15-20 mins setup
+// Level 3: Enterprise (advanced/runway) - 30+ mins setup
 
-// Sort in place - easiest first (most recommended for new users)
+const complexityOrder = { 'starter': 1, 'standard': 2, 'advanced': 3, 'runway': 3 };
+
+// Sort by WinWin level (easiest first)
 ALL_PRESETS.sort((a, b) => {
-  const orderA = complexityOrder[a.complexity as keyof typeof complexityOrder] ?? 1;
-  const orderB = complexityOrder[b.complexity as keyof typeof complexityOrder] ?? 1;
+  const orderA = complexityOrder[a.complexity as keyof typeof complexityOrder] ?? 2;
+  const orderB = complexityOrder[b.complexity as keyof typeof complexityOrder] ?? 2;
   return orderA - orderB;
 });
 
-// Add recommendation badges
+// Mark first as recommended
 ALL_PRESETS.forEach((p, idx) => {
-  if (idx === 0) (p as any).recommended = true; // First one is most recommended
+  if (idx === 0) (p as any).recommended = true;
 });
 
+// WinWin Preset Categories
 export const PRESET_CATEGORIES = [
-  { id: 'all', label: 'All Presets', icon: '📁' },
+  { id: 'all', label: 'All Templates', icon: '📁' },
   { id: 'automotive', label: 'Automotive', icon: '🚗' },
   { id: 'sales', label: 'Sales', icon: '📊' },
-  { id: 'basic', label: 'Basic', icon: '🎯' },
+  { id: 'basic', label: 'Essential', icon: '⭐' },
 ];
+
+// WinWin Levels for display
+export const WINWIN_LEVELS = {
+  starter: { level: 1, name: 'Essential', color: 'emerald', description: 'Quick start templates' },
+  standard: { level: 2, name: 'Professional', color: 'yellow', description: 'Full-featured workflows' },
+  advanced: { level: 3, name: 'Enterprise', color: 'purple', description: 'Advanced automation' },
+  runway: { level: 3, name: 'Enterprise', color: 'purple', description: 'Maximum automation' },
+};
