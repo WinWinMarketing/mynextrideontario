@@ -212,9 +212,10 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   }, [hasUnsavedChanges]);
 
-  // ============ MANUAL SAVE - S3 + LOCAL ============
+  // ============ SAVE TO CLOUD (S3) ============
   const manualSave = useCallback(async () => {
     if (activeProfileId) {
+      setIsLoading(true);
       const now = new Date().toISOString();
       const updatedProfile = { 
         id: activeProfileId,
@@ -243,26 +244,30 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         p.id === activeProfileId ? updatedProfile : p
       );
       setProfiles(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-      // Save to S3 via API
+      // Save to S3 via API (primary storage)
       try {
         const response = await fetch('/api/admin/workflows', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatedProfile),
+          body: JSON.stringify({ profiles: updated, activeProfile: updatedProfile }),
         });
         
         if (response.ok) {
-          setSaveNotification('✅ Saved to cloud!');
+          setSaveNotification('☁️ Saved to cloud!');
         } else {
-          setSaveNotification('⚠️ Saved locally only');
+          // Fallback to localStorage only if S3 fails
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+          setSaveNotification('💾 Saved locally');
         }
       } catch (err) {
         console.error('Failed to save to S3:', err);
-        setSaveNotification('⚠️ Saved locally only');
+        // Fallback to localStorage
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        setSaveNotification('💾 Saved locally');
       }
 
+      setIsLoading(false);
       setLastSaveTime(new Date());
       setHasUnsavedChanges(false);
       setShowSaveReminder(false);
@@ -386,8 +391,20 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     const updated = [...profiles, np];
     setProfiles(updated); setActiveProfileId(np.id);
     setStages([]); setMessageNodes([]); setConnections([]); setLabels([]);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); localStorage.setItem(ACTIVE_PROFILE_KEY, np.id);
+    
+    // Save to cloud
+    fetch('/api/admin/workflows', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profiles: updated, activeProfile: np }),
+    }).catch(() => {
+      // Fallback to local
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    });
+    
     setHasUnsavedChanges(false);
+    setSaveNotification('☁️ Profile created!');
+    setTimeout(() => setSaveNotification(null), 2000);
   };
 
   // ============ LEADS ============
@@ -405,13 +422,38 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setDraggedLead(null);
   };
 
-  // ============ CANVAS ============
+  // ============ CANVAS - Smooth like Runway ============
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.node-card, .message-node, .label-node, .sidebar, .inline-panel')) return;
+    // Only block if clicking directly on a node element
+    const target = e.target as HTMLElement;
+    if (target.closest('.node-card, .message-node, .inline-panel')) return;
+    
+    // Clear connection mode on empty click
     if (connectingFrom) { setConnectingFrom(null); return; }
+    
+    // Start canvas panning
     e.preventDefault();
+    e.stopPropagation();
     setIsDraggingCanvas(true); 
     lastPos.current = { x: e.clientX, y: e.clientY };
+    
+    // Add global listeners for smooth dragging even outside container
+    const handleGlobalMove = (ev: MouseEvent) => {
+      setPan(p => ({ 
+        x: p.x + (ev.clientX - lastPos.current.x), 
+        y: p.y + (ev.clientY - lastPos.current.y) 
+      }));
+      lastPos.current = { x: ev.clientX, y: ev.clientY };
+    };
+    
+    const handleGlobalUp = () => {
+      setIsDraggingCanvas(false);
+      window.removeEventListener('mousemove', handleGlobalMove);
+      window.removeEventListener('mouseup', handleGlobalUp);
+    };
+    
+    window.addEventListener('mousemove', handleGlobalMove);
+    window.addEventListener('mouseup', handleGlobalUp);
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
@@ -419,13 +461,15 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       const r = canvasRef.current.getBoundingClientRect(); 
       setMousePos({ x: (e.clientX - r.left - pan.x) / zoom, y: (e.clientY - r.top - pan.y) / zoom }); 
     }
-    if (!isDraggingCanvas) return;
-    setPan(p => ({ x: p.x + e.clientX - lastPos.current.x, y: p.y + e.clientY - lastPos.current.y }));
-    lastPos.current = { x: e.clientX, y: e.clientY };
   };
 
   const handleCanvasMouseUp = () => setIsDraggingCanvas(false);
-  const handleWheel = (e: React.WheelEvent) => { e.preventDefault(); setZoom(z => Math.max(0.15, Math.min(1.5, z + (e.deltaY > 0 ? -0.04 : 0.04)))); };
+  
+  const handleWheel = (e: React.WheelEvent) => { 
+    // Smooth zoom
+    const delta = e.deltaY > 0 ? -0.05 : 0.05;
+    setZoom(z => Math.max(0.15, Math.min(1.5, z + delta))); 
+  };
 
   const fitView = () => {
     if (stages.length === 0) { setZoom(0.35); setPan({ x: 80, y: 80 }); return; }
@@ -464,7 +508,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   };
   
-  // ============ AUTO LAYOUT - Center-focused hourglass pattern ============
+  // ============ AUTO LAYOUT - Center-focused hourglass pattern (no overlap) ============
   const autoLayoutHourglass = () => {
     const deadStages = stages.filter(s => s.statusId === 'dead');
     const newStages = stages.filter(s => s.statusId === 'new');
@@ -473,89 +517,128 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     const circleBackStages = stages.filter(s => s.statusId === 'circle-back');
     
     // Center point - where NEW LEAD sits (big focal point)
-    const centerX = 1200;
-    const centerY = 700;
+    const centerX = 1400;
+    const centerY = 900;
+    
+    // Spacing constants to prevent overlap
+    const deadSpacing = 450;
+    const workingSpacing = 480;
+    const approvalSpacing = 500;
+    const columnGap = 550;
     
     setStages(prev => prev.map(s => {
       // NEW LEAD - Center, big, focal point
       if (s.statusId === 'new') {
         const idx = newStages.findIndex(n => n.id === s.id);
-        // Make it larger
         return { 
           ...s, 
           x: centerX - 230, 
-          y: centerY - 230 + idx * 100,
+          y: centerY - 230 + idx * 500, // Stack vertically if multiple new stages
           width: 460,
           height: 460
         };
       }
       
-      // DEAD LEADS - Far left, stacked vertically (negative funnel)
+      // DEAD LEADS - Far left column, evenly spaced vertically
       if (s.statusId === 'dead') {
         const idx = deadStages.findIndex(d => d.id === s.id);
         const totalDead = deadStages.length;
-        const startY = centerY - ((totalDead - 1) * 200);
+        // Center the dead leads vertically around the center point
+        const totalHeight = (totalDead - 1) * deadSpacing;
+        const startY = centerY - totalHeight / 2;
         return { 
           ...s, 
-          x: 80, 
-          y: startY + idx * 400,
-          width: 340,
-          height: 320
+          x: 100, 
+          y: startY + idx * deadSpacing,
+          width: 380,
+          height: 360
         };
       }
       
-      // WORKING - Branch out to upper-right and lower-right (positive funnel)
+      // WORKING - Column(s) to the right of center, evenly distributed
       if (s.statusId === 'working') {
         const idx = workingStages.findIndex(w => w.id === s.id);
-        const total = workingStages.length;
-        // Spread vertically on right side, branching out
-        const xBase = centerX + 600 + Math.floor(idx / 3) * 450;
-        const yOffset = (idx % 3 - 1) * 380;
+        const totalWorking = workingStages.length;
+        
+        // Determine column and row
+        const itemsPerColumn = 3;
+        const col = Math.floor(idx / itemsPerColumn);
+        const row = idx % itemsPerColumn;
+        
+        // Calculate position
+        const xBase = centerX + columnGap + col * columnGap;
+        const rowsInThisColumn = Math.min(itemsPerColumn, totalWorking - col * itemsPerColumn);
+        const columnHeight = (rowsInThisColumn - 1) * workingSpacing;
+        const startY = centerY - columnHeight / 2;
+        
         return { 
           ...s, 
           x: xBase,
-          y: centerY + yOffset,
-          width: 380,
-          height: 340
+          y: startY + row * workingSpacing,
+          width: 400,
+          height: 380
         };
       }
       
-      // APPROVAL/WON - Far right, converging (success funnel)
+      // APPROVAL/WON - Far right column(s), staggered for visual flow
       if (s.statusId === 'approval') {
         const idx = approvalStages.findIndex(a => a.id === s.id);
-        const total = approvalStages.length;
-        const xBase = centerX + 1400 + idx * 450;
-        const yOffset = idx === total - 1 ? 0 : (idx % 2 === 0 ? -180 : 180);
+        const totalApproval = approvalStages.length;
+        
+        // Position in columns
+        const itemsPerColumn = 2;
+        const col = Math.floor(idx / itemsPerColumn);
+        const row = idx % itemsPerColumn;
+        
+        // How many working columns are there?
+        const workingCols = Math.ceil(workingStages.length / 3);
+        const xBase = centerX + columnGap + workingCols * columnGap + col * approvalSpacing;
+        
+        // Stack vertically with offset
+        const rowsInThisColumn = Math.min(itemsPerColumn, totalApproval - col * itemsPerColumn);
+        const columnHeight = (rowsInThisColumn - 1) * approvalSpacing;
+        const startY = centerY - columnHeight / 2;
+        
+        // Last approval stage (usually WON) gets extra size
+        const isLast = idx === totalApproval - 1;
+        
         return { 
           ...s, 
           x: xBase,
-          y: centerY + yOffset,
-          width: idx === total - 1 ? 440 : 380, // Last one (WON) is bigger
-          height: idx === total - 1 ? 420 : 340
+          y: startY + row * approvalSpacing,
+          width: isLast ? 460 : 420,
+          height: isLast ? 440 : 400
         };
       }
       
-      // CIRCLE BACK - Below center-left
+      // CIRCLE BACK - Below the center-left area
       if (s.statusId === 'circle-back') {
         const idx = circleBackStages.findIndex(c => c.id === s.id);
         return { 
           ...s, 
-          x: centerX - 400 + idx * 100, 
-          y: centerY + 500 + idx * 150,
-          width: 360,
-          height: 320
+          x: centerX - 600 + idx * 450, 
+          y: centerY + 600,
+          width: 380,
+          height: 340
         };
       }
       
       return s;
     }));
     
-    // Position message nodes as branches from the main flow
+    // Position message nodes in a neat grid to the far right
+    const workingCols = Math.ceil(workingStages.length / 3);
+    const approvalCols = Math.ceil(approvalStages.length / 2);
+    const msgStartX = centerX + columnGap + (workingCols + approvalCols) * columnGap + 200;
+    
     setMessageNodes(prev => prev.map((m, idx) => ({
       ...m,
-      x: centerX + 1800 + (idx % 2) * 350,
-      y: 200 + Math.floor(idx / 2) * 280
+      x: msgStartX + (idx % 2) * 380,
+      y: 200 + Math.floor(idx / 2) * 320
     })));
+    
+    // Fit view after layout
+    setTimeout(fitView, 100);
     
     setSaveNotification('✨ Hourglass layout applied!');
     setTimeout(() => setSaveNotification(null), 2000);

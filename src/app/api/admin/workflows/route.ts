@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create or update workflow
+// POST - Create or update workflow (supports single workflow or batch profiles)
 export async function POST(request: NextRequest) {
   const authResult = await verifyAuth(request);
   if (!authResult.authenticated) {
@@ -95,16 +95,44 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const workflow = await request.json();
+    const data = await request.json();
+    const s3 = getS3Client();
+    const bucket = config.aws.bucketName;
     
+    // Check if this is a batch profiles save
+    if (data.profiles && Array.isArray(data.profiles)) {
+      // Save all profiles
+      for (const profile of data.profiles) {
+        if (!profile.id) continue;
+        
+        await s3.send(new PutObjectCommand({
+          Bucket: bucket,
+          Key: `${WORKFLOWS_PREFIX}${profile.id}.json`,
+          Body: JSON.stringify(profile, null, 2),
+          ContentType: 'application/json',
+        }));
+      }
+      
+      // Also save the active profile separately for quick access
+      if (data.activeProfile) {
+        await s3.send(new PutObjectCommand({
+          Bucket: bucket,
+          Key: `${WORKFLOWS_PREFIX}active-profile.json`,
+          Body: JSON.stringify(data.activeProfile, null, 2),
+          ContentType: 'application/json',
+        }));
+      }
+      
+      return NextResponse.json({ success: true, savedCount: data.profiles.length });
+    }
+    
+    // Single workflow save (legacy format)
+    const workflow = data;
     if (!workflow.id) {
       workflow.id = `workflow-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       workflow.createdAt = new Date().toISOString();
     }
     workflow.updatedAt = new Date().toISOString();
-
-    const s3 = getS3Client();
-    const bucket = config.aws.bucketName;
 
     await s3.send(new PutObjectCommand({
       Bucket: bucket,
