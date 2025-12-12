@@ -465,29 +465,33 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
   const handleCanvasMouseUp = () => setIsDraggingCanvas(false);
   
+  // ============ SCROLL WHEEL = ZOOM (Industry Standard) ============
   const handleWheel = (e: React.WheelEvent) => { 
-    // Shift+scroll = horizontal pan (left-right)
-    // Ctrl+scroll = zoom
-    // Regular scroll = horizontal pan for natural flow reading
+    e.preventDefault();
     
-    if (e.ctrlKey || e.metaKey) {
-      // Zoom with ctrl/cmd + scroll
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.05 : 0.05;
-      setZoom(z => Math.max(0.15, Math.min(1.5, z + delta)));
+    // Scroll wheel = zoom in/out (like Figma, Runway, etc.)
+    const delta = e.deltaY > 0 ? -0.06 : 0.06;
+    
+    // Zoom towards cursor position for natural feel
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) {
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      
+      setZoom(prevZoom => {
+        const newZoom = Math.max(0.15, Math.min(1.5, prevZoom + delta));
+        
+        // Adjust pan to zoom towards cursor
+        const zoomRatio = newZoom / prevZoom;
+        setPan(prevPan => ({
+          x: mouseX - (mouseX - prevPan.x) * zoomRatio,
+          y: mouseY - (mouseY - prevPan.y) * zoomRatio,
+        }));
+        
+        return newZoom;
+      });
     } else {
-      // Horizontal scroll for left-to-right flow reading
-      e.preventDefault();
-      const scrollSpeed = 1.5;
-      
-      // Use deltaX for trackpad horizontal, deltaY for mouse wheel
-      const dx = e.deltaX !== 0 ? e.deltaX : (e.shiftKey ? e.deltaY : e.deltaY);
-      const dy = e.shiftKey || e.deltaX !== 0 ? 0 : e.deltaY * 0.3;
-      
-      setPan(p => ({ 
-        x: p.x - dx * scrollSpeed, 
-        y: p.y - dy * scrollSpeed 
-      }));
+      setZoom(z => Math.max(0.15, Math.min(1.5, z + delta)));
     }
   };
 
@@ -721,7 +725,13 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setHasUnsavedChanges(true);
     setHistory([{ stages: p.stages, messageNodes: p.messageNodes, connections: p.connections, labels: p.labels }]);
     setHistoryIndex(0);
-    setTimeout(fitView, 100); 
+    
+    // Auto fit and center on New Lead after applying preset
+    setTimeout(() => {
+      fitView();
+      setSaveNotification(`✅ Loaded: ${p.name}`);
+      setTimeout(() => setSaveNotification(null), 2000);
+    }, 150); 
   };
 
   const getNodeCenter = (id: string, type: 'stage' | 'message', anchor: 'left' | 'right') => {
@@ -1232,54 +1242,95 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               </div>
             ))}
 
-            {/* Connections - Hidden in Builder mode - With Flow Arrows */}
+            {/* Connections - Hidden in Builder mode - Elegant Curved Paths with Centered Arrows */}
             {viewMode === 'node' && (
               <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
                 <defs>
                   <linearGradient id="connGradient" x1="0%" y1="0%" x2="100%" y2="0%">
                     <stop offset="0%" stopColor="#3b82f6" />
+                    <stop offset="50%" stopColor="#6366f1" />
                     <stop offset="100%" stopColor="#8b5cf6" />
                   </linearGradient>
                   <linearGradient id="connGradientDead" x1="0%" y1="0%" x2="100%" y2="0%">
                     <stop offset="0%" stopColor="#64748b" />
                     <stop offset="100%" stopColor="#ef4444" />
                   </linearGradient>
-                  {/* Arrow marker for flow direction */}
-                  <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto-start-reverse">
-                    <path d="M 0 0 L 12 6 L 0 12 L 3 6 Z" fill="#8b5cf6" />
-                  </marker>
-                  <marker id="arrowGray" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse">
-                    <path d="M 0 0 L 10 5 L 0 10 L 2.5 5 Z" fill="#ef4444" />
-                  </marker>
+                  {/* Glow filter for connections */}
+                  <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="2" result="blur" />
+                    <feMerge>
+                      <feMergeNode in="blur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
                 </defs>
                 {connections.map(c => {
                   const from = getNodeCenter(c.fromNodeId, c.fromType, 'right');
                   const to = getNodeCenter(c.toNodeId, c.toType, 'left');
-                  const mx = (from.x + to.x) / 2;
                   const isDashed = c.style === 'dashed';
                   
-                  // Calculate angle for arrow at end point
-                  const dx = to.x - mx;
-                  const dy = to.y - (from.y + to.y) / 2;
+                  // Calculate control points for smooth S-curve
+                  const dx = to.x - from.x;
+                  const dy = to.y - from.y;
+                  
+                  // Use wider curves for better visual understanding
+                  const curveOffset = Math.min(Math.abs(dx) * 0.4, 200);
+                  const cp1x = from.x + curveOffset;
+                  const cp1y = from.y;
+                  const cp2x = to.x - curveOffset;
+                  const cp2y = to.y;
+                  
+                  // Calculate midpoint for centered arrow
+                  // Bezier curve midpoint at t=0.5
+                  const t = 0.5;
+                  const midX = Math.pow(1-t,3)*from.x + 3*Math.pow(1-t,2)*t*cp1x + 3*(1-t)*Math.pow(t,2)*cp2x + Math.pow(t,3)*to.x;
+                  const midY = Math.pow(1-t,3)*from.y + 3*Math.pow(1-t,2)*t*cp1y + 3*(1-t)*Math.pow(t,2)*cp2y + Math.pow(t,3)*to.y;
+                  
+                  // Calculate tangent angle at midpoint for arrow rotation
+                  const tangentX = 3*Math.pow(1-t,2)*(cp1x-from.x) + 6*(1-t)*t*(cp2x-cp1x) + 3*Math.pow(t,2)*(to.x-cp2x);
+                  const tangentY = 3*Math.pow(1-t,2)*(cp1y-from.y) + 6*(1-t)*t*(cp2y-cp1y) + 3*Math.pow(t,2)*(to.y-cp2y);
+                  const angle = Math.atan2(tangentY, tangentX) * 180 / Math.PI;
                   
                   return (
                     <g key={c.id}>
-                      {/* Main curved path with arrow */}
+                      {/* Glow effect behind path */}
                       <path 
-                        d={`M ${from.x} ${from.y} C ${mx} ${from.y}, ${mx} ${to.y}, ${to.x - 12} ${to.y}`} 
+                        d={`M ${from.x} ${from.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${to.x} ${to.y}`} 
+                        fill="none" 
+                        stroke={isDashed ? '#ef444440' : '#6366f140'} 
+                        strokeWidth={8} 
+                        strokeLinecap="round"
+                      />
+                      
+                      {/* Main curved path */}
+                      <path 
+                        d={`M ${from.x} ${from.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${to.x} ${to.y}`} 
                         fill="none" 
                         stroke={isDashed ? 'url(#connGradientDead)' : 'url(#connGradient)'} 
                         strokeWidth={c.thickness || 3} 
                         strokeDasharray={isDashed ? '8 4' : 'none'} 
-                        opacity={0.9}
-                        markerEnd={isDashed ? 'url(#arrowGray)' : 'url(#arrowBlue)'}
+                        strokeLinecap="round"
+                        opacity={0.95}
                       />
+                      
+                      {/* Centered Arrow on the path middle */}
+                      <g transform={`translate(${midX}, ${midY}) rotate(${angle})`}>
+                        <polygon 
+                          points="-8,-6 8,0 -8,6 -4,0" 
+                          fill={isDashed ? '#ef4444' : '#8b5cf6'}
+                          stroke={isDashed ? '#ef4444' : '#6366f1'}
+                          strokeWidth={1}
+                        />
+                      </g>
+                      
+                      {/* Connection end dot */}
+                      <circle cx={to.x} cy={to.y} r={4} fill={isDashed ? '#ef4444' : '#8b5cf6'} />
                       
                       {/* Timer label on connection */}
                       {c.triggerDelay && (
                         <g>
-                          <rect x={mx - 45} y={(from.y + to.y) / 2 - 12} width={90} height={24} rx={12} fill="#1e293b" stroke="#3b82f6" strokeWidth={1.5} />
-                          <text x={mx} y={(from.y + to.y) / 2 + 4} fill="#60a5fa" fontSize="11" textAnchor="middle" fontWeight="600">
+                          <rect x={midX - 45} y={midY + 15} width={90} height={24} rx={12} fill="#1e293b" stroke="#3b82f6" strokeWidth={1.5} />
+                          <text x={midX} y={midY + 31} fill="#60a5fa" fontSize="11" textAnchor="middle" fontWeight="600">
                             ⏱ {c.triggerDelay.label}
                           </text>
                         </g>
@@ -1291,10 +1342,15 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 {/* Connection in progress */}
                 {connectingFrom && (() => {
                   const from = getNodeCenter(connectingFrom.id, connectingFrom.type, 'right');
+                  const mx = (from.x + mousePos.x) / 2;
                   return (
                     <g>
-                      <line x1={from.x} y1={from.y} x2={mousePos.x} y2={mousePos.y} stroke="#fbbf24" strokeWidth={3} strokeDasharray="8 5" />
-                      <circle cx={mousePos.x} cy={mousePos.y} r={8} fill="#fbbf24" opacity={0.6} />
+                      <path 
+                        d={`M ${from.x} ${from.y} C ${mx} ${from.y}, ${mx} ${mousePos.y}, ${mousePos.x} ${mousePos.y}`}
+                        fill="none" stroke="#fbbf24" strokeWidth={3} strokeDasharray="8 5" strokeLinecap="round"
+                      />
+                      <circle cx={mousePos.x} cy={mousePos.y} r={10} fill="#fbbf24" opacity={0.4} />
+                      <circle cx={mousePos.x} cy={mousePos.y} r={5} fill="#fbbf24" />
                     </g>
                   );
                 })()}
