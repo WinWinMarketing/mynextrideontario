@@ -68,8 +68,8 @@ export async function GET(request: NextRequest) {
                 description: workflow.description,
                 createdAt: workflow.createdAt,
                 updatedAt: workflow.updatedAt,
-                nodeCount: workflow.nodes?.length || 0,
-                connectionCount: workflow.connections?.length || 0,
+                nodeCount: workflow.schema?.nodes?.length || workflow.nodes?.length || 0,
+                connectionCount: workflow.schema?.edges?.length || workflow.connections?.length || 0,
               });
             }
           } catch (err) {
@@ -103,13 +103,58 @@ export async function POST(request: NextRequest) {
     console.log('[WORKFLOW API] Data received:', { 
       hasProfiles: !!data.profiles, 
       profileCount: data.profiles?.length || 0,
-      hasActiveProfile: !!data.activeProfile 
+      hasActiveProfile: !!data.activeProfile,
+      hasSingleProfile: !!data.profile
     });
     
     const s3 = getS3Client();
     const bucket = config.aws.bucketName;
     console.log('[WORKFLOW API] Using bucket:', bucket);
     
+    // Single profile save (optimized path)
+    if (data.profile && data.profile.id) {
+      const profile = data.profile;
+      const key = `${WORKFLOWS_PREFIX}${profile.id}.json`;
+      console.log('[WORKFLOW API] Saving single profile:', key);
+
+      await s3.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: JSON.stringify(profile, null, 2),
+        ContentType: 'application/json',
+      }));
+
+      // Optionally save active profile snapshot
+      if (data.activeProfileId === profile.id || data.activeProfile?.id === profile.id) {
+        const activeKey = `${WORKFLOWS_PREFIX}active-profile.json`;
+        console.log('[WORKFLOW API] Saving active profile:', activeKey);
+        await s3.send(new PutObjectCommand({
+          Bucket: bucket,
+          Key: activeKey,
+          Body: JSON.stringify(profile, null, 2),
+          ContentType: 'application/json',
+        }));
+      }
+
+      // Metadata (optional)
+      if (Array.isArray(data.profileIds)) {
+        const metadataKey = `${WORKFLOWS_PREFIX}metadata.json`;
+        await s3.send(new PutObjectCommand({
+          Bucket: bucket,
+          Key: metadataKey,
+          Body: JSON.stringify({
+            lastSaved: new Date().toISOString(),
+            profileIds: data.profileIds,
+            activeProfileId: data.activeProfileId || data.activeProfile?.id,
+          }, null, 2),
+          ContentType: 'application/json',
+        }));
+      }
+
+      console.log('[WORKFLOW API] Successfully saved single profile');
+      return NextResponse.json({ success: true, savedCount: 1, message: 'Saved profile to S3' });
+    }
+
     // Check if this is a batch profiles save
     if (data.profiles && Array.isArray(data.profiles)) {
       let savedCount = 0;

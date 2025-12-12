@@ -151,6 +151,8 @@ export interface NodeConnection {
   style: 'solid' | 'dashed' | 'animated';
   color: string;
   thickness?: number;
+  // Schema-first semantics (optional)
+  strictPath?: StrictPathType;
 }
 
 // ============ TEXT LABEL ============
@@ -196,13 +198,20 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
 export interface WorkspaceProfile {
   id: string;
   name: string;
+  description?: string;
+  icon?: string;
   createdAt: string;
   updatedAt: string;
-  stages: PipelineStage[];
-  messageNodes: MessageNode[];
-  connections: NodeConnection[];
-  labels: TextLabel[];
-  emailTemplates: any[];
+  // Schema-first persistence (V3)
+  version?: 2 | 3;
+  schema?: WorkflowSchema;
+
+  // Legacy persisted layout (V2). In V3 these are computed at runtime and should not be saved.
+  stages?: PipelineStage[];
+  messageNodes?: MessageNode[];
+  connections?: NodeConnection[];
+  labels?: TextLabel[];
+  emailTemplates?: any[];
   settings: WorkspaceSettings;
 }
 
@@ -266,3 +275,156 @@ export const DEFAULT_LEAD_MAPPING: LeadUploadField[] = [
   { source: 'trade_in', target: 'tradeIn', required: false },
   { source: 'notes', target: 'notes', required: false },
 ];
+
+// =====================================================================================
+// SCHEMA-FIRST WORKFLOW ARCHITECTURE (V3)
+// - Persistence stores schema only (no x/y coordinates)
+// - UI computes layout + routing dynamically from schema
+// =====================================================================================
+
+export type WorkflowNodeType = 'Status_Node' | 'Action_Node' | 'Logic_Gate';
+export type StrictPathType = 'Success' | 'Failure' | 'Neutral' | 'Loop';
+
+export interface NodeGuidance {
+  tutorial_title: string;
+  tutorial_content: string; // markdown
+  video_url: string; // can be empty string if not provided
+}
+
+export interface WorkflowNodeBase {
+  id: string;
+  type: WorkflowNodeType;
+  label: string;
+  icon?: string;
+  guidance: NodeGuidance;
+}
+
+export interface WorkflowStatusNode extends WorkflowNodeBase {
+  type: 'Status_Node';
+  statusId: PipelineStage['statusId'];
+  deadReason?: string;
+  color: StageColor;
+}
+
+export interface WorkflowActionNode extends WorkflowNodeBase {
+  type: 'Action_Node';
+  actionType: MessageNode['type'];
+  color: StageColor;
+  templateId?: string;
+  triggerDelay?: TimerDelay;
+}
+
+export interface WorkflowLogicGateNode extends WorkflowNodeBase {
+  type: 'Logic_Gate';
+  gateType: 'decision' | 'intent' | 'scheduler' | 'condition';
+  color: StageColor;
+  condition?: string;
+}
+
+export type WorkflowNode = WorkflowStatusNode | WorkflowActionNode | WorkflowLogicGateNode;
+
+export interface WorkflowEdge {
+  id: string;
+  from: string;
+  to: string;
+  strict_path: StrictPathType;
+  label?: string;
+}
+
+export interface WorkflowSchema {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  description?: string;
+  entryNodeId: string;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  // Optional ordered walkthrough; if omitted, UI derives a default success-path sequence
+  tutorialSequence?: string[];
+}
+
+export interface WorkspaceProfileV3 {
+  version: 3;
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  schema: WorkflowSchema;
+  settings: WorkspaceSettings;
+}
+
+export interface SchemaPreset {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  complexity: 'starter' | 'standard' | 'advanced' | 'enterprise';
+  category: string;
+  estimatedSetupTime: string;
+  features: string[];
+  schema: WorkflowSchema;
+}
+
+export const strictPathColor = (strictPath: StrictPathType) => {
+  switch (strictPath) {
+    case 'Success':
+      return '#22c55e'; // green
+    case 'Failure':
+      return '#ef4444'; // red
+    case 'Loop':
+      return '#94a3b8'; // gray (slate)
+    case 'Neutral':
+    default:
+      return '#94a3b8';
+  }
+};
+
+export function validateWorkflowEdge(schema: WorkflowSchema, edge: WorkflowEdge): { ok: true } | { ok: false; reason: string } {
+  const from = schema.nodes.find(n => n.id === edge.from);
+  const to = schema.nodes.find(n => n.id === edge.to);
+  if (!from) return { ok: false, reason: `Edge.from node not found: ${edge.from}` };
+  if (!to) return { ok: false, reason: `Edge.to node not found: ${edge.to}` };
+  if (!edge.strict_path) return { ok: false, reason: `Edge.strict_path is required` };
+
+  // Connector logic (state-machine style):
+  // - Disallow Status_Node -> Status_Node (forces an Action/Logic step between states)
+  // - Status nodes can connect to Action nodes OR Logic gates
+  // - Status nodes can be targeted by Action nodes OR Logic gates
+  if (from.type === 'Status_Node' && to.type === 'Status_Node') {
+    return { ok: false, reason: `Invalid edge: Status_Node cannot connect directly to Status_Node (insert an Action_Node)` };
+  }
+  if (from.type === 'Status_Node' && to.type !== 'Action_Node' && to.type !== 'Logic_Gate') {
+    return { ok: false, reason: `Invalid edge: Status_Node can only connect to Action_Node or Logic_Gate (got ${to.type})` };
+  }
+  if (to.type === 'Status_Node' && from.type !== 'Action_Node' && from.type !== 'Logic_Gate') {
+    return { ok: false, reason: `Invalid edge: Status_Node can only be targeted by Action_Node or Logic_Gate (got ${from.type})` };
+  }
+
+  return { ok: true };
+}
+
+export function deriveTutorialSequence(schema: WorkflowSchema, maxSteps = 30): string[] {
+  if (schema.tutorialSequence?.length) return schema.tutorialSequence;
+
+  const edgesFrom = (id: string) => schema.edges.filter(e => e.from === id);
+  const visited = new Set<string>();
+  const seq: string[] = [];
+
+  let current = schema.entryNodeId;
+  for (let i = 0; i < maxSteps; i++) {
+    if (!current || visited.has(current)) break;
+    visited.add(current);
+    seq.push(current);
+
+    // Prefer Success, then Neutral, then Loop, then Failure (so the story follows the main path)
+    const outgoing = edgesFrom(current);
+    const pick =
+      outgoing.find(e => e.strict_path === 'Success') ||
+      outgoing.find(e => e.strict_path === 'Neutral') ||
+      outgoing.find(e => e.strict_path === 'Loop') ||
+      outgoing.find(e => e.strict_path === 'Failure');
+    current = pick?.to || '';
+  }
+
+  return seq;
+}

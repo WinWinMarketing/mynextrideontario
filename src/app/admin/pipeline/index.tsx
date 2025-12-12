@@ -1,14 +1,18 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Lead, LeadStatus } from '@/lib/validation';
 import { 
   PipelineStage, MessageNode, NodeConnection, TextLabel, WorkspaceProfile, InlineAction,
   STAGE_COLORS, DEFAULT_WORKSPACE_SETTINGS, DEAD_LEAD_CATEGORIES, TIMER_PRESETS, NODE_SIZES,
-  MAX_PROFILES, STORAGE_KEY, ACTIVE_PROFILE_KEY, StageColor, PipelineAnalytics
+  MAX_PROFILES, STORAGE_KEY, ACTIVE_PROFILE_KEY, StageColor, PipelineAnalytics,
+  SchemaPreset, WorkflowSchema, validateWorkflowEdge
 } from './types';
 import { ALL_PRESETS, Preset, PRESET_CATEGORIES } from './presets';
+import { ALL_SCHEMA_PRESETS, SCHEMA_PRESET_CATEGORIES } from './schemaPresets';
+import { buildRuntimeFromSchema } from './schemaRuntime';
+import { useStoryStore, storyActions } from './storyStore';
 import { EMAIL_TEMPLATES, SMS_TEMPLATES, CALL_TEMPLATES, ALL_TEMPLATES, MessageTemplate } from './templates';
 
 interface FuturisticPipelineProps {
@@ -59,7 +63,10 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   // Sidebar
   const [sidebarTab, setSidebarTab] = useState<'presets' | 'stages' | 'messages' | 'templates' | 'settings'>('presets');
   const [presetCategory, setPresetCategory] = useState<string>('all');
-  const [presetPreview, setPresetPreview] = useState<Preset | null>(null);
+  const [presetPreview, setPresetPreview] = useState<Preset | SchemaPreset | null>(null);
+  const [activeSchema, setActiveSchema] = useState<WorkflowSchema | null>(null);
+  const [showLegacyPresets, setShowLegacyPresets] = useState(false);
+  const story = useStoryStore(s => s);
 
   // Node Editor
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -217,27 +224,55 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     if (activeProfileId) {
       setIsLoading(true);
       const now = new Date().toISOString();
-      const updatedProfile = { 
-        id: activeProfileId,
-        name: profiles.find(p => p.id === activeProfileId)?.name || 'Workflow',
-        createdAt: profiles.find(p => p.id === activeProfileId)?.createdAt || now,
-        updatedAt: now, 
-        stages, 
-        messageNodes,
-        connections, 
-        labels,
-        emailTemplates: [],
-        settings: { 
-          ...DEFAULT_WORKSPACE_SETTINGS, 
-          zoom, 
-          panX: pan.x, 
-          panY: pan.y,
-          gridSize,
-          snapToGrid,
-          nodeSize,
-          showGrid,
-        } 
-      };
+      const current = profiles.find(p => p.id === activeProfileId);
+
+      // Schema-first persistence (V3):
+      // - Save schema only (no coordinates)
+      // - Runtime layout is computed on load via schemaRuntime.ts
+      const updatedProfile: WorkspaceProfile = activeSchema
+        ? {
+            id: activeProfileId,
+            name: current?.name || 'Workflow',
+            description: current?.description,
+            icon: current?.icon,
+            createdAt: current?.createdAt || now,
+            updatedAt: now,
+            version: 3,
+            schema: activeSchema,
+            settings: {
+              ...DEFAULT_WORKSPACE_SETTINGS,
+              zoom,
+              panX: pan.x,
+              panY: pan.y,
+              gridSize,
+              snapToGrid,
+              nodeSize,
+              showGrid,
+            },
+          }
+        : {
+            id: activeProfileId,
+            name: current?.name || 'Workflow',
+            description: current?.description,
+            icon: current?.icon,
+            createdAt: current?.createdAt || now,
+            updatedAt: now,
+            stages,
+            messageNodes,
+            connections,
+            labels,
+            emailTemplates: current?.emailTemplates || [],
+            settings: {
+              ...DEFAULT_WORKSPACE_SETTINGS,
+              zoom,
+              panX: pan.x,
+              panY: pan.y,
+              gridSize,
+              snapToGrid,
+              nodeSize,
+              showGrid,
+            },
+          };
 
       // Update local state
       const updated = profiles.map(p => 
@@ -247,16 +282,18 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
       // Save to Cloud (AWS S3) - Robust save with proper structure
       const payload = {
-        profiles: updated,
-        activeProfile: updatedProfile,
-        metadata: {
-          savedAt: now,
-          profileCount: updated.length,
-          activeProfileId: activeProfileId,
-        }
+        // Optimized: save only the changed profile (schema-first is small)
+        profile: updatedProfile,
+        activeProfileId: activeProfileId,
+        profileIds: updated.map(p => p.id),
       };
       
-      console.log('💾 Saving to S3:', { profileId: activeProfileId, stageCount: stages.length, connectionCount: connections.length });
+      console.log('💾 Saving to S3:', {
+        profileId: activeProfileId,
+        mode: activeSchema ? 'schema-v3' : 'legacy-v2',
+        stageCount: stages.length,
+        connectionCount: connections.length,
+      });
       
       try {
         const response = await fetch('/api/admin/workflows', {
@@ -294,7 +331,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       setShowSaveReminder(false);
       setTimeout(() => setSaveNotification(null), 2000);
     }
-  }, [activeProfileId, stages, messageNodes, connections, labels, zoom, pan, profiles, gridSize, snapToGrid, nodeSize, showGrid]);
+  }, [activeProfileId, activeSchema, stages, messageNodes, connections, labels, zoom, pan, profiles, gridSize, snapToGrid, nodeSize, showGrid]);
 
   // ============ LOAD - TRY S3 FIRST, THEN LOCAL ============
   useEffect(() => {
@@ -381,18 +418,34 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   }, [leads, stages, messageNodes]);
 
   const loadProfileData = (p: WorkspaceProfile) => {
-    setStages(p.stages || []); 
-    setMessageNodes(p.messageNodes || []);
-    setConnections(p.connections || []); 
-    setLabels(p.labels || []);
+    const profileNodeSize = p.settings?.nodeSize || 'large';
+
     setZoom(p.settings?.zoom || 0.35); 
     setPan({ x: p.settings?.panX || 80, y: p.settings?.panY || 80 });
     setGridSize(p.settings?.gridSize || 40);
     setSnapToGrid(p.settings?.snapToGrid ?? true);
-    setNodeSize(p.settings?.nodeSize || 'large');
+    setNodeSize(profileNodeSize);
     setShowGrid(p.settings?.showGrid ?? true);
+
+    if (p.version === 3 && p.schema) {
+      setActiveSchema(p.schema);
+      const built = buildRuntimeFromSchema(p.schema, profileNodeSize);
+      setStages(built.stages);
+      setMessageNodes(built.messageNodes);
+      setConnections(built.connections);
+      setLabels(built.labels);
+      setHistory([{ stages: built.stages, messageNodes: built.messageNodes, connections: built.connections, labels: built.labels }]);
+      storyActions.close();
+    } else {
+      setActiveSchema(null);
+      setStages(p.stages || []);
+      setMessageNodes(p.messageNodes || []);
+      setConnections(p.connections || []);
+      setLabels(p.labels || []);
+      setHistory([{ stages: p.stages || [], messageNodes: p.messageNodes || [], connections: p.connections || [], labels: p.labels || [] }]);
+    }
+
     setHasUnsavedChanges(false);
-    setHistory([{ stages: p.stages || [], messageNodes: p.messageNodes || [], connections: p.connections || [], labels: p.labels || [] }]);
     setHistoryIndex(0);
   };
 
@@ -404,14 +457,42 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const createProfile = (name: string) => {
     if (profiles.length >= MAX_PROFILES) return;
     const now = new Date().toISOString();
+    const entryId = `entry-${Date.now()}`;
     const np: WorkspaceProfile = { 
-      id: `profile-${Date.now()}`, name, createdAt: now, updatedAt: now, 
-      stages: [], messageNodes: [], connections: [], labels: [], emailTemplates: [],
-      settings: DEFAULT_WORKSPACE_SETTINGS 
+      id: `profile-${Date.now()}`,
+      name,
+      createdAt: now,
+      updatedAt: now,
+      version: 3,
+      schema: {
+        schemaVersion: 1,
+        id: `schema-${Date.now()}`,
+        name,
+        description: 'New schema-first workflow',
+        entryNodeId: entryId,
+        nodes: [
+          {
+            id: entryId,
+            type: 'Status_Node',
+            label: 'Incoming Lead',
+            icon: '📥',
+            color: 'blue',
+            statusId: 'new',
+            guidance: {
+              tutorial_title: 'Incoming Lead (Start)',
+              tutorial_content: 'Start state. Add an action node to begin outreach.',
+              video_url: '',
+            },
+          },
+        ],
+        edges: [],
+        tutorialSequence: [entryId],
+      },
+      settings: DEFAULT_WORKSPACE_SETTINGS,
     };
     const updated = [...profiles, np];
     setProfiles(updated); setActiveProfileId(np.id);
-    setStages([]); setMessageNodes([]); setConnections([]); setLabels([]);
+    loadProfileData(np);
     
     // Save to cloud
     fetch('/api/admin/workflows', {
@@ -558,6 +639,31 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       setPan({ x: 100, y: 100 });
     }
   };
+
+  const focusNode = useCallback((nodeId: string, targetZoom = 0.55) => {
+    const node = stages.find(s => s.id === nodeId) || messageNodes.find(m => m.id === nodeId);
+    if (!node) return;
+
+    const cw = containerRef.current?.clientWidth || 1200;
+    const ch = containerRef.current?.clientHeight || 800;
+
+    const centerX = (node as any).x + (node as any).width / 2;
+    const centerY = (node as any).y + (node as any).height / 2;
+    const panX = (cw / 2) - (centerX * targetZoom);
+    const panY = (ch / 2) - (centerY * targetZoom);
+
+    setZoom(targetZoom);
+    setPan({ x: panX, y: panY });
+  }, [stages, messageNodes]);
+
+  // Storyteller: auto-pan to the active step
+  useEffect(() => {
+    if (!story.isOpen) return;
+    const id = story.sequence[story.stepIndex];
+    if (!id) return;
+    const t = setTimeout(() => focusNode(id, 0.55), 120);
+    return () => clearTimeout(t);
+  }, [story.isOpen, story.stepIndex, story.sequence, focusNode]);
 
   // Snap to grid helper
   const snapPosition = (pos: number) => {
@@ -749,7 +855,43 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   };
 
   // ============ PRESETS ============
+  const applySchemaPreset = (p: SchemaPreset) => {
+    // Validate schema edges (fail fast if preset is malformed)
+    const invalid = p.schema.edges
+      .map(e => ({ e, v: validateWorkflowEdge(p.schema, e) }))
+      .filter(x => !x.v.ok);
+
+    if (invalid.length) {
+      console.error('❌ Invalid schema preset edges:', invalid);
+      setSaveNotification(`⚠️ Preset schema invalid: ${invalid[0].v.ok ? '' : invalid[0].v.reason}`);
+      setTimeout(() => setSaveNotification(null), 4000);
+      return;
+    }
+
+    const built = buildRuntimeFromSchema(p.schema, nodeSize);
+    setActiveSchema(p.schema);
+    storyActions.open(built.tutorialSequence);
+    setViewMode('node');
+    setStages(built.stages);
+    setMessageNodes(built.messageNodes);
+    setConnections(built.connections);
+    setLabels(built.labels);
+    setPresetPreview(null);
+    setHasUnsavedChanges(true);
+    setHistory([{ stages: built.stages, messageNodes: built.messageNodes, connections: built.connections, labels: built.labels }]);
+    setHistoryIndex(0);
+
+    setTimeout(() => {
+      // Focus to entry node for the first tutorial step
+      focusNode(built.entryNodeId, 0.55);
+      setSaveNotification(`✅ Loaded: ${p.name}`);
+      setTimeout(() => setSaveNotification(null), 2000);
+    }, 150);
+  };
+
   const applyPreset = (p: Preset) => { 
+    setActiveSchema(null);
+    storyActions.close();
     setStages(p.stages); 
     setMessageNodes(p.messageNodes);
     setConnections(p.connections); 
@@ -782,11 +924,115 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   };
 
+  const getNodeRect = (id: string, type: 'stage' | 'message') => {
+    if (type === 'stage') {
+      const s = stages.find(x => x.id === id);
+      if (!s) return null;
+      return { x: s.x, y: s.y, width: s.width, height: s.height };
+    }
+    const m = messageNodes.find(x => x.id === id);
+    if (!m) return null;
+    return { x: m.x, y: m.y, width: m.width, height: m.height };
+  };
+
+  const pointsToPath = (pts: Array<{ x: number; y: number }>) => {
+    if (!pts.length) return '';
+    return pts
+      .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${Math.round(p.x)} ${Math.round(p.y)}`)
+      .join(' ');
+  };
+
   // Get current node sizes
   const currentNodeSize = NODE_SIZES[nodeSize];
 
-  const filteredPresets = presetCategory === 'all' ? ALL_PRESETS : ALL_PRESETS.filter(p => p.category === presetCategory);
+  const filteredSchemaPresets = presetCategory === 'all'
+    ? ALL_SCHEMA_PRESETS
+    : ALL_SCHEMA_PRESETS.filter(p => p.category === presetCategory);
+
+  const filteredLegacyPresets = presetCategory === 'all'
+    ? ALL_PRESETS
+    : ALL_PRESETS.filter(p => p.category === presetCategory);
   const deadCount = leads.filter(l => l.status === 'dead').length;
+
+  // ---------------------------------------------------------------------------
+  // Schema-style visual connections:
+  // - Builder mode collapses Stage -> (Action/Gate) -> Stage into Stage -> Stage
+  // - Node mode shows full graph
+  // ---------------------------------------------------------------------------
+  const routingLanes = useMemo(() => {
+    const all = [...stages, ...messageNodes];
+    const maxBottom = all.length ? Math.max(...all.map(n => n.y + n.height)) : 800;
+    const minTop = all.length ? Math.min(...all.map(n => n.y)) : 100;
+    return {
+      basementY: maxBottom + 160,
+      loopY: minTop - 140,
+    };
+  }, [stages, messageNodes]);
+
+  const visualConnections = useMemo(() => {
+    // Node view: full graph
+    if (viewMode !== 'builder') return connections;
+
+    // If there are no message nodes, just show stage-stage
+    if (messageNodes.length === 0) return connections.filter(c => c.fromType === 'stage' && c.toType === 'stage');
+
+    const msgById = new Map(messageNodes.map(m => [m.id, m]));
+
+    const combineStrict = (a?: any, b?: any) => {
+      const aa = a || 'Success';
+      const bb = b || 'Success';
+      if (aa === 'Failure' || bb === 'Failure') return 'Failure';
+      if (aa === 'Loop' || bb === 'Loop') return 'Loop';
+      if (aa === 'Neutral' || bb === 'Neutral') return 'Neutral';
+      return 'Success';
+    };
+
+    const nextEdgesByFrom = new Map<string, NodeConnection[]>();
+    connections.forEach(c => {
+      const arr = nextEdgesByFrom.get(c.fromNodeId) || [];
+      arr.push(c);
+      nextEdgesByFrom.set(c.fromNodeId, arr);
+    });
+
+    const collapsed: NodeConnection[] = [];
+    const seen = new Set<string>();
+
+    // Collapse stage -> message -> stage chains into stage -> stage
+    connections
+      .filter(c => c.fromType === 'stage' && c.toType === 'message')
+      .forEach(sm => {
+        const midId = sm.toNodeId;
+        const outs = (nextEdgesByFrom.get(midId) || []).filter(x => x.fromType === 'message' && x.toType === 'stage');
+        outs.forEach(ms => {
+          const strict = combineStrict(sm.strictPath, ms.strictPath);
+          const id = `collapsed:${sm.fromNodeId}->${ms.toNodeId}:${midId}:${strict}`;
+          if (seen.has(id)) return;
+          seen.add(id);
+          const midLabel = msgById.get(midId)?.label;
+          collapsed.push({
+            id,
+            fromNodeId: sm.fromNodeId,
+            toNodeId: ms.toNodeId,
+            fromType: 'stage',
+            toType: 'stage',
+            fromAnchor: 'right',
+            toAnchor: 'left',
+            autoTrigger: false,
+            label: midLabel || (ms.label ? String(ms.label) : strict),
+            style: strict === 'Loop' ? 'dashed' : 'solid',
+            color: strict === 'Success' ? '#22c55e' : strict === 'Failure' ? '#ef4444' : '#94a3b8',
+            thickness: strict === 'Success' || strict === 'Failure' ? 4 : 3,
+            strictPath: strict as any,
+          });
+        });
+      });
+
+    // Fallback: if nothing collapsed, show stage-stage edges (legacy presets)
+    return collapsed.length ? collapsed : connections.filter(c => c.fromType === 'stage' && c.toType === 'stage');
+  }, [connections, viewMode, messageNodes]);
+
+  const storyNodeId = story.isOpen ? story.sequence[story.stepIndex] : null;
+  const storyNode = storyNodeId && activeSchema ? activeSchema.nodes.find(n => n.id === storyNodeId) : null;
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden flex">
@@ -795,9 +1041,14 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         {/* Header - WinWin Branding */}
         <div className="p-6 border-b border-yellow-500/30 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900">
           <div className="flex items-center gap-3">
-            {/* WinWin Logo - Simplified W shape in yellow */}
+            {/* WinWin Logo - served from public/winwin-logo.svg for consistent rendering */}
             <div className="w-14 h-14 rounded-xl bg-black flex items-center justify-center overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
-              <span className="text-3xl font-black bg-gradient-to-br from-yellow-400 via-amber-400 to-yellow-500 bg-clip-text text-transparent" style={{ fontFamily: 'Arial Black, sans-serif' }}>W</span>
+              <img
+                src="/winwin-logo.svg"
+                alt="WinWin"
+                className="w-12 h-6 object-contain"
+                draggable={false}
+              />
             </div>
             <div className="flex-1">
               <h1 className="text-xl font-bold bg-gradient-to-r from-yellow-400 to-amber-500 bg-clip-text text-transparent">WinWin Pipeline</h1>
@@ -835,7 +1086,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           {sidebarTab === 'presets' && (
             <div className="space-y-5">
               <div className="flex flex-wrap gap-2">
-                {PRESET_CATEGORIES.map(c => (
+                {SCHEMA_PRESET_CATEGORIES.map(c => (
                   <button key={c.id} onClick={() => setPresetCategory(c.id)} 
                     className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${presetCategory === c.id ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
                     {c.icon} {c.label}
@@ -843,8 +1094,70 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 ))}
               </div>
 
+              {/* Automated Storyteller (contextual sidebar extension) */}
+              {story.isOpen && storyNode && (
+                <div className="rounded-2xl border border-blue-500/30 bg-gradient-to-br from-slate-800/80 to-slate-900/60 p-4 shadow-lg shadow-blue-500/10">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-blue-300 tracking-wide">AUTOMATED STORYTELLER</div>
+                      <div className="text-base font-extrabold text-white mt-1 truncate">
+                        {storyNode.guidance.tutorial_title}
+                      </div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        Step {story.stepIndex + 1} of {Math.max(1, story.sequence.length)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => storyActions.close()}
+                      className="px-2 py-1 rounded-lg bg-slate-800/70 border border-slate-700/50 text-slate-300 hover:text-white hover:bg-slate-800 transition-all text-xs font-bold"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  <div className="mt-3 text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
+                    {storyNode.guidance.tutorial_content}
+                  </div>
+
+                  {storyNode.guidance.video_url && (
+                    <div className="mt-3 text-xs text-slate-300">
+                      Video: <span className="text-blue-300">{storyNode.guidance.video_url}</span>
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex items-center gap-2">
+                    <button
+                      onClick={() => storyActions.prev()}
+                      disabled={story.stepIndex <= 0}
+                      className="px-3 py-2 rounded-xl bg-slate-800/70 border border-slate-700/50 text-slate-200 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-semibold"
+                    >
+                      ← Prev
+                    </button>
+                    <button
+                      onClick={() => storyActions.next()}
+                      disabled={story.stepIndex >= story.sequence.length - 1}
+                      className="px-3 py-2 rounded-xl bg-blue-500/20 border border-blue-500/40 text-blue-200 hover:bg-blue-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-semibold"
+                    >
+                      Next →
+                    </button>
+                    <div className="flex-1" />
+                    <button
+                      onClick={() => storyNodeId && focusNode(storyNodeId, 0.6)}
+                      className="px-3 py-2 rounded-xl bg-slate-800/70 border border-slate-700/50 text-slate-200 hover:bg-slate-800 transition-all text-sm font-semibold"
+                    >
+                      Focus
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-4">
-                {filteredPresets.map((p, idx) => (
+                {/* Robust schema-first presets */}
+                {filteredSchemaPresets.map((p, idx) => {
+                  const statusCount = p.schema.nodes.filter(n => n.type === 'Status_Node').length;
+                  const actionCount = p.schema.nodes.filter(n => n.type === 'Action_Node').length;
+                  const gateCount = p.schema.nodes.filter(n => n.type === 'Logic_Gate').length;
+                  return (
                   <motion.div key={p.id} 
                     onMouseEnter={() => setPresetPreview(p)} 
                     onMouseLeave={() => setPresetPreview(null)}
@@ -861,7 +1174,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                         </span>
                       </div>
                     )}
-                    <button onClick={() => applyPreset(p)} className="w-full p-5 text-left">
+                    <button onClick={() => applySchemaPreset(p)} className="w-full p-5 text-left">
                       <div className="flex items-center gap-4 mb-4">
                         <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-3xl shadow-inner ${
                           idx === 0 ? 'bg-gradient-to-br from-emerald-600/30 to-green-700/30' : 'bg-gradient-to-br from-slate-700 to-slate-800'
@@ -875,26 +1188,59 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                               p.complexity === 'starter' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 
                               p.complexity === 'standard' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 
                               p.complexity === 'advanced' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
-                              p.complexity === 'runway' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
-                              'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                              'bg-purple-500/20 text-purple-400 border border-purple-500/30'
                             }`}>
                               {p.complexity === 'starter' ? '⭐ LEVEL 1' : 
                                p.complexity === 'standard' ? '⭐⭐ LEVEL 2' :
                                p.complexity === 'advanced' ? '⭐⭐⭐ LEVEL 3' :
-                               p.complexity === 'runway' ? '⭐⭐⭐ LEVEL 3' : 'LEVEL 1'}
+                               '🏆 ENTERPRISE'}
                             </span>
                           </div>
                         </div>
                       </div>
                       <p className="text-sm text-slate-400 mb-4 line-clamp-2">{p.description}</p>
                       <div className="flex items-center gap-3 text-xs flex-wrap">
-                        <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">📦 {p.stages.length} stages</span>
-                        <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">⚡ {p.messageNodes.length} actions</span>
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">📦 {statusCount} states</span>
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">⚡ {actionCount} actions</span>
+                        {gateCount > 0 && <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">🔀 {gateCount} gates</span>}
                         <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">⏱️ {p.estimatedSetupTime}</span>
                       </div>
                     </button>
                   </motion.div>
-                ))}
+                );})}
+
+                {/* Legacy presets (optional) */}
+                <div className="pt-2">
+                  <button
+                    onClick={() => setShowLegacyPresets(v => !v)}
+                    className="w-full px-4 py-3 rounded-xl bg-slate-800/60 border border-slate-700/50 text-slate-300 hover:text-white hover:bg-slate-800 transition-all text-sm font-semibold"
+                  >
+                    {showLegacyPresets ? 'Hide Legacy Presets' : 'Show Legacy Presets'}
+                  </button>
+                </div>
+
+                {showLegacyPresets && (
+                  <div className="space-y-3 pt-2">
+                    {filteredLegacyPresets.map((p, idx) => (
+                      <motion.div
+                        key={`legacy-${p.id}`}
+                        whileHover={{ scale: 1.01 }}
+                        className="bg-slate-800/50 rounded-xl border border-slate-700/40 hover:border-slate-600 transition-all overflow-hidden"
+                      >
+                        <button onClick={() => applyPreset(p)} className="w-full p-4 text-left">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-slate-700/60 flex items-center justify-center text-xl">{p.icon}</div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-bold text-white truncate">{p.name}</div>
+                              <div className="text-xs text-slate-400 truncate">{p.description}</div>
+                            </div>
+                            <div className="text-[11px] text-slate-400">{p.stages.length} / {p.messageNodes.length}</div>
+                          </div>
+                        </button>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1279,123 +1625,133 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               </div>
             ))}
 
-            {/* FLOW ARROWS - ALWAYS VISIBLE - Big White Arrows Between Stages */}
+            {/* SCHEMA-DRIVEN CONNECTIONS (Orthogonal routing, strict_path colors) */}
             <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
               <defs>
-                {/* White flow gradient for main stage connections */}
-                <linearGradient id="flowGradientWhite" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="rgba(255,255,255,0.6)" />
-                  <stop offset="50%" stopColor="rgba(255,255,255,0.9)" />
-                  <stop offset="100%" stopColor="rgba(255,255,255,0.6)" />
-                </linearGradient>
-                {/* Yellow WinWin accent gradient */}
-                <linearGradient id="flowGradientYellow" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="rgba(245,184,0,0.4)" />
-                  <stop offset="50%" stopColor="rgba(245,184,0,0.8)" />
-                  <stop offset="100%" stopColor="rgba(245,184,0,0.4)" />
-                </linearGradient>
-                {/* Red for dead lead paths */}
-                <linearGradient id="flowGradientRed" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="rgba(239,68,68,0.4)" />
-                  <stop offset="100%" stopColor="rgba(239,68,68,0.7)" />
-                </linearGradient>
-                {/* Big white arrow marker */}
-                <marker id="arrowWhite" markerWidth="16" markerHeight="16" refX="12" refY="8" orient="auto-start-reverse">
-                  <path d="M 0 0 L 16 8 L 0 16 L 4 8 Z" fill="white" />
+                <marker id="arrowSuccess" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+                  <path d="M 0 0 L 14 7 L 0 14 L 3 7 Z" fill="#22c55e" />
                 </marker>
-                <marker id="arrowYellow" markerWidth="14" markerHeight="14" refX="10" refY="7" orient="auto-start-reverse">
-                  <path d="M 0 0 L 14 7 L 0 14 L 3 7 Z" fill="#F5B800" />
+                <marker id="arrowFailure" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+                  <path d="M 0 0 L 14 7 L 0 14 L 3 7 Z" fill="#ef4444" />
                 </marker>
-                <marker id="arrowRed" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto-start-reverse">
-                  <path d="M 0 0 L 12 6 L 0 12 L 3 6 Z" fill="#ef4444" />
+                <marker id="arrowNeutral" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+                  <path d="M 0 0 L 14 7 L 0 14 L 3 7 Z" fill="#94a3b8" />
                 </marker>
-                {/* Glow filter */}
-                <filter id="glowWhite" x="-50%" y="-50%" width="200%" height="200%">
-                  <feGaussianBlur stdDeviation="3" result="blur" />
+                <filter id="edgeGlow" x="-60%" y="-60%" width="220%" height="220%">
+                  <feGaussianBlur stdDeviation="2.5" result="blur" />
                   <feMerge>
                     <feMergeNode in="blur" />
                     <feMergeNode in="SourceGraphic" />
                   </feMerge>
                 </filter>
               </defs>
-              {/* STAGE-TO-STAGE FLOW ARROWS - Always visible in both modes */}
-              {connections
-                .filter(c => c.fromType === 'stage' && c.toType === 'stage') // Only stage connections
-                .map(c => {
-                  const from = getNodeCenter(c.fromNodeId, c.fromType, 'right');
-                  const to = getNodeCenter(c.toNodeId, c.toType, 'left');
-                  const isDeadPath = c.style === 'dashed' || stages.find(s => s.id === c.toNodeId)?.statusId === 'dead';
-                  
-                  // Calculate smooth curve
-                  const dx = to.x - from.x;
-                  const curveIntensity = Math.min(Math.abs(dx) * 0.4, 200);
-                  const cp1x = from.x + curveIntensity;
-                  const cp2x = to.x - curveIntensity;
-                  
-                  return (
-                    <g key={c.id}>
-                      {/* Glow behind the arrow path */}
-                      <path 
-                        d={`M ${from.x} ${from.y} C ${cp1x} ${from.y}, ${cp2x} ${to.y}, ${to.x} ${to.y}`} 
-                        fill="none" 
-                        stroke={isDeadPath ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.15)'} 
-                        strokeWidth={12} 
-                        strokeLinecap="round"
-                        filter="url(#glowWhite)"
-                      />
-                      {/* Main WHITE arrow path */}
-                      <path 
-                        d={`M ${from.x} ${from.y} C ${cp1x} ${from.y}, ${cp2x} ${to.y}, ${to.x} ${to.y}`} 
-                        fill="none" 
-                        stroke={isDeadPath ? 'url(#flowGradientRed)' : 'url(#flowGradientWhite)'} 
-                        strokeWidth={4} 
-                        strokeLinecap="round"
-                        markerEnd={isDeadPath ? 'url(#arrowRed)' : 'url(#arrowWhite)'}
-                      />
-                      {/* Start dot */}
-                      <circle cx={from.x} cy={from.y} r={6} fill={isDeadPath ? '#ef4444' : 'white'} opacity={0.8} />
-                    </g>
-                  );
+
+              {visualConnections.map(c => {
+                const fromRect = getNodeRect(c.fromNodeId, c.fromType);
+                const toRect = getNodeRect(c.toNodeId, c.toType);
+                if (!fromRect || !toRect) return null;
+
+                const strict = (c.strictPath as any) || (c.label as any) || 'Neutral';
+                const isFailure = strict === 'Failure';
+                const isLoop = strict === 'Loop' || c.style === 'dashed';
+                const isSuccess = strict === 'Success';
+
+                const markerEnd = isSuccess
+                  ? 'url(#arrowSuccess)'
+                  : isFailure
+                    ? 'url(#arrowFailure)'
+                    : 'url(#arrowNeutral)';
+
+                const pad = 26;
+                const start = { x: fromRect.x + fromRect.width, y: fromRect.y + fromRect.height / 2 };
+                const end = { x: toRect.x, y: toRect.y + toRect.height / 2 };
+                const sx = start.x + pad;
+                const ex = end.x - pad;
+
+                const midX = Math.round((sx + ex) / 2);
+                const basementY = routingLanes.basementY;
+                const loopY = routingLanes.loopY;
+
+                let pts: Array<{ x: number; y: number }>;
+                if (isFailure) {
+                  // Route through basement gutter to avoid crossing main flow
+                  pts = [
+                    start,
+                    { x: sx, y: start.y },
+                    { x: sx, y: basementY },
+                    { x: ex, y: basementY },
+                    { x: ex, y: end.y },
+                    end,
+                  ];
+                } else if (isLoop) {
+                  // Route upward bubble lane
+                  pts = [
+                    start,
+                    { x: sx, y: start.y },
+                    { x: sx, y: loopY },
+                    { x: ex, y: loopY },
+                    { x: ex, y: end.y },
+                    end,
+                  ];
+                } else {
+                  // Default orthogonal path
+                  pts = [
+                    start,
+                    { x: sx, y: start.y },
+                    { x: midX, y: start.y },
+                    { x: midX, y: end.y },
+                    { x: ex, y: end.y },
+                    end,
+                  ];
+                }
+
+                const d = pointsToPath(pts);
+
+                return (
+                  <g key={c.id} opacity={0.96}>
+                    {/* subtle glow */}
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke={c.color || '#94a3b8'}
+                      strokeWidth={(c.thickness || 3) + 7}
+                      opacity={0.10}
+                      strokeLinecap="square"
+                      strokeLinejoin="round"
+                      filter="url(#edgeGlow)"
+                    />
+                    {/* main line */}
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke={c.color || '#94a3b8'}
+                      strokeWidth={c.thickness || 3}
+                      strokeDasharray={isLoop ? '10 8' : undefined}
+                      strokeLinecap="square"
+                      strokeLinejoin="round"
+                      markerEnd={markerEnd}
+                    />
+                  </g>
+                );
               })}
-              
-              {/* ACTION NODE CONNECTIONS - Only visible in Node View */}
-              {viewMode === 'node' && connections
-                .filter(c => c.fromType === 'message' || c.toType === 'message') // Action node connections
-                .map(c => {
-                  const from = getNodeCenter(c.fromNodeId, c.fromType, 'right');
-                  const to = getNodeCenter(c.toNodeId, c.toType, 'left');
-                  const dx = to.x - from.x;
-                  const curveIntensity = Math.min(Math.abs(dx) * 0.35, 150);
-                  const cp1x = from.x + curveIntensity;
-                  const cp2x = to.x - curveIntensity;
-                  
-                  return (
-                    <g key={c.id}>
-                      <path 
-                        d={`M ${from.x} ${from.y} C ${cp1x} ${from.y}, ${cp2x} ${to.y}, ${to.x} ${to.y}`} 
-                        fill="none" 
-                        stroke="url(#flowGradientYellow)" 
-                        strokeWidth={3} 
-                        strokeLinecap="round"
-                        strokeDasharray="6 4"
-                        markerEnd="url(#arrowYellow)"
-                      />
-                    </g>
-                  );
-              })}
-              
-              {/* Connection in progress */}
+
+              {/* Connection in progress (manual wiring) */}
               {connectingFrom && (() => {
                 const from = getNodeCenter(connectingFrom.id, connectingFrom.type, 'right');
                 const mx = (from.x + mousePos.x) / 2;
                 return (
                   <g>
-                    <path 
-                      d={`M ${from.x} ${from.y} C ${mx} ${from.y}, ${mx} ${mousePos.y}, ${mousePos.x} ${mousePos.y}`}
-                      fill="none" stroke="#F5B800" strokeWidth={4} strokeDasharray="10 6" strokeLinecap="round"
+                    <path
+                      d={`M ${from.x} ${from.y} L ${mx} ${from.y} L ${mx} ${mousePos.y} L ${mousePos.x} ${mousePos.y}`}
+                      fill="none"
+                      stroke="#f59e0b"
+                      strokeWidth={4}
+                      strokeDasharray="10 6"
+                      strokeLinecap="square"
+                      strokeLinejoin="round"
                     />
-                    <circle cx={mousePos.x} cy={mousePos.y} r={12} fill="#F5B800" opacity={0.3} />
-                    <circle cx={mousePos.x} cy={mousePos.y} r={6} fill="#F5B800" />
+                    <circle cx={mousePos.x} cy={mousePos.y} r={10} fill="#f59e0b" opacity={0.25} />
+                    <circle cx={mousePos.x} cy={mousePos.y} r={4} fill="#f59e0b" />
                   </g>
                 );
               })()}
@@ -1412,6 +1768,8 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 isDropTarget={!!draggedLead}
                 zoom={zoom}
                 viewMode={viewMode}
+                storyDimmed={!!(story.isOpen && storyNodeId && stage.id !== storyNodeId)}
+                storyHighlighted={!!(story.isOpen && storyNodeId && stage.id === storyNodeId)}
                 onSelect={() => { setSelectedNode(stage.id); setSelectedNodeType('stage'); }}
                 onMove={(dx, dy) => handleNodeMove(stage.id, 'stage', dx, dy)}
                 onDelete={() => { setStages(stages.filter(s => s.id !== stage.id)); setConnections(connections.filter(c => c.fromNodeId !== stage.id && c.toNodeId !== stage.id)); }}
@@ -1434,6 +1792,8 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 isSelected={selectedNode === msg.id && selectedNodeType === 'message'}
                 isConnecting={connectingFrom?.id === msg.id}
                 zoom={zoom}
+                storyDimmed={!!(story.isOpen && storyNodeId && msg.id !== storyNodeId)}
+                storyHighlighted={!!(story.isOpen && storyNodeId && msg.id === storyNodeId)}
                 onSelect={() => { setSelectedNode(msg.id); setSelectedNodeType('message'); }}
                 onMove={(dx, dy) => handleNodeMove(msg.id, 'message', dx, dy)}
                 onDelete={() => { setMessageNodes(messageNodes.filter(m => m.id !== msg.id)); setConnections(connections.filter(c => c.fromNodeId !== msg.id && c.toNodeId !== msg.id)); }}
@@ -1694,7 +2054,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 }
 
 // ============ RUNWAY STAGE NODE ============
-function RunwayStageNode({ stage, leads, isSelected, isConnecting, isDropTarget, zoom, viewMode, onSelect, onMove, onDelete, onConnect, onDrop, onDragLead, onViewLead, onToggleStar, starredLeads, showInlineActions, onToggleInlineActions }: any) {
+function RunwayStageNode({ stage, leads, isSelected, isConnecting, isDropTarget, zoom, viewMode, storyDimmed, storyHighlighted, onSelect, onMove, onDelete, onConnect, onDrop, onDragLead, onViewLead, onToggleStar, starredLeads, showInlineActions, onToggleInlineActions }: any) {
   const [dragging, setDragging] = useState(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const color = STAGE_COLORS.find(c => c.id === stage.color) || STAGE_COLORS[0];
@@ -1718,13 +2078,24 @@ function RunwayStageNode({ stage, leads, isSelected, isConnecting, isDropTarget,
   const maxLeads = isBuilderMode ? 6 : 8; // Show fewer but bigger leads in builder mode
 
   return (
-    <div className="node-card absolute" style={{ left: stage.x, top: stage.y, zIndex: isSelected ? 100 : 1 }} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+    <div
+      className="node-card absolute"
+      style={{
+        left: stage.x,
+        top: stage.y,
+        zIndex: isSelected ? 100 : 1,
+        opacity: storyDimmed ? 0.3 : 1,
+        transition: 'opacity 160ms ease',
+      }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={onDrop}
+    >
       {/* Connection Points */}
       <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-700 border-2 border-slate-500 shadow-lg" />
       <button onClick={onConnect} className={`connect-btn absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-all shadow-lg ${isConnecting ? 'bg-yellow-500 border-yellow-400 text-black' : 'bg-blue-500/40 border-blue-400 text-blue-300 hover:bg-blue-500/60'}`}>+</button>
       
       <motion.div onClick={onSelect} onMouseDown={handleMouseDown}
-        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all shadow-2xl ${isSelected ? `${color.border} ring-2 ring-blue-500/40 shadow-${color.glow}` : 'border-slate-600/50 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/50' : ''} ${isDropTarget ? 'ring-2 ring-green-400/50' : ''} ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all shadow-2xl ${isSelected ? `${color.border} ring-2 ring-blue-500/40 shadow-${color.glow}` : 'border-slate-600/50 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/50' : ''} ${isDropTarget ? 'ring-2 ring-green-400/50' : ''} ${storyHighlighted ? 'ring-4 ring-blue-400/50 shadow-blue-500/20' : ''} ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         style={{ width: stage.width, height: stage.height }}>
         
         {/* Header */}
@@ -1832,7 +2203,7 @@ function RunwayStageNode({ stage, leads, isSelected, isConnecting, isDropTarget,
 }
 
 // ============ RUNWAY MESSAGE NODE ============
-function RunwayMessageNode({ node, isSelected, isConnecting, zoom, onSelect, onMove, onDelete, onConnect }: any) {
+function RunwayMessageNode({ node, isSelected, isConnecting, zoom, storyDimmed, storyHighlighted, onSelect, onMove, onDelete, onConnect }: any) {
   const [dragging, setDragging] = useState(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const color = STAGE_COLORS.find(c => c.id === node.color) || STAGE_COLORS[0];
@@ -1849,12 +2220,21 @@ function RunwayMessageNode({ node, isSelected, isConnecting, zoom, onSelect, onM
   };
 
   return (
-    <div className="message-node absolute" style={{ left: node.x, top: node.y, zIndex: isSelected ? 100 : 1 }}>
+    <div
+      className="message-node absolute"
+      style={{
+        left: node.x,
+        top: node.y,
+        zIndex: isSelected ? 100 : 1,
+        opacity: storyDimmed ? 0.3 : 1,
+        transition: 'opacity 160ms ease',
+      }}
+    >
       <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-700 border-2 border-slate-500 shadow-lg" />
       <button onClick={onConnect} className={`connect-btn absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-all shadow-lg ${isConnecting ? 'bg-yellow-500 border-yellow-400 text-black' : 'bg-cyan-500/40 border-cyan-400 text-cyan-300 hover:bg-cyan-500/60'}`}>+</button>
       
       <motion.div onClick={onSelect} onMouseDown={handleMouseDown}
-        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all shadow-xl ${isSelected ? `${color.border} ring-2 ring-cyan-500/40` : 'border-slate-600/50 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/50' : ''} ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all shadow-xl ${isSelected ? `${color.border} ring-2 ring-cyan-500/40` : 'border-slate-600/50 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/50' : ''} ${storyHighlighted ? 'ring-4 ring-blue-400/50 shadow-blue-500/20' : ''} ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         style={{ width: node.width, height: node.height }}>
         
         <div className="px-4 py-3 border-b border-slate-600/30 bg-slate-900/60 flex items-center gap-3">
