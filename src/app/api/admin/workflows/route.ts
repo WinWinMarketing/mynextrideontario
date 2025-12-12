@@ -89,41 +89,78 @@ export async function GET(request: NextRequest) {
 
 // POST - Create or update workflow (supports single workflow or batch profiles)
 export async function POST(request: NextRequest) {
+  console.log('[WORKFLOW API] POST request received');
+  
   const authResult = await verifyAuth(request);
   if (!authResult.authenticated) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    console.log('[WORKFLOW API] Authentication failed');
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  console.log('[WORKFLOW API] Authentication passed');
 
   try {
     const data = await request.json();
+    console.log('[WORKFLOW API] Data received:', { 
+      hasProfiles: !!data.profiles, 
+      profileCount: data.profiles?.length || 0,
+      hasActiveProfile: !!data.activeProfile 
+    });
+    
     const s3 = getS3Client();
     const bucket = config.aws.bucketName;
+    console.log('[WORKFLOW API] Using bucket:', bucket);
     
     // Check if this is a batch profiles save
     if (data.profiles && Array.isArray(data.profiles)) {
+      let savedCount = 0;
+      
       // Save all profiles
       for (const profile of data.profiles) {
-        if (!profile.id) continue;
+        if (!profile.id) {
+          console.log('[WORKFLOW API] Skipping profile without ID');
+          continue;
+        }
+        
+        const key = `${WORKFLOWS_PREFIX}${profile.id}.json`;
+        console.log('[WORKFLOW API] Saving profile:', key);
         
         await s3.send(new PutObjectCommand({
           Bucket: bucket,
-          Key: `${WORKFLOWS_PREFIX}${profile.id}.json`,
+          Key: key,
           Body: JSON.stringify(profile, null, 2),
           ContentType: 'application/json',
         }));
+        savedCount++;
       }
       
       // Also save the active profile separately for quick access
-      if (data.activeProfile) {
+      if (data.activeProfile?.id) {
+        const activeKey = `${WORKFLOWS_PREFIX}active-profile.json`;
+        console.log('[WORKFLOW API] Saving active profile:', activeKey);
+        
         await s3.send(new PutObjectCommand({
           Bucket: bucket,
-          Key: `${WORKFLOWS_PREFIX}active-profile.json`,
+          Key: activeKey,
           Body: JSON.stringify(data.activeProfile, null, 2),
           ContentType: 'application/json',
         }));
       }
       
-      return NextResponse.json({ success: true, savedCount: data.profiles.length });
+      // Also save metadata
+      const metadataKey = `${WORKFLOWS_PREFIX}metadata.json`;
+      await s3.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: metadataKey,
+        Body: JSON.stringify({
+          lastSaved: new Date().toISOString(),
+          profileIds: data.profiles.map((p: any) => p.id),
+          activeProfileId: data.activeProfile?.id,
+        }, null, 2),
+        ContentType: 'application/json',
+      }));
+      
+      console.log('[WORKFLOW API] Successfully saved', savedCount, 'profiles');
+      return NextResponse.json({ success: true, savedCount, message: `Saved ${savedCount} profiles to S3` });
     }
     
     // Single workflow save (legacy format)
@@ -134,17 +171,25 @@ export async function POST(request: NextRequest) {
     }
     workflow.updatedAt = new Date().toISOString();
 
+    const key = `${WORKFLOWS_PREFIX}${workflow.id}.json`;
+    console.log('[WORKFLOW API] Saving single workflow:', key);
+    
     await s3.send(new PutObjectCommand({
       Bucket: bucket,
-      Key: `${WORKFLOWS_PREFIX}${workflow.id}.json`,
+      Key: key,
       Body: JSON.stringify(workflow, null, 2),
       ContentType: 'application/json',
     }));
 
+    console.log('[WORKFLOW API] Successfully saved workflow');
     return NextResponse.json({ success: true, workflow });
-  } catch (err) {
-    console.error('Error saving workflow:', err);
-    return NextResponse.json({ error: 'Failed to save workflow' }, { status: 500 });
+  } catch (err: any) {
+    console.error('[WORKFLOW API] Error saving workflow:', err.message || err);
+    return NextResponse.json({ 
+      success: false, 
+      error: 'Failed to save workflow', 
+      details: err.message || 'Unknown error' 
+    }, { status: 500 });
   }
 }
 

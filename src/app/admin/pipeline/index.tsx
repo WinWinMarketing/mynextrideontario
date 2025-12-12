@@ -266,14 +266,22 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           credentials: 'include', // Include auth cookies
         });
         
-        const result = await response.json();
+        // Try to parse response as JSON
+        let result;
+        try {
+          const text = await response.text();
+          result = text ? JSON.parse(text) : { success: false, error: 'Empty response' };
+        } catch (parseErr) {
+          console.error('❌ Failed to parse S3 response:', parseErr);
+          result = { success: false, error: 'Invalid response from server' };
+        }
         
         if (response.ok && result.success) {
           console.log('✅ S3 Save successful:', result);
-          setSaveNotification('☁️ Saved to cloud!');
+          setSaveNotification('☁️ Saved to cloud! (' + (result.savedCount || 1) + ' profiles)');
         } else {
-          console.error('❌ S3 Save failed:', result);
-          setSaveNotification('⚠️ Cloud save failed: ' + (result.error || 'Unknown error'));
+          console.error('❌ S3 Save failed:', result, 'Status:', response.status);
+          setSaveNotification('⚠️ Cloud save failed: ' + (result.error || result.details || `HTTP ${response.status}`));
         }
       } catch (err) {
         console.error('❌ Cloud save error:', err);
