@@ -245,33 +245,39 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       );
       setProfiles(updated);
 
-      // Save to Cloud (AWS S3) - Primary and only storage
+      // Save to Cloud (AWS S3) - Robust save with proper structure
+      const payload = {
+        profiles: updated,
+        activeProfile: updatedProfile,
+        metadata: {
+          savedAt: now,
+          profileCount: updated.length,
+          activeProfileId: activeProfileId,
+        }
+      };
+      
+      console.log('💾 Saving to S3:', { profileId: activeProfileId, stageCount: stages.length, connectionCount: connections.length });
+      
       try {
         const response = await fetch('/api/admin/workflows', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ profiles: updated, activeProfile: updatedProfile }),
+          body: JSON.stringify(payload),
+          credentials: 'include', // Include auth cookies
         });
         
-        if (response.ok) {
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+          console.log('✅ S3 Save successful:', result);
           setSaveNotification('☁️ Saved to cloud!');
         } else {
-          setSaveNotification('⚠️ Cloud save failed - retrying...');
-          // Retry once
-          setTimeout(async () => {
-            try {
-              await fetch('/api/admin/workflows', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ profiles: updated, activeProfile: updatedProfile }),
-              });
-              setSaveNotification('☁️ Saved to cloud!');
-            } catch { setSaveNotification('⚠️ Please check connection'); }
-          }, 2000);
+          console.error('❌ S3 Save failed:', result);
+          setSaveNotification('⚠️ Cloud save failed: ' + (result.error || 'Unknown error'));
         }
       } catch (err) {
-        console.error('Cloud save error:', err);
-        setSaveNotification('⚠️ Connection issue - will retry');
+        console.error('❌ Cloud save error:', err);
+        setSaveNotification('⚠️ Network error - check connection');
       }
 
       setIsLoading(false);
@@ -429,38 +435,50 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setDraggedLead(null);
   };
 
-  // ============ CANVAS - Smooth like Runway ============
+  // ============ CANVAS PANNING - Like Figma/Runway ============
+  // Click ANYWHERE on background to pan, nodes move independently
+  const isPanningRef = useRef(false);
+  const panStartRef = useRef({ x: 0, y: 0 });
+  
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    // Only block if clicking directly on a node element
+    // Check if clicking on interactive elements
     const target = e.target as HTMLElement;
-    if (target.closest('.node-card, .message-node, .inline-panel')) return;
+    const isNode = target.closest('.node-card, .message-node, .inline-panel, .sidebar, button, input, select');
+    
+    // If clicking on a node, don't pan
+    if (isNode) return;
     
     // Clear connection mode on empty click
-    if (connectingFrom) { setConnectingFrom(null); return; }
+    if (connectingFrom) { 
+      setConnectingFrom(null); 
+      return; 
+    }
     
-    // Start canvas panning
+    // START PANNING - only on background
     e.preventDefault();
-    e.stopPropagation();
-    setIsDraggingCanvas(true); 
-    lastPos.current = { x: e.clientX, y: e.clientY };
+    isPanningRef.current = true;
+    panStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    setIsDraggingCanvas(true);
     
-    // Add global listeners for smooth dragging even outside container
-    const handleGlobalMove = (ev: MouseEvent) => {
-      setPan(p => ({ 
-        x: p.x + (ev.clientX - lastPos.current.x), 
-        y: p.y + (ev.clientY - lastPos.current.y) 
-      }));
-      lastPos.current = { x: ev.clientX, y: ev.clientY };
+    // Global mouse tracking for smooth pan even when moving fast
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isPanningRef.current) return;
+      ev.preventDefault();
+      setPan({
+        x: ev.clientX - panStartRef.current.x,
+        y: ev.clientY - panStartRef.current.y
+      });
     };
     
-    const handleGlobalUp = () => {
+    const onMouseUp = () => {
+      isPanningRef.current = false;
       setIsDraggingCanvas(false);
-      window.removeEventListener('mousemove', handleGlobalMove);
-      window.removeEventListener('mouseup', handleGlobalUp);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
     };
     
-    window.addEventListener('mousemove', handleGlobalMove);
-    window.addEventListener('mouseup', handleGlobalUp);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
@@ -571,11 +589,11 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     const centerX = 1400;
     const centerY = 900;
     
-    // Spacing constants to prevent overlap
-    const deadSpacing = 450;
-    const workingSpacing = 480;
-    const approvalSpacing = 500;
-    const columnGap = 550;
+    // Spacing constants - larger to PREVENT overlap
+    const deadSpacing = 520;       // Vertical gap between dead leads
+    const workingSpacing = 550;    // Vertical gap between working stages
+    const approvalSpacing = 580;   // Vertical gap between approval stages
+    const columnGap = 650;         // Horizontal gap between columns
     
     setStages(prev => prev.map(s => {
       // NEW LEAD - Center, big, focal point
@@ -766,12 +784,14 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         {/* Header - WinWin Branding */}
         <div className="p-6 border-b border-slate-700/50 bg-gradient-to-r from-slate-900 to-slate-800">
           <div className="flex items-center gap-3">
-            {/* WinWin Logo */}
+            {/* WinWin Logo - Actual SVG from brand file */}
             <div className="w-12 h-12 rounded-xl bg-black flex items-center justify-center overflow-hidden border border-yellow-500/30">
-              <svg viewBox="0 0 100 60" className="w-10 h-6">
-                <path d="M5 15 L20 45 L35 15 L50 45 L55 35" fill="none" stroke="#F5B800" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M45 10 L55 35 L65 10" fill="none" stroke="#1e3a5f" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M55 35 L70 45 L85 15" fill="none" stroke="#F5B800" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round"/>
+              <svg viewBox="0 0 2428 866" className="w-10 h-4">
+                {/* Yellow W shapes */}
+                <path fill="#F0CB35" d="M2429,28.5c-10.7,19-21.5,37.6-32.2,56.2c-9,15.5-17.9,31-26.9,46.5c-15.6,26.8-31.3,53.6-46.8,80.5c-15.5,26.7-30.7,53.6-46.1,80.3c-16.2,28-32.5,55.8-48.7,83.8c-16.8,29-33.6,58.1-50.1,87.1c-16.2,28-32.7,55.8-48.9,83.8c-17.8,30.7-35.4,61.5-53.1,92.2c-17.5,30.3-35.2,60.7-52.8,91c-15.5,26.7-30.8,53.5-46.1,80.2c-8.6,14.8-16.9,29.8-25.3,44.6c-4.2,7.3-10.5,11.5-19.4,11.5c-50.2.1-100.4.1-150.5,0c-12.9,0-23.4-14.4-18.7-26.5c3.6-9.1,8.7-17.7,13.4-26.3c8.4-15.1,17-30,25.5-44.9c11.2-19.7,22.4-39.4,33.5-59.2c8-14.2,15.8-28.5,23.8-42.6c11.4-20.2,22.9-40.3,34.3-60.5c7.8-13.9,15.6-27.8,23.4-41.7c11.9-21.2,23.9-42.3,35.8-63.4c9.6-17,19.1-34.1,28.6-51.2c9.7-17.4,19.3-34.8,29-52.2c11-18.8,22.1-37.7,33.1-56.5c9.5-16.3,18.9-32.6,28.4-48.9c11.7-20.6,23.4-41.2,35-61.7c9.6-16.9,19-33.8,28.6-50.7c12.7-22.6,25.6-45.2,38.4-67.8c9.5-16.7,18.8-33.5,28.2-50.3c11.2-19.9,22.5-39.7,33.7-59.6c6.5-11.6,13.1-23.2,19.3-35c3.3-6.3,8.1-10.2,14.9-12.5c62.2-.3,124.4-.3,186.7.3c9.1,2.7,14,8.5,16.2,16.7c4.8,18,9.4,36.1,14.1,54.2c10,38.5,20,77,30,115.6c12.7,49.2,25.4,98.3,38.1,147.5c8.6,33.3,17.1,66.6,25.7,99.9c9.1,35.5,18.3,71,27.5,106.6c4.1,15.9,8.2,31.8,12.6,48.6c.7-1.1,1-1.5,1.2-2c11.7-20.7,23.4-41.5,35.1-62.2c8.2-14.6,16.3-29.3,24.5-44c11.1-19.7,22.4-39.4,33.6-59.1c9.5-16.9,18.9-33.8,28.4-50.7c11.5-20.5,23.1-41,34.7-61.4c8.2-14.7,16.3-29.4,24.5-44.1c12.3-21.9,24.7-43.9,37-65.8c9.8-17.5,19.4-35,29.3-52.5c14-25.9,28.2-51.7,42.3-77.6c11.3-20,22.4-40.2,33.7-60.2c3.9-7,9.1-11.8,17.8-11.7c35.5.1,71,0,106.5-.1c1.9,0,3.7-.6,5.6-1c16.7,0,33.4,0,50.7.3c9.2,1.7,13.9,7.4,17.3,14.7v12.5z"/>
+                <path fill="#F0CB35" d="M170.5,1c11.9,2.9,16.4,12.5,21.7,21.5c12.8,22,25.7,43.9,38.5,65.9c13.8,23.7,27.4,47.5,41.2,71.2c13.1,22.5,26.5,45,39.6,67.5c11.5,19.7,22.8,39.5,34.3,59.3c9.9,17,20,33.9,29.9,50.9c11,18.9,21.9,37.8,32.9,56.7c8.6,15.2,17.1,30.4,25.7,45.6c11.4,19.6,22.8,39.3,34.1,58.9c9.8,17.3,19.4,34.6,29.2,51.9c2.2,3.8,4.6,7.6,7,11.5c12.6-18.6,25.2-37,37.7-55.5c21-30.8,41.9-61.6,62.8-92.4c15.6-22.9,31.3-45.8,46.9-68.8c15.7-23.1,31.4-46.2,47.1-69.2c10.3-15.2,30.4-13.9,39.7.1c21.4,31.9,43.6,63.2,65.6,95c16.5,23.7,33.1,47.4,49.6,71c21.5,31,43.1,61.9,64.5,93c6,8.7,12,17.3,18,26.2c-5.1,10.4-10.4,20.4-16,30.2c-12.1,21.4-24.4,42.7-36.5,64c-11,19.3-22.1,38.6-32.8,58.1c-4.9,9.5-12.2,18.4-10.2,30.4c-3,4.6-5.6,9.2-8.2,13.7c-12.3,21.5-24.5,43-36.8,64.5c-16.3,28.5-32.9,56.9-48.9,85.5c-14,24.9-27.6,50-41.3,75c-16.3,27-32.5,54-48.8,80.9c-8.5,15-16.9,30.1-25.4,45c-11.2,19.8-22.4,39.5-33.5,59.4c-8,14.2-15.8,28.5-23.8,42.6c-4.8,8.6-9.9,17.1-13.5,26.3c-4.7,12.1,5.7,26.5,18.6,26.5c50.2.1,100.4,0,150.5,0c6.7,0,12.3-3.3,15.7-8.9c13.9-23.6,27.5-47.4,41.2-71.2c15.7-27.3,31.3-54.7,47-82c15.6-27,31.4-54,47-81c14.8-25.6,29.4-51.3,44.1-77c15.6-27,31.4-54,47-81c15.8-27.3,31.4-54.7,47.1-82c17.2-29.9,34.6-59.6,51.8-89.5c5.2-9.1,13-12.1,22.8-11.2c6.8.6,15,8.1,17.1,16c4.1,15,8,30.1,12.1,45.1c6.9,25.5,13.8,50.9,20.7,76.3c6.8,25,13.6,50,20.4,74.9c6.5,25,13.1,50,19.7,75c6.8,25,13.5,50,20.3,75c6,22.1,12,44.2,18,66.4c6.3,23.2,12.7,46.4,19,69.6c6.8,24.9,13.4,50,20.2,75c2,7.2,10.8,13.6,18.3,13.7c27.8.4,55.5.8,83.3,1c18.5.1,37,.3,55.5.2c8.9-.1,15.2-4.3,19.4-11.6c8.6-14.8,16.8-29.8,25.3-44.6c15.3-26.8,30.7-53.6,46.1-80.3c17.5-30.3,35.3-60.5,52.8-91c16.8-30.3,33.6-60.6,50.5-90.8c17.8-30.7,35.4-61.5,53.1-92.2c16.2-28,32.7-55.8,48.9-83.8c16.8-29,33.6-58.1,50.1-87.1c16.2-28,32.5-55.9,48.7-83.8c15.5-26.7,30.8-53.5,46.1-80.3c15.5-26.8,31.3-53.6,46.8-80.5c9-15.5,17.9-31,26.9-46.5c10.7-19,21.5-37.6,32.2-56.2V1c-6.5,0-12.9,0-19.3.3c-9.2,1.7-13.9,7.4-17.3,14.7c-11.3,20-22.5,39.9-33.6,60c-14,25.9-28.2,51.7-42.2,77.6c-9.8,17.5-19.4,35-29.3,52.5c-12.4,22-24.9,44-37.1,66.1c-8.2,14.6-16.3,29.3-24.5,43.9c-11.5,20.5-23.1,41-34.6,61.4c-9.5,16.9-18.9,33.8-28.4,50.7c-11.1,19.7-22.4,39.4-33.6,59.1c-8.2,14.6-16.2,29.3-24.5,44c-11.7,20.7-23.4,41.5-35.1,62.2c-.2.4-.5.9-1.2,2c-4.4-16.8-8.5-32.7-12.6-48.6c-9.2-35.5-18.4-71-27.5-106.5c-8.6-33.3-17.1-66.6-25.7-99.9c-12.7-49.2-25.4-98.3-38.1-147.5c-10-38.5-20-77-30-115.6c-4.7-18-9.2-36.1-14.1-54.2c-2.2-8.2-7.1-14-16.2-16.7C1740.1,1.3,1678,1.3,1615.8,1c-6.8,2.3-11.6,6.2-14.9,12.5c-6.2,11.8-12.8,23.3-19.3,35c-11.2,19.9-22.5,39.7-33.7,59.6c-6.5,11.6-13.2,23.2-19.7,34.8c-13.7,23.8-27.4,47.5-41.2,71.2c-9.5,16.7-19,33.5-28.4,50.3c-11.2,19.9-22.4,39.8-33.5,59.6c-9.6,17-19.3,33.8-28.9,50.7c-12.8,22.6-25.5,45.2-38.3,67.8c-9.5,17-18.9,34-28.4,51c-11.1,19-22.1,38.1-33.2,57.2c-10.6,18.2-21.2,36.4-31.7,54.7c-9.5,17.1-18.9,34.1-28.3,51.2c-11.9,21.2-23.8,42.4-35.7,63.6c-7.8,13.8-15.6,27.7-23.4,41.6c-11.4,20.2-22.7,40.4-34.1,60.6c-8,14.2-15.8,28.4-23.8,42.6c-11.2,19.7-22.4,39.4-33.5,59.1c-8.5,14.9-16.8,30-25.5,44.9c-3.4,5.5-9,8.8-15.7,8.9c-50.2.1-100.3,0-150.5,0c-12.9,0-23.4-14.4-18.6-26.5c3.6-9.1,8.7-17.6,13.5-26.3c8.4-15.1,16.9-30.1,25.4-45c11.2-19.7,22.4-39.4,33.5-59.2c8-14.2,15.8-28.4,23.8-42.6c11.4-20.2,22.8-40.3,34.3-60.5c7.8-13.9,15.6-27.9,23.4-41.8c11.9-21.2,23.8-42.3,35.8-63.4c9.6-17.1,19.1-34.1,28.6-51.2c10.4-17.9,20.9-35.9,31.3-53.8c11-18.9,21.9-37.9,32.9-56.8c9.6-16.5,19-33,28.6-49.5c11.6-20.3,23.4-40.6,35-60.8c9.6-16.9,19-33.8,28.4-50.7c12.7-22.6,25.6-45.2,38.4-67.7c9.5-16.7,18.8-33.5,28.2-50.3c11.2-19.9,22.5-39.8,33.6-59.7c6.5-11.6,13.1-23.2,19.7-34.7c3.3-6.3,8-10.2,14.8-12.5C119.4,1,144.6,1,170.5,1z"/>
+                {/* Dark blue/teal i and elements */}
+                <path fill="#4C6971" d="M827.2,717c-.4-.1-.8-.6-1.2-1.5c.4.1.8.6,1.2,1.5z"/>
               </svg>
             </div>
             <div className="flex-1">
