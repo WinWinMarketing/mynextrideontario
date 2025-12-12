@@ -1,4 +1,5 @@
-// Runway-Style Enterprise Pipeline Presets - Professional CRM System
+// WinWin Pipeline Presets - Professional Lead Management System
+// Goal: 20-50% productivity boost through smart automation + easy lead management
 import { PipelineStage, MessageNode, NodeConnection, TextLabel, Preset, StageColor, TimerDelay, InlineAction } from './types';
 
 // ============ HELPERS ============
@@ -142,8 +143,8 @@ export const ALL_PRESETS: Preset[] = [
   // ========================================
   {
     id: 'runway-ultimate',
-    name: '🚀 Runway Ultimate Funnel',
-    description: 'The most sophisticated 32-stage enterprise funnel with inline SMS/Email on every node, automated sequences, dead lead resurrection, and full customer lifecycle management. Like Runway for automotive sales.',
+    name: '⭐ WinWin Ultimate Funnel',
+    description: 'The most comprehensive funnel with full automation, dead lead resurrection, and complete customer lifecycle management. For power users who want maximum automation with full control.',
     icon: '🚀',
     complexity: 'runway',
     category: 'automotive',
