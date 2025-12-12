@@ -1092,6 +1092,22 @@ const REFERRAL_PRESET: Preset = {
 };
 ALL_PRESETS.push(REFERRAL_PRESET);
 
+// ============ SORT PRESETS BY DIFFICULTY (Easiest → Hardest) ============
+// Complexity order: starter < standard < advanced < runway
+const complexityOrder = { 'starter': 0, 'standard': 1, 'advanced': 2, 'runway': 3 };
+
+// Sort in place - easiest first (most recommended for new users)
+ALL_PRESETS.sort((a, b) => {
+  const orderA = complexityOrder[a.complexity as keyof typeof complexityOrder] ?? 1;
+  const orderB = complexityOrder[b.complexity as keyof typeof complexityOrder] ?? 1;
+  return orderA - orderB;
+});
+
+// Add recommendation badges
+ALL_PRESETS.forEach((p, idx) => {
+  if (idx === 0) (p as any).recommended = true; // First one is most recommended
+});
+
 export const PRESET_CATEGORIES = [
   { id: 'all', label: 'All Presets', icon: '📁' },
   { id: 'automotive', label: 'Automotive', icon: '🚗' },

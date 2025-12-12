@@ -466,20 +466,60 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const handleCanvasMouseUp = () => setIsDraggingCanvas(false);
   
   const handleWheel = (e: React.WheelEvent) => { 
-    // Smooth zoom
-    const delta = e.deltaY > 0 ? -0.05 : 0.05;
-    setZoom(z => Math.max(0.15, Math.min(1.5, z + delta))); 
+    // Shift+scroll = horizontal pan (left-right)
+    // Ctrl+scroll = zoom
+    // Regular scroll = horizontal pan for natural flow reading
+    
+    if (e.ctrlKey || e.metaKey) {
+      // Zoom with ctrl/cmd + scroll
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.05 : 0.05;
+      setZoom(z => Math.max(0.15, Math.min(1.5, z + delta)));
+    } else {
+      // Horizontal scroll for left-to-right flow reading
+      e.preventDefault();
+      const scrollSpeed = 1.5;
+      
+      // Use deltaX for trackpad horizontal, deltaY for mouse wheel
+      const dx = e.deltaX !== 0 ? e.deltaX : (e.shiftKey ? e.deltaY : e.deltaY);
+      const dy = e.shiftKey || e.deltaX !== 0 ? 0 : e.deltaY * 0.3;
+      
+      setPan(p => ({ 
+        x: p.x - dx * scrollSpeed, 
+        y: p.y - dy * scrollSpeed 
+      }));
+    }
   };
 
   const fitView = () => {
-    if (stages.length === 0) { setZoom(0.35); setPan({ x: 80, y: 80 }); return; }
-    const allNodes = [...stages, ...messageNodes];
-    const xs = allNodes.map(s => s.x), ys = allNodes.map(s => s.y);
-    const maxX = Math.max(...xs) + 500, maxY = Math.max(...ys) + 500;
-    const cw = containerRef.current?.clientWidth || 1200, ch = containerRef.current?.clientHeight || 800;
-    const nz = Math.min(cw / maxX, ch / maxY, 0.5) * 0.7;
-    setZoom(Math.max(0.2, Math.min(0.5, nz))); 
-    setPan({ x: 80, y: 80 });
+    if (stages.length === 0) { setZoom(0.4); setPan({ x: 100, y: 100 }); return; }
+    
+    // Find the "New Lead" stage (incoming leads) - this is the focal point
+    const newLeadStage = stages.find(s => s.statusId === 'new');
+    const cw = containerRef.current?.clientWidth || 1200;
+    const ch = containerRef.current?.clientHeight || 800;
+    
+    if (newLeadStage) {
+      // Center on New Lead stage with good zoom for readability
+      const targetZoom = 0.45;
+      const centerX = newLeadStage.x + newLeadStage.width / 2;
+      const centerY = newLeadStage.y + newLeadStage.height / 2;
+      
+      // Calculate pan to center the New Lead
+      const panX = (cw / 2) - (centerX * targetZoom);
+      const panY = (ch / 2) - (centerY * targetZoom);
+      
+      setZoom(targetZoom);
+      setPan({ x: panX, y: panY });
+    } else {
+      // Fallback: fit all nodes
+      const allNodes = [...stages, ...messageNodes];
+      const xs = allNodes.map(s => s.x), ys = allNodes.map(s => s.y);
+      const maxX = Math.max(...xs) + 500, maxY = Math.max(...ys) + 500;
+      const nz = Math.min(cw / maxX, ch / maxY, 0.5) * 0.7;
+      setZoom(Math.max(0.25, Math.min(0.5, nz))); 
+      setPan({ x: 100, y: 100 });
+    }
   };
 
   // Snap to grid helper
@@ -757,32 +797,50 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               </div>
 
               <div className="space-y-4">
-                {filteredPresets.map(p => (
+                {filteredPresets.map((p, idx) => (
                   <motion.div key={p.id} 
                     onMouseEnter={() => setPresetPreview(p)} 
                     onMouseLeave={() => setPresetPreview(null)}
                     whileHover={{ scale: 1.02 }}
-                    className="bg-gradient-to-br from-slate-800/90 to-slate-800/60 rounded-2xl border border-slate-700/50 overflow-hidden hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10 transition-all">
+                    className={`bg-gradient-to-br from-slate-800/90 to-slate-800/60 rounded-2xl border overflow-hidden hover:shadow-lg transition-all ${
+                      idx === 0 ? 'border-emerald-500/50 hover:border-emerald-400/70 hover:shadow-emerald-500/10 ring-1 ring-emerald-500/20' : 
+                      'border-slate-700/50 hover:border-blue-500/50 hover:shadow-blue-500/10'
+                    }`}>
+                    {/* Recommended Badge */}
+                    {idx === 0 && (
+                      <div className="bg-gradient-to-r from-emerald-500/20 to-green-500/20 px-4 py-2 border-b border-emerald-500/30">
+                        <span className="text-xs font-bold text-emerald-400 flex items-center gap-2">
+                          ⭐ RECOMMENDED - Best for getting started
+                        </span>
+                      </div>
+                    )}
                     <button onClick={() => applyPreset(p)} className="w-full p-5 text-left">
                       <div className="flex items-center gap-4 mb-4">
-                        <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-3xl shadow-inner">
+                        <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-3xl shadow-inner ${
+                          idx === 0 ? 'bg-gradient-to-br from-emerald-600/30 to-green-700/30' : 'bg-gradient-to-br from-slate-700 to-slate-800'
+                        }`}>
                           {p.icon}
                         </div>
                         <div className="flex-1">
                           <h3 className="text-lg font-bold text-white">{p.name}</h3>
-                          <span className={`inline-block mt-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wide ${
-                            p.complexity === 'starter' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 
-                            p.complexity === 'standard' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 
-                            p.complexity === 'advanced' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
-                            p.complexity === 'runway' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
-                            'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                          }`}>
-                            {p.complexity.toUpperCase()}
-                          </span>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold tracking-wide ${
+                              p.complexity === 'starter' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 
+                              p.complexity === 'standard' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 
+                              p.complexity === 'advanced' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
+                              p.complexity === 'runway' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
+                              'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                            }`}>
+                              {p.complexity === 'starter' ? '🟢 BEGINNER' : 
+                               p.complexity === 'standard' ? '🟡 STANDARD' :
+                               p.complexity === 'advanced' ? '🟠 ADVANCED' :
+                               p.complexity === 'runway' ? '🟣 ENTERPRISE' : p.complexity.toUpperCase()}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <p className="text-sm text-slate-400 mb-4 line-clamp-2">{p.description}</p>
-                      <div className="flex items-center gap-4 text-xs">
+                      <div className="flex items-center gap-3 text-xs flex-wrap">
                         <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">📦 {p.stages.length} stages</span>
                         <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">⚡ {p.messageNodes.length} actions</span>
                         <span className="px-2.5 py-1 rounded-lg bg-slate-700/50 text-slate-300">⏱️ {p.estimatedSetupTime}</span>
@@ -1174,7 +1232,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               </div>
             ))}
 
-            {/* Connections - Hidden in Builder mode */}
+            {/* Connections - Hidden in Builder mode - With Flow Arrows */}
             {viewMode === 'node' && (
               <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
                 <defs>
@@ -1182,31 +1240,63 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                     <stop offset="0%" stopColor="#3b82f6" />
                     <stop offset="100%" stopColor="#8b5cf6" />
                   </linearGradient>
+                  <linearGradient id="connGradientDead" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#64748b" />
+                    <stop offset="100%" stopColor="#ef4444" />
+                  </linearGradient>
+                  {/* Arrow marker for flow direction */}
+                  <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 12 6 L 0 12 L 3 6 Z" fill="#8b5cf6" />
+                  </marker>
+                  <marker id="arrowGray" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 L 2.5 5 Z" fill="#ef4444" />
+                  </marker>
                 </defs>
                 {connections.map(c => {
                   const from = getNodeCenter(c.fromNodeId, c.fromType, 'right');
                   const to = getNodeCenter(c.toNodeId, c.toType, 'left');
                   const mx = (from.x + to.x) / 2;
+                  const isDashed = c.style === 'dashed';
+                  
+                  // Calculate angle for arrow at end point
+                  const dx = to.x - mx;
+                  const dy = to.y - (from.y + to.y) / 2;
+                  
                   return (
                     <g key={c.id}>
-                      <path d={`M ${from.x} ${from.y} C ${mx} ${from.y}, ${mx} ${to.y}, ${to.x} ${to.y}`} 
-                        fill="none" stroke={c.style === 'dashed' ? '#64748b' : 'url(#connGradient)'} strokeWidth={c.thickness || 3} 
-                        strokeDasharray={c.style === 'dashed' ? '10 6' : 'none'} opacity={0.85} />
-                      <circle cx={to.x - 8} cy={to.y} r={5} fill={c.style === 'dashed' ? '#64748b' : '#8b5cf6'} />
+                      {/* Main curved path with arrow */}
+                      <path 
+                        d={`M ${from.x} ${from.y} C ${mx} ${from.y}, ${mx} ${to.y}, ${to.x - 12} ${to.y}`} 
+                        fill="none" 
+                        stroke={isDashed ? 'url(#connGradientDead)' : 'url(#connGradient)'} 
+                        strokeWidth={c.thickness || 3} 
+                        strokeDasharray={isDashed ? '8 4' : 'none'} 
+                        opacity={0.9}
+                        markerEnd={isDashed ? 'url(#arrowGray)' : 'url(#arrowBlue)'}
+                      />
+                      
+                      {/* Timer label on connection */}
                       {c.triggerDelay && (
                         <g>
-                          <rect x={mx - 50} y={(from.y + to.y) / 2 - 14} width={100} height={28} rx={6} fill="#1e293b" stroke="#475569" strokeWidth={1} />
-                          <text x={mx} y={(from.y + to.y) / 2 + 5} fill="#94a3b8" fontSize="13" textAnchor="middle" fontWeight="600">
-                            ⏱️ {c.triggerDelay.label}
+                          <rect x={mx - 45} y={(from.y + to.y) / 2 - 12} width={90} height={24} rx={12} fill="#1e293b" stroke="#3b82f6" strokeWidth={1.5} />
+                          <text x={mx} y={(from.y + to.y) / 2 + 4} fill="#60a5fa" fontSize="11" textAnchor="middle" fontWeight="600">
+                            ⏱ {c.triggerDelay.label}
                           </text>
                         </g>
                       )}
                     </g>
                   );
                 })}
+                
+                {/* Connection in progress */}
                 {connectingFrom && (() => {
                   const from = getNodeCenter(connectingFrom.id, connectingFrom.type, 'right');
-                  return <line x1={from.x} y1={from.y} x2={mousePos.x} y2={mousePos.y} stroke="#fbbf24" strokeWidth={3} strokeDasharray="8 5" />;
+                  return (
+                    <g>
+                      <line x1={from.x} y1={from.y} x2={mousePos.x} y2={mousePos.y} stroke="#fbbf24" strokeWidth={3} strokeDasharray="8 5" />
+                      <circle cx={mousePos.x} cy={mousePos.y} r={8} fill="#fbbf24" opacity={0.6} />
+                    </g>
+                  );
                 })()}
               </svg>
             )}
