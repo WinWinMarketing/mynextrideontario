@@ -9,7 +9,7 @@ import type {
   StageColor,
   StrictPathType,
 } from './types';
-import { NODE_SIZES, deriveTutorialSequence, stageColorHex, EDGE_COLORS, strictPathColor } from './types';
+import { NODE_SIZES, deriveTutorialSequence, stageColorHex } from './types';
 
 export type NodeSizeKey = keyof typeof NODE_SIZES;
 
@@ -182,8 +182,7 @@ export function buildRuntimeFromSchema(schema: WorkflowSchema, nodeSize: NodeSiz
   }
 
   // --- Convert edges to runtime connections ---
-  // Use sleek, muted colors based on strict_path type (not node colors)
-  // This makes arrows clearly indicate flow type, not node identity
+  // Use muted, sleek colors for flow indication - not bright node colors
   const connections: NodeConnection[] = schema.edges.map(e => {
     const fromNode = nodesById.get(e.from);
     const toNode = nodesById.get(e.to);
@@ -191,10 +190,26 @@ export function buildRuntimeFromSchema(schema: WorkflowSchema, nodeSize: NodeSiz
     const toType: 'stage' | 'message' = toNode?.type === 'Status_Node' ? 'stage' : 'message';
     const style: NodeConnection['style'] = e.strict_path === 'Loop' ? 'dashed' : 'solid';
     
-    // Use sleek, muted edge colors based on path type (Success/Failure/Loop/Neutral)
-    // This clearly distinguishes flow types without being distracting
-    const color = strictPathColor(e.strict_path);
-    const thickness = e.strict_path === 'Success' ? 3 : e.strict_path === 'Failure' ? 2.5 : 2;
+    // Muted, sleek edge colors based on path type (not node colors)
+    // This makes arrows indicate flow direction, not options
+    let color: string;
+    switch (e.strict_path) {
+      case 'Success':
+        color = '#5eead4'; // subtle teal
+        break;
+      case 'Failure':
+        color = '#f87171'; // muted rose-red
+        break;
+      case 'Loop':
+        color = '#a78bfa'; // subtle violet
+        break;
+      case 'Neutral':
+      default:
+        color = '#64748b'; // slate-500 (default flow)
+    }
+    
+    // Slightly thinner, more elegant lines
+    const thickness = e.strict_path === 'Success' ? 3 : e.strict_path === 'Failure' ? 3 : 2;
     
     return {
       id: e.id,

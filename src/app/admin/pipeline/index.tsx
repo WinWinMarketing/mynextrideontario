@@ -7,7 +7,7 @@ import {
   PipelineStage, MessageNode, NodeConnection, TextLabel, WorkspaceProfile, InlineAction,
   STAGE_COLORS, DEFAULT_WORKSPACE_SETTINGS, DEAD_LEAD_CATEGORIES, TIMER_PRESETS, NODE_SIZES,
   MAX_PROFILES, STORAGE_KEY, ACTIVE_PROFILE_KEY, StageColor, PipelineAnalytics,
-  SchemaPreset, WorkflowSchema, validateWorkflowEdge, EDGE_COLORS, strictPathColor
+  SchemaPreset, WorkflowSchema, validateWorkflowEdge
 } from './types';
 import { ALL_PRESETS, Preset, PRESET_CATEGORIES } from './presets';
 import { ALL_SCHEMA_PRESETS, SCHEMA_PRESET_CATEGORIES } from './schemaPresets';
@@ -78,13 +78,6 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [nodeSize, setNodeSize] = useState<'small' | 'medium' | 'large' | 'xlarge'>('large');
   const [showGrid, setShowGrid] = useState(true);
   const [tutorialEnabled, setTutorialEnabled] = useState(true);
-  
-  // Tutorial Popup - Shows near the preset button clicked
-  const [tutorialPopup, setTutorialPopup] = useState<{
-    show: boolean;
-    preset: SchemaPreset | null;
-    position: { x: number; y: number };
-  }>({ show: false, preset: null, position: { x: 0, y: 0 } });
   
   // View Mode - Builder hides action nodes for easier lead management
   const [viewMode, setViewMode] = useState<'builder' | 'node'>('node');
@@ -227,179 +220,215 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   }, [hasUnsavedChanges]);
 
-  // ============ SAVE TO CLOUD (S3) ============
+  // ============ SAVE TO S3 (Cloud-only CRM Storage) ============
   const manualSave = useCallback(async () => {
-    if (activeProfileId) {
-      setIsLoading(true);
-      const now = new Date().toISOString();
-      const current = profiles.find(p => p.id === activeProfileId);
+    if (!activeProfileId) {
+      console.warn('⚠️ No active profile to save');
+      return;
+    }
+    
+    setIsLoading(true);
+    const now = new Date().toISOString();
+    const current = profiles.find(p => p.id === activeProfileId);
 
-      // Schema-first persistence (V3):
-      // - Save schema only (no coordinates)
-      // - Runtime layout is computed on load via schemaRuntime.ts
-      const updatedProfile: WorkspaceProfile = activeSchema
-        ? {
-            id: activeProfileId,
-            name: current?.name || 'Workflow',
-            description: current?.description,
-            icon: current?.icon,
-            createdAt: current?.createdAt || now,
-            updatedAt: now,
-            version: 3,
-            schema: activeSchema,
-            settings: {
-              ...DEFAULT_WORKSPACE_SETTINGS,
-              zoom,
-              panX: pan.x,
-              panY: pan.y,
-              gridSize,
-              snapToGrid,
-              nodeSize,
-              showGrid,
-              tutorialEnabled,
-            },
-          }
-        : {
-            id: activeProfileId,
-            name: current?.name || 'Workflow',
-            description: current?.description,
-            icon: current?.icon,
-            createdAt: current?.createdAt || now,
-            updatedAt: now,
-            stages,
-            messageNodes,
-            connections,
-            labels,
-            emailTemplates: current?.emailTemplates || [],
-            settings: {
-              ...DEFAULT_WORKSPACE_SETTINGS,
-              zoom,
-              panX: pan.x,
-              panY: pan.y,
-              gridSize,
-              snapToGrid,
-              nodeSize,
-              showGrid,
-              tutorialEnabled,
-            },
-          };
+    // Build the complete profile with all current state
+    // Schema-first (V3): Save schema + settings, layout computed at runtime
+    // Legacy (V2): Save full stages/messageNodes/connections
+    const updatedProfile: WorkspaceProfile = activeSchema
+      ? {
+          id: activeProfileId,
+          name: current?.name || 'Pipeline',
+          description: current?.description,
+          icon: current?.icon,
+          createdAt: current?.createdAt || now,
+          updatedAt: now,
+          version: 3,
+          schema: activeSchema,
+          settings: {
+            ...DEFAULT_WORKSPACE_SETTINGS,
+            zoom,
+            panX: pan.x,
+            panY: pan.y,
+            gridSize,
+            snapToGrid,
+            nodeSize,
+            showGrid,
+            tutorialEnabled,
+          },
+        }
+      : {
+          id: activeProfileId,
+          name: current?.name || 'Pipeline',
+          description: current?.description,
+          icon: current?.icon,
+          createdAt: current?.createdAt || now,
+          updatedAt: now,
+          version: 2,
+          stages,
+          messageNodes,
+          connections,
+          labels,
+          emailTemplates: current?.emailTemplates || [],
+          settings: {
+            ...DEFAULT_WORKSPACE_SETTINGS,
+            zoom,
+            panX: pan.x,
+            panY: pan.y,
+            gridSize,
+            snapToGrid,
+            nodeSize,
+            showGrid,
+            tutorialEnabled,
+          },
+        };
 
-      // Update local state
-      const updated = profiles.map(p => 
-        p.id === activeProfileId ? updatedProfile : p
-      );
-      setProfiles(updated);
+    // Update local profiles array
+    const updatedProfiles = profiles.map(p => 
+      p.id === activeProfileId ? updatedProfile : p
+    );
+    setProfiles(updatedProfiles);
 
-      // Save to Cloud (AWS S3) - Robust save with proper structure
-      const payload = {
-        // Optimized: save only the changed profile (schema-first is small)
-        profile: updatedProfile,
-        activeProfileId: activeProfileId,
-        profileIds: updated.map(p => p.id),
-      };
-      
-      console.log('💾 Saving to S3:', {
-        profileId: activeProfileId,
-        mode: activeSchema ? 'schema-v3' : 'legacy-v2',
-        stageCount: stages.length,
-        connectionCount: connections.length,
+    // ========== S3 SAVE (PRIMARY STORAGE) ==========
+    console.log('💾 Saving to S3:', {
+      profileId: activeProfileId,
+      profileName: updatedProfile.name,
+      version: activeSchema ? 'schema-v3' : 'legacy-v2',
+      stageCount: stages.length,
+      messageNodeCount: messageNodes.length,
+      connectionCount: connections.length,
+    });
+    
+    try {
+      const response = await fetch('/api/admin/workflows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          profile: updatedProfile,
+          activeProfileId: activeProfileId,
+          profileIds: updatedProfiles.map(p => p.id),
+        }),
       });
       
+      let result: any = { success: false };
       try {
-        const response = await fetch('/api/admin/workflows', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          credentials: 'include', // Include auth cookies
-        });
-        
-        // Try to parse response as JSON
-        let result;
-        try {
-          const text = await response.text();
-          result = text ? JSON.parse(text) : { success: false, error: 'Empty response' };
-        } catch (parseErr) {
-          console.error('❌ Failed to parse S3 response:', parseErr);
-          result = { success: false, error: 'Invalid response from server' };
-        }
-        
-        if (response.ok && result.success) {
-          console.log('✅ S3 Save successful:', result);
-          setSaveNotification('☁️ Saved to cloud! (' + (result.savedCount || 1) + ' profiles)');
-        } else {
-          console.error('❌ S3 Save failed:', result, 'Status:', response.status);
-          setSaveNotification('⚠️ Cloud save failed: ' + (result.error || result.details || `HTTP ${response.status}`));
-        }
-      } catch (err) {
-        console.error('❌ Cloud save error:', err);
-        setSaveNotification('⚠️ Network error - check connection');
+        const text = await response.text();
+        result = text ? JSON.parse(text) : { success: false, error: 'Empty response' };
+      } catch (parseErr) {
+        console.error('❌ Failed to parse S3 response:', parseErr);
+        result = { success: false, error: 'Invalid server response' };
       }
-
-      setIsLoading(false);
-      setLastSaveTime(new Date());
-      setHasUnsavedChanges(false);
-      setShowSaveReminder(false);
-      setTimeout(() => setSaveNotification(null), 2000);
+      
+      if (response.ok && result.success) {
+        console.log('✅ S3 Save successful:', result);
+        setSaveNotification(`☁️ Saved "${updatedProfile.name}" to cloud`);
+        setLastSaveTime(new Date());
+        setHasUnsavedChanges(false);
+        setShowSaveReminder(false);
+      } else {
+        console.error('❌ S3 Save failed:', result, 'Status:', response.status);
+        setSaveNotification(`⚠️ Save failed: ${result.error || result.details || `HTTP ${response.status}`}`);
+      }
+    } catch (err: any) {
+      console.error('❌ S3 save network error:', err);
+      setSaveNotification('⚠️ Network error - please check connection');
     }
+
+    setIsLoading(false);
+    setTimeout(() => setSaveNotification(null), 2500);
   }, [activeProfileId, activeSchema, stages, messageNodes, connections, labels, zoom, pan, profiles, gridSize, snapToGrid, nodeSize, showGrid, tutorialEnabled]);
 
-  // ============ LOAD - S3 ONLY (No localStorage fallback) ============
+  // ============ LOAD - S3 ONLY (Cloud-first CRM) ============
   useEffect(() => {
     const loadWorkflows = async () => {
-      console.log('🔄 Loading workflows from S3...');
       setIsLoading(true);
+      console.log('🔄 Loading workflows from S3...');
       
       try {
-        const response = await fetch('/api/admin/workflows');
+        const response = await fetch('/api/admin/workflows', { credentials: 'include' });
+        
         if (response.ok) {
           const data = await response.json();
-          console.log('📥 S3 Response:', { workflowCount: data.workflows?.length || 0 });
+          console.log('📦 S3 response:', { workflowCount: data.workflows?.length || 0 });
           
           if (data.workflows && data.workflows.length > 0) {
             // Load full workflow data for each profile
             const fullWorkflows = await Promise.all(
               data.workflows.map(async (w: any) => {
                 try {
-                  const fullRes = await fetch(`/api/admin/workflows?id=${w.id}`);
-                  if (fullRes.ok) return fullRes.json();
+                  const fullRes = await fetch(`/api/admin/workflows?id=${w.id}`, { credentials: 'include' });
+                  if (fullRes.ok) {
+                    const profile = await fullRes.json();
+                    console.log(`✅ Loaded profile: ${profile.name} (${profile.id})`);
+                    return profile;
+                  }
                 } catch (err) {
-                  console.error(`❌ Failed to load profile ${w.id}:`, err);
+                  console.warn(`⚠️ Failed to load profile ${w.id}:`, err);
                 }
                 return null;
               })
             );
+            
             const validWorkflows = fullWorkflows.filter(Boolean);
+            console.log(`📊 Loaded ${validWorkflows.length} valid profiles from S3`);
             
             if (validWorkflows.length > 0) {
-              console.log('✅ Loaded', validWorkflows.length, 'profiles from S3');
               setProfiles(validWorkflows);
-              loadProfileData(validWorkflows[0]);
-              setActiveProfileId(validWorkflows[0].id);
+              
+              // Load the first/active profile
+              const activeProfile = validWorkflows[0];
+              loadProfileData(activeProfile);
+              setActiveProfileId(activeProfile.id);
+              
+              setSaveNotification(`☁️ Loaded ${validWorkflows.length} profiles from cloud`);
+              setTimeout(() => setSaveNotification(null), 2500);
               setIsLoading(false);
               return;
             }
           }
-        }
-        
-        // No saved workflows - apply default preset and save to S3
-        console.log('📭 No saved workflows, creating default...');
-        const defaultPreset = ALL_SCHEMA_PRESETS[0];
-        if (defaultPreset) {
-          applySchemaPreset(defaultPreset);
         } else {
-          applyPreset(ALL_PRESETS[0]);
+          console.warn('⚠️ S3 load returned non-OK status:', response.status);
         }
-        
       } catch (err) {
-        console.error('❌ S3 load failed:', err);
-        setSaveNotification('⚠️ Failed to load from cloud - check connection');
-        setTimeout(() => setSaveNotification(null), 3000);
-        
-        // Still apply a default preset so user can work
-        const defaultPreset = ALL_SCHEMA_PRESETS[0];
-        if (defaultPreset) {
-          applySchemaPreset(defaultPreset);
-        }
+        console.error('❌ S3 load error:', err);
+      }
+
+      // No S3 data found - create initial profile with default preset
+      console.log('📝 No S3 data found, creating initial profile...');
+      const defaultPreset = ALL_SCHEMA_PRESETS[0]; // High-Ticket Automotive
+      const now = new Date().toISOString();
+      const initialProfile: WorkspaceProfile = {
+        id: `profile-${Date.now()}`,
+        name: 'My First Pipeline',
+        description: 'Auto-created from High-Ticket Automotive preset',
+        createdAt: now,
+        updatedAt: now,
+        version: 3,
+        schema: defaultPreset.schema,
+        settings: DEFAULT_WORKSPACE_SETTINGS,
+      };
+      
+      setProfiles([initialProfile]);
+      setActiveProfileId(initialProfile.id);
+      loadProfileData(initialProfile);
+      
+      // Save to S3 immediately
+      try {
+        await fetch('/api/admin/workflows', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            profile: initialProfile,
+            activeProfileId: initialProfile.id,
+            profileIds: [initialProfile.id],
+          }),
+        });
+        console.log('✅ Initial profile saved to S3');
+        setSaveNotification('☁️ Created initial pipeline in cloud');
+        setTimeout(() => setSaveNotification(null), 2500);
+      } catch (saveErr) {
+        console.error('❌ Failed to save initial profile:', saveErr);
       }
       
       setIsLoading(false);
@@ -473,19 +502,47 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setHistoryIndex(0);
   };
 
-  const loadProfile = (id: string) => {
-    const p = profiles.find(x => x.id === id);
-    if (p) { loadProfileData(p); setActiveProfileId(id); localStorage.setItem(ACTIVE_PROFILE_KEY, id); }
+  const loadProfile = async (id: string) => {
+    const profile = profiles.find(x => x.id === id);
+    if (!profile) return;
+    
+    loadProfileData(profile);
+    setActiveProfileId(id);
+    
+    // Update S3 with new active profile (no localStorage)
+    try {
+      await fetch('/api/admin/workflows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          profile: profile,
+          activeProfileId: id,
+          profileIds: profiles.map(p => p.id),
+        }),
+      });
+      console.log('✅ Active profile updated in S3:', profile.name);
+    } catch (err) {
+      console.warn('⚠️ Could not update active profile in S3:', err);
+    }
   };
 
   const createProfile = async (name: string) => {
-    if (profiles.length >= MAX_PROFILES) return;
+    if (profiles.length >= MAX_PROFILES) {
+      setSaveNotification(`⚠️ Maximum ${MAX_PROFILES} profiles reached`);
+      setTimeout(() => setSaveNotification(null), 2000);
+      return;
+    }
     
+    setIsLoading(true);
     const now = new Date().toISOString();
     const entryId = `entry-${Date.now()}`;
-    const np: WorkspaceProfile = { 
+    
+    // Create new profile with basic schema
+    const newProfile: WorkspaceProfile = { 
       id: `profile-${Date.now()}`,
       name,
+      description: 'Custom pipeline',
       createdAt: now,
       updatedAt: now,
       version: 3,
@@ -516,38 +573,41 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       settings: DEFAULT_WORKSPACE_SETTINGS,
     };
     
-    const updated = [...profiles, np];
-    setProfiles(updated);
-    setActiveProfileId(np.id);
-    loadProfileData(np);
+    const updatedProfiles = [...profiles, newProfile];
     
-    // Save to S3 (no localStorage fallback)
+    // Save to S3 immediately
     try {
       const response = await fetch('/api/admin/workflows', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ 
-          profile: np,
-          activeProfileId: np.id,
-          profileIds: updated.map(p => p.id),
+        body: JSON.stringify({
+          profile: newProfile,
+          activeProfileId: newProfile.id,
+          profileIds: updatedProfiles.map(p => p.id),
         }),
       });
       
-      if (response.ok) {
-        console.log('✅ Profile created and saved to S3');
-        setSaveNotification('☁️ Profile created & saved!');
+      const result = await response.json();
+      
+      if (response.ok && result.success) {
+        setProfiles(updatedProfiles);
+        setActiveProfileId(newProfile.id);
+        loadProfileData(newProfile);
+        console.log('✅ New profile created and saved to S3:', newProfile.name);
+        setSaveNotification(`☁️ Created "${name}" in cloud`);
       } else {
-        console.error('❌ Failed to save new profile to S3');
-        setSaveNotification('⚠️ Profile created but cloud save failed');
+        console.error('❌ Failed to save new profile:', result);
+        setSaveNotification('⚠️ Failed to create profile');
       }
     } catch (err) {
-      console.error('❌ Network error saving profile:', err);
-      setSaveNotification('⚠️ Network error - profile may not be saved');
+      console.error('❌ Network error creating profile:', err);
+      setSaveNotification('⚠️ Network error - profile not saved');
     }
     
+    setIsLoading(false);
     setHasUnsavedChanges(false);
-    setTimeout(() => setSaveNotification(null), 2500);
+    setTimeout(() => setSaveNotification(null), 2000);
   };
 
   // ============ LEADS ============
@@ -732,8 +792,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   };
   
-  // ============ AUTO LAYOUT - CRM Flow: Dead/Options LEFT, Success flow RIGHT ============
-  // This layout is designed for CRM: arrows show flow between stages, not options
+  // ============ AUTO LAYOUT - CRM Flow: Dead on LEFT, Success flow to RIGHT ============
   const autoLayoutHourglass = () => {
     const deadStages = stages.filter(s => s.statusId === 'dead');
     const newStages = stages.filter(s => s.statusId === 'new');
@@ -741,19 +800,21 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     const approvalStages = stages.filter(s => s.statusId === 'approval');
     const circleBackStages = stages.filter(s => s.statusId === 'circle-back');
     
-    // Layout: LEFT (dead/options) → CENTER (entry) → RIGHT (success flow)
-    const startX = 200;           // Far left for dead stages
-    const entryX = 900;           // Entry point (New Lead) in center-left
+    // Layout: Dead(LEFT) -> Entry(CENTER-LEFT) -> Working(CENTER) -> Approval(RIGHT)
+    const startX = 100;           // Dead leads start here (far left)
+    const entryX = 600;           // Entry/New lead column
+    const workingStartX = 1200;   // Working stages start
+    const approvalStartX = 2400;  // Approval/Won stages
     const centerY = 800;          // Vertical center
     
     // Spacing constants
     const deadSpacing = 420;      // Vertical gap between dead leads
-    const workingSpacing = 480;   // Vertical gap between working stages  
+    const workingSpacing = 480;   // Vertical gap between working stages
     const approvalSpacing = 500;  // Vertical gap between approval stages
-    const columnGap = 580;        // Horizontal gap between columns
+    const columnGap = 550;        // Horizontal gap between working columns
     
     setStages(prev => prev.map(s => {
-      // DEAD LEADS - Far LEFT column (these are exit points, not options)
+      // DEAD LEADS - Far LEFT column (CRM: failures on left)
       if (s.statusId === 'dead') {
         const idx = deadStages.findIndex(d => d.id === s.id);
         const totalDead = deadStages.length;
@@ -768,19 +829,19 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         };
       }
       
-      // NEW LEAD - Entry point, center-left (focal point for incoming leads)
+      // NEW LEAD - Entry point, center-left (start of flow)
       if (s.statusId === 'new') {
         const idx = newStages.findIndex(n => n.id === s.id);
         return { 
           ...s, 
           x: entryX, 
           y: centerY - 200 + idx * 450,
-          width: 440,
-          height: 420
+          width: 420,
+          height: 400
         };
       }
       
-      // WORKING - Column(s) to the RIGHT of entry, success flow progression
+      // WORKING - Center columns, evenly distributed
       if (s.statusId === 'working') {
         const idx = workingStages.findIndex(w => w.id === s.id);
         const totalWorking = workingStages.length;
@@ -789,7 +850,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         const col = Math.floor(idx / itemsPerColumn);
         const row = idx % itemsPerColumn;
         
-        const xBase = entryX + columnGap + col * columnGap;
+        const xBase = workingStartX + col * columnGap;
         const rowsInThisColumn = Math.min(itemsPerColumn, totalWorking - col * itemsPerColumn);
         const columnHeight = (rowsInThisColumn - 1) * workingSpacing;
         const startY = centerY - columnHeight / 2;
@@ -803,40 +864,36 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         };
       }
       
-      // APPROVAL/WON - Far RIGHT (final success stages)
+      // APPROVAL/WON - Far RIGHT (success destination)
       if (s.statusId === 'approval') {
         const idx = approvalStages.findIndex(a => a.id === s.id);
         const totalApproval = approvalStages.length;
         
-        const itemsPerColumn = 2;
-        const col = Math.floor(idx / itemsPerColumn);
-        const row = idx % itemsPerColumn;
-        
         const workingCols = Math.ceil(workingStages.length / 3);
-        const xBase = entryX + columnGap + (workingCols + col) * columnGap + 100;
+        const xBase = workingStartX + (workingCols || 1) * columnGap + 200;
         
-        const rowsInThisColumn = Math.min(itemsPerColumn, totalApproval - col * itemsPerColumn);
-        const columnHeight = (rowsInThisColumn - 1) * approvalSpacing;
-        const startY = centerY - columnHeight / 2;
+        const totalHeight = (totalApproval - 1) * approvalSpacing;
+        const startY = centerY - totalHeight / 2;
         
+        // Last approval stage (WON) gets extra emphasis
         const isLast = idx === totalApproval - 1;
         
         return { 
           ...s, 
-          x: xBase,
-          y: startY + row * approvalSpacing,
+          x: xBase + idx * 100, // Slight stagger right
+          y: startY + idx * approvalSpacing,
           width: isLast ? 440 : 400,
-          height: isLast ? 400 : 380
+          height: isLast ? 420 : 380
         };
       }
       
-      // CIRCLE BACK - Below entry area (loop-back stages)
+      // CIRCLE BACK - Below entry, indicating retry flow
       if (s.statusId === 'circle-back') {
         const idx = circleBackStages.findIndex(c => c.id === s.id);
         return { 
           ...s, 
-          x: entryX - 200 + idx * 420, 
-          y: centerY + 550,
+          x: entryX + 100 + idx * 420, 
+          y: centerY + 500,
           width: 360,
           height: 320
         };
@@ -845,21 +902,20 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       return s;
     }));
     
-    // Position ACTION nodes (advanced) in a neat grid to the far right
+    // Position action nodes between working and approval columns
     const workingCols = Math.ceil(workingStages.length / 3);
-    const approvalCols = Math.ceil(approvalStages.length / 2);
-    const msgStartX = entryX + columnGap + (workingCols + approvalCols) * columnGap + 300;
+    const msgStartX = workingStartX + (workingCols || 1) * columnGap - 200;
     
     setMessageNodes(prev => prev.map((m, idx) => ({
       ...m,
-      x: msgStartX + (idx % 2) * 350,
-      y: 250 + Math.floor(idx / 2) * 280
+      x: msgStartX + (idx % 2) * 340,
+      y: 200 + Math.floor(idx / 2) * 280
     })));
     
     // Fit view after layout
     setTimeout(fitView, 100);
     
-    setSaveNotification('✨ CRM Layout: Dead→Left, Success→Right');
+    setSaveNotification('✨ CRM Flow layout applied! (Dead→Left, Success→Right)');
     setTimeout(() => setSaveNotification(null), 2500);
     setHasUnsavedChanges(true);
   };
@@ -891,7 +947,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   };
 
   // ============ PRESETS ============
-  const applySchemaPreset = (p: SchemaPreset, buttonRect?: DOMRect) => {
+  const applySchemaPreset = (p: SchemaPreset) => {
     // Validate schema edges (fail fast if preset is malformed)
     const invalid = p.schema.edges
       .map(e => ({ e, v: validateWorkflowEdge(p.schema, e) }))
@@ -906,19 +962,6 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
     const built = buildRuntimeFromSchema(p.schema, nodeSize);
     setActiveSchema(p.schema);
-    
-    // Close the old story panel - we'll use popup instead
-    storyActions.close();
-    
-    // Show tutorial popup near the button if enabled
-    if (tutorialEnabled && buttonRect) {
-      setTutorialPopup({
-        show: true,
-        preset: p,
-        position: { x: buttonRect.right + 10, y: buttonRect.top },
-      });
-    }
-    
     setViewMode('node');
     setStages(built.stages);
     setMessageNodes(built.messageNodes);
@@ -929,14 +972,23 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setHistory([{ stages: built.stages, messageNodes: built.messageNodes, connections: built.connections, labels: built.labels }]);
     setHistoryIndex(0);
 
-    // Auto-layout on preset load
+    // Apply auto-layout after schema is loaded (CRM flow: dead left, success right)
     setTimeout(() => {
       autoLayoutHourglass();
+      
+      // Start tutorial if enabled (popup appears next to sidebar)
+      if (tutorialEnabled && built.tutorialSequence.length > 0) {
+        storyActions.open(built.tutorialSequence);
+      } else {
+        storyActions.close();
+      }
+      
+      // Focus on entry node
       setTimeout(() => {
         focusNode(built.entryNodeId, 0.45);
-        setSaveNotification(`✅ Loaded: ${p.name}`);
-        setTimeout(() => setSaveNotification(null), 2000);
-      }, 150);
+        setSaveNotification(`✅ Loaded: ${p.name} (tutorial ${tutorialEnabled ? 'enabled' : 'disabled'})`);
+        setTimeout(() => setSaveNotification(null), 2500);
+      }, 200);
     }, 100);
   };
 
@@ -1038,6 +1090,17 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       return 'Success';
     };
 
+    // Muted, sleek edge colors - indicates flow, not options
+    const getEdgeColor = (strict: string) => {
+      switch (strict) {
+        case 'Success': return '#5eead4';   // subtle teal
+        case 'Failure': return '#f87171';   // muted rose
+        case 'Loop': return '#a78bfa';      // subtle violet  
+        case 'Neutral':
+        default: return '#64748b';          // slate-500
+      }
+    };
+
     const nextEdgesByFrom = new Map<string, NodeConnection[]>();
     connections.forEach(c => {
       const arr = nextEdgesByFrom.get(c.fromNodeId) || [];
@@ -1071,9 +1134,8 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
             autoTrigger: false,
             label: midLabel || (ms.label ? String(ms.label) : strict),
             style: strict === 'Loop' ? 'dashed' : 'solid',
-            // Use sleek, muted edge colors
-            color: strictPathColor(strict as any),
-            thickness: strict === 'Success' ? 2.5 : strict === 'Failure' ? 2 : 1.8,
+            color: getEdgeColor(strict),
+            thickness: strict === 'Success' ? 3 : strict === 'Failure' ? 3 : 2,
             strictPath: strict as any,
           });
         });
@@ -1169,13 +1231,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                         </span>
                       </div>
                     )}
-                    <button 
-                      onClick={(e) => {
-                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                        applySchemaPreset(p, rect);
-                      }} 
-                      className="w-full p-5 text-left"
-                    >
+                    <button onClick={() => applySchemaPreset(p)} className="w-full p-5 text-left">
                       <div className="flex items-center gap-4 mb-4">
                         <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-3xl shadow-inner ${
                           idx === 0 ? 'bg-gradient-to-br from-emerald-600/30 to-green-700/30' : 'bg-gradient-to-br from-slate-700 to-slate-800'
@@ -1528,99 +1584,94 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           )}
         </div>
 
-        {/* Tutorial Popup - Appears near preset button (elegant, non-intrusive) */}
-        <AnimatePresence>
-          {tutorialPopup.show && tutorialPopup.preset && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, x: -10 }}
-              animate={{ opacity: 1, scale: 1, x: 0 }}
-              exit={{ opacity: 0, scale: 0.95, x: -10 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              className="fixed z-[100] w-[380px] max-h-[500px] bg-slate-950/98 backdrop-blur-2xl border border-slate-700/60 rounded-2xl shadow-2xl overflow-hidden"
-              style={{ 
-                left: Math.min(tutorialPopup.position.x, window.innerWidth - 400),
-                top: Math.max(20, Math.min(tutorialPopup.position.y - 50, window.innerHeight - 520)),
-              }}
-            >
-              {/* Header */}
-              <div className="p-4 border-b border-slate-800/60 bg-gradient-to-r from-blue-500/10 to-purple-500/10">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center text-xl">
-                      {tutorialPopup.preset.icon}
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-blue-400 uppercase tracking-wide">Tutorial</div>
-                      <div className="text-base font-bold text-white">{tutorialPopup.preset.name}</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setTutorialPopup({ show: false, preset: null, position: { x: 0, y: 0 } })}
-                    className="w-8 h-8 rounded-lg bg-slate-800/70 text-slate-400 hover:text-white hover:bg-slate-700 flex items-center justify-center transition-all"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="p-4 overflow-y-auto max-h-[350px]">
-                <p className="text-sm text-slate-300 mb-4">{tutorialPopup.preset.description}</p>
-                
-                <div className="space-y-3">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Workflow Steps</h4>
-                  {tutorialPopup.preset.schema.nodes.slice(0, 6).map((node, idx) => (
-                    <div key={node.id} className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700/40">
-                      <div className="w-8 h-8 rounded-lg bg-slate-700/60 flex items-center justify-center text-sm flex-shrink-0">
-                        {node.icon || (idx + 1)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-white">{node.label}</div>
-                        <div className="text-xs text-slate-400 mt-0.5">{(node as any).guidance?.tutorial_title || node.type}</div>
-                      </div>
-                    </div>
-                  ))}
-                  {tutorialPopup.preset.schema.nodes.length > 6 && (
-                    <div className="text-xs text-slate-500 text-center py-2">
-                      +{tutorialPopup.preset.schema.nodes.length - 6} more steps
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
-                  <div className="flex items-center gap-2 text-sm text-emerald-400">
-                    <span>✨</span>
-                    <span className="font-medium">Auto-layout applied: Dead→Left, Success→Right</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="p-4 border-t border-slate-800/60 bg-slate-950/80">
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={() => {
-                      setTutorialEnabled(false);
-                      setTutorialPopup({ show: false, preset: null, position: { x: 0, y: 0 } });
-                      setSaveNotification('Tutorial disabled - re-enable in Settings');
-                      setTimeout(() => setSaveNotification(null), 2500);
-                    }}
-                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                  >
-                    Don't show again
-                  </button>
-                  <button
-                    onClick={() => setTutorialPopup({ show: false, preset: null, position: { x: 0, y: 0 } })}
-                    className="px-4 py-2 rounded-xl bg-blue-500/20 border border-blue-500/40 text-blue-300 hover:bg-blue-500/30 transition-all text-sm font-semibold"
-                  >
-                    Got it!
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
+
+      {/* TUTORIAL POPUP - Floating next to sidebar, not taking over */}
+      <AnimatePresence>
+        {tutorialEnabled && story.isOpen && storyNode && (
+          <motion.div
+            initial={{ opacity: 0, x: -20, scale: 0.95 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -20, scale: 0.95 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+            className="fixed left-[440px] top-[140px] z-[60] w-[380px] bg-slate-900/98 backdrop-blur-2xl rounded-2xl border border-slate-700/60 shadow-2xl shadow-black/40"
+            style={{ maxHeight: 'calc(100vh - 200px)' }}
+          >
+            {/* Arrow pointing to sidebar */}
+            <div className="absolute -left-3 top-6 w-0 h-0 border-t-[10px] border-t-transparent border-r-[12px] border-r-slate-700/60 border-b-[10px] border-b-transparent" />
+            <div className="absolute -left-2.5 top-6 w-0 h-0 border-t-[10px] border-t-transparent border-r-[12px] border-r-slate-900/98 border-b-[10px] border-b-transparent" />
+            
+            {/* Header */}
+            <div className="p-4 border-b border-slate-800/60 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-t-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-bold tracking-wide">TUTORIAL</span>
+                    <span className="text-[10px] text-slate-500">Step {story.stepIndex + 1}/{story.sequence.length}</span>
+                  </div>
+                  <div className="text-base font-bold text-white leading-tight">
+                    {storyNode.guidance.tutorial_title}
+                  </div>
+                </div>
+                <button
+                  onClick={() => storyActions.close()}
+                  className="w-7 h-7 rounded-lg bg-slate-800/70 border border-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700 flex items-center justify-center transition-all text-lg"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 380px)' }}>
+              <div className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
+                {storyNode.guidance.tutorial_content}
+              </div>
+
+              {storyNode.guidance.video_url && (
+                <div className="mt-3 p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300">
+                  📹 Video: {storyNode.guidance.video_url}
+                </div>
+              )}
+            </div>
+
+            {/* Footer - Navigation */}
+            <div className="p-3 border-t border-slate-800/60 bg-slate-950/50 rounded-b-2xl">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => storyActions.prev()}
+                  disabled={story.stepIndex <= 0}
+                  className="px-3 py-2 rounded-lg bg-slate-800/70 border border-slate-700/50 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs font-semibold"
+                >
+                  ← Prev
+                </button>
+                <button
+                  onClick={() => storyActions.next()}
+                  disabled={story.stepIndex >= story.sequence.length - 1}
+                  className="px-3 py-2 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-300 hover:bg-blue-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs font-semibold"
+                >
+                  Next →
+                </button>
+                <div className="flex-1" />
+                <button
+                  onClick={() => storyNodeId && focusNode(storyNodeId, 0.55)}
+                  className="px-3 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 transition-all text-xs font-semibold"
+                >
+                  🎯 Focus
+                </button>
+              </div>
+              
+              {/* Progress bar */}
+              <div className="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
+                  style={{ width: `${((story.stepIndex + 1) / story.sequence.length) * 100}%` }}
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* MAIN CANVAS */}
       <div className="flex-1 relative">
@@ -1741,13 +1792,11 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               </div>
             ))}
 
-            {/* CRM FLOW ARROWS - Visual flow indicators only (non-interactive) */}
-            {/* Sleek, muted colors: Success=green, Failure=red, Loop=slate, Neutral=gray */}
+            {/* SCHEMA-DRIVEN CONNECTIONS (Orthogonal routing, strict_path colors) */}
             <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
               <defs>
-                {/* Subtle glow filter for depth */}
-                <filter id="edgeGlow" x="-40%" y="-40%" width="180%" height="180%">
-                  <feGaussianBlur stdDeviation="1.5" result="blur" />
+                <filter id="edgeGlow" x="-60%" y="-60%" width="220%" height="220%">
+                  <feGaussianBlur stdDeviation="2.5" result="blur" />
                   <feMerge>
                     <feMergeNode in="blur" />
                     <feMergeNode in="SourceGraphic" />
@@ -1764,7 +1813,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 const isFailure = strict === 'Failure';
                 const isLoop = strict === 'Loop' || c.style === 'dashed';
 
-                const pad = 24;
+                const pad = 26;
                 const start = { x: fromRect.x + fromRect.width, y: fromRect.y + fromRect.height / 2 };
                 const end = { x: toRect.x, y: toRect.y + toRect.height / 2 };
                 const sx = start.x + pad;
@@ -1776,7 +1825,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
                 let pts: Array<{ x: number; y: number }>;
                 if (isFailure) {
-                  // Route through basement to dead zone (LEFT side)
+                  // Route through basement gutter to avoid crossing main flow
                   pts = [
                     start,
                     { x: sx, y: start.y },
@@ -1786,7 +1835,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                     end,
                   ];
                 } else if (isLoop) {
-                  // Route upward for retry loops
+                  // Route upward bubble lane
                   pts = [
                     start,
                     { x: sx, y: start.y },
@@ -1796,7 +1845,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                     end,
                   ];
                 } else {
-                  // Success/Neutral: clean orthogonal path flowing RIGHT
+                  // Default orthogonal path
                   pts = [
                     start,
                     { x: sx, y: start.y },
@@ -1808,47 +1857,43 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 }
 
                 const d = pointsToPath(pts);
-                // Use sleek, muted edge colors based on path type
-                const strokeColor = strictPathColor(strict as any);
-                const thickness = strict === 'Success' ? 2.5 : strict === 'Failure' ? 2 : 1.8;
-                const opacity = strict === 'Success' ? 0.85 : strict === 'Failure' ? 0.75 : 0.65;
-                
+                const strokeColor = c.color || '#94a3b8';
                 const last = pts[pts.length - 1];
                 const prev = pts[pts.length - 2] || { x: last.x - 1, y: last.y };
                 const angle = Math.atan2(last.y - prev.y, last.x - prev.x) * 180 / Math.PI;
-                const arrowLen = 12;
-                const arrowHalfW = 5;
+                const arrowLen = 14;
+                const arrowHalfW = 6;
 
                 return (
-                  <g key={c.id} opacity={opacity}>
-                    {/* Subtle glow for depth - not distracting */}
+                  <g key={c.id} opacity={0.96}>
+                    {/* subtle glow */}
                     <path
                       d={d}
                       fill="none"
                       stroke={strokeColor}
-                      strokeWidth={thickness + 4}
-                      opacity={0.08}
-                      strokeLinecap="round"
+                      strokeWidth={(c.thickness || 3) + 7}
+                      opacity={0.10}
+                      strokeLinecap="square"
                       strokeLinejoin="round"
                       filter="url(#edgeGlow)"
                     />
-                    {/* Main flow line */}
+                    {/* main line */}
                     <path
                       d={d}
                       fill="none"
                       stroke={strokeColor}
-                      strokeWidth={thickness}
-                      strokeDasharray={isLoop ? '8 6' : undefined}
-                      strokeLinecap="round"
+                      strokeWidth={c.thickness || 3}
+                      strokeDasharray={isLoop ? '10 8' : undefined}
+                      strokeLinecap="square"
                       strokeLinejoin="round"
                     />
 
-                    {/* Arrow head - sleek and minimal */}
+                    {/* Arrow head (matches stroke color) */}
                     <g transform={`translate(${last.x}, ${last.y}) rotate(${angle})`}>
                       <polygon
                         points={`0,0 -${arrowLen},${arrowHalfW} -${arrowLen},-${arrowHalfW}`}
                         fill={strokeColor}
-                        opacity={0.9}
+                        opacity={0.95}
                       />
                     </g>
                   </g>
@@ -2392,4 +2437,3 @@ function RunwayMessageNode({ node, isSelected, isConnecting, zoom, storyDimmed, 
     </div>
   );
 }
-
