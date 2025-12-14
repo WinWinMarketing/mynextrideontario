@@ -7,7 +7,7 @@ import {
   PipelineStage, MessageNode, NodeConnection, TextLabel, WorkspaceProfile, InlineAction,
   STAGE_COLORS, DEFAULT_WORKSPACE_SETTINGS, DEAD_LEAD_CATEGORIES, TIMER_PRESETS, NODE_SIZES,
   MAX_PROFILES, STORAGE_KEY, ACTIVE_PROFILE_KEY, StageColor, PipelineAnalytics,
-  SchemaPreset, WorkflowSchema, validateWorkflowEdge
+  SchemaPreset, WorkflowSchema, validateWorkflowEdge, EDGE_COLORS, strictPathColor
 } from './types';
 import { ALL_PRESETS, Preset, PRESET_CATEGORIES } from './presets';
 import { ALL_SCHEMA_PRESETS, SCHEMA_PRESET_CATEGORIES } from './schemaPresets';
@@ -67,13 +67,6 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [activeSchema, setActiveSchema] = useState<WorkflowSchema | null>(null);
   const [showLegacyPresets, setShowLegacyPresets] = useState(false);
   const story = useStoryStore(s => s);
-  
-  // Tutorial Popup - positioned next to preset button
-  const [tutorialPopup, setTutorialPopup] = useState<{
-    visible: boolean;
-    preset: SchemaPreset | null;
-    buttonRect: { top: number; left: number; width: number; height: number } | null;
-  }>({ visible: false, preset: null, buttonRect: null });
 
   // Node Editor
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -85,6 +78,13 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [nodeSize, setNodeSize] = useState<'small' | 'medium' | 'large' | 'xlarge'>('large');
   const [showGrid, setShowGrid] = useState(true);
   const [tutorialEnabled, setTutorialEnabled] = useState(true);
+  
+  // Tutorial Popup - Shows near the preset button clicked
+  const [tutorialPopup, setTutorialPopup] = useState<{
+    show: boolean;
+    preset: SchemaPreset | null;
+    position: { x: number; y: number };
+  }>({ show: false, preset: null, position: { x: 0, y: 0 } });
   
   // View Mode - Builder hides action nodes for easier lead management
   const [viewMode, setViewMode] = useState<'builder' | 'node'>('node');
@@ -290,16 +290,16 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       );
       setProfiles(updated);
 
-      // S3 ONLY - No localStorage
+      // Save to Cloud (AWS S3) - Robust save with proper structure
       const payload = {
+        // Optimized: save only the changed profile (schema-first is small)
         profile: updatedProfile,
         activeProfileId: activeProfileId,
         profileIds: updated.map(p => p.id),
       };
       
-      console.log('💾 Saving to S3 ONLY:', {
+      console.log('💾 Saving to S3:', {
         profileId: activeProfileId,
-        name: updatedProfile.name,
         mode: activeSchema ? 'schema-v3' : 'legacy-v2',
         stageCount: stages.length,
         connectionCount: connections.length,
@@ -310,9 +310,10 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-          credentials: 'include',
+          credentials: 'include', // Include auth cookies
         });
         
+        // Try to parse response as JSON
         let result;
         try {
           const text = await response.text();
@@ -324,14 +325,14 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         
         if (response.ok && result.success) {
           console.log('✅ S3 Save successful:', result);
-          setSaveNotification('☁️ Saved to S3!');
+          setSaveNotification('☁️ Saved to cloud! (' + (result.savedCount || 1) + ' profiles)');
         } else {
           console.error('❌ S3 Save failed:', result, 'Status:', response.status);
-          setSaveNotification('⚠️ Save failed: ' + (result.error || result.details || `HTTP ${response.status}`));
+          setSaveNotification('⚠️ Cloud save failed: ' + (result.error || result.details || `HTTP ${response.status}`));
         }
       } catch (err) {
-        console.error('❌ S3 save error:', err);
-        setSaveNotification('⚠️ Network error - could not save');
+        console.error('❌ Cloud save error:', err);
+        setSaveNotification('⚠️ Network error - check connection');
       }
 
       setIsLoading(false);
@@ -342,47 +343,66 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   }, [activeProfileId, activeSchema, stages, messageNodes, connections, labels, zoom, pan, profiles, gridSize, snapToGrid, nodeSize, showGrid, tutorialEnabled]);
 
-  // ============ LOAD - S3 ONLY (No localStorage) ============
+  // ============ LOAD - S3 ONLY (No localStorage fallback) ============
   useEffect(() => {
     const loadWorkflows = async () => {
-      console.log('📥 Loading workflows from S3...');
+      console.log('🔄 Loading workflows from S3...');
+      setIsLoading(true);
       
       try {
         const response = await fetch('/api/admin/workflows');
         if (response.ok) {
           const data = await response.json();
-          console.log('📥 S3 response:', data);
+          console.log('📥 S3 Response:', { workflowCount: data.workflows?.length || 0 });
           
           if (data.workflows && data.workflows.length > 0) {
-            // Load full workflow data for each
+            // Load full workflow data for each profile
             const fullWorkflows = await Promise.all(
               data.workflows.map(async (w: any) => {
-                const fullRes = await fetch(`/api/admin/workflows?id=${w.id}`);
-                if (fullRes.ok) {
-                  const profile = await fullRes.json();
-                  console.log('📥 Loaded profile:', profile.id, profile.name);
-                  return profile;
+                try {
+                  const fullRes = await fetch(`/api/admin/workflows?id=${w.id}`);
+                  if (fullRes.ok) return fullRes.json();
+                } catch (err) {
+                  console.error(`❌ Failed to load profile ${w.id}:`, err);
                 }
                 return null;
               })
             );
             const validWorkflows = fullWorkflows.filter(Boolean);
+            
             if (validWorkflows.length > 0) {
               console.log('✅ Loaded', validWorkflows.length, 'profiles from S3');
               setProfiles(validWorkflows);
               loadProfileData(validWorkflows[0]);
               setActiveProfileId(validWorkflows[0].id);
+              setIsLoading(false);
               return;
             }
           }
         }
+        
+        // No saved workflows - apply default preset and save to S3
+        console.log('📭 No saved workflows, creating default...');
+        const defaultPreset = ALL_SCHEMA_PRESETS[0];
+        if (defaultPreset) {
+          applySchemaPreset(defaultPreset);
+        } else {
+          applyPreset(ALL_PRESETS[0]);
+        }
+        
       } catch (err) {
         console.error('❌ S3 load failed:', err);
+        setSaveNotification('⚠️ Failed to load from cloud - check connection');
+        setTimeout(() => setSaveNotification(null), 3000);
+        
+        // Still apply a default preset so user can work
+        const defaultPreset = ALL_SCHEMA_PRESETS[0];
+        if (defaultPreset) {
+          applySchemaPreset(defaultPreset);
+        }
       }
-
-      // No S3 data - start with first preset (auto-layout will be applied)
-      console.log('📥 No S3 data found, loading default preset...');
-      applyPreset(ALL_PRESETS[0]);
+      
+      setIsLoading(false);
     };
 
     loadWorkflows();
@@ -455,16 +475,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
   const loadProfile = (id: string) => {
     const p = profiles.find(x => x.id === id);
-    if (p) { 
-      loadProfileData(p); 
-      setActiveProfileId(id);
-      // Auto-layout when switching profiles
-      setTimeout(() => autoLayoutHourglass(), 100);
-    }
+    if (p) { loadProfileData(p); setActiveProfileId(id); localStorage.setItem(ACTIVE_PROFILE_KEY, id); }
   };
 
   const createProfile = async (name: string) => {
     if (profiles.length >= MAX_PROFILES) return;
+    
     const now = new Date().toISOString();
     const entryId = `entry-${Date.now()}`;
     const np: WorkspaceProfile = { 
@@ -499,32 +515,39 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       },
       settings: DEFAULT_WORKSPACE_SETTINGS,
     };
+    
     const updated = [...profiles, np];
-    setProfiles(updated); 
+    setProfiles(updated);
     setActiveProfileId(np.id);
     loadProfileData(np);
     
-    // Save to S3 ONLY
+    // Save to S3 (no localStorage fallback)
     try {
       const response = await fetch('/api/admin/workflows', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile: np, activeProfileId: np.id, profileIds: updated.map(p => p.id) }),
         credentials: 'include',
+        body: JSON.stringify({ 
+          profile: np,
+          activeProfileId: np.id,
+          profileIds: updated.map(p => p.id),
+        }),
       });
       
       if (response.ok) {
-        setSaveNotification('☁️ Profile created and saved to S3!');
+        console.log('✅ Profile created and saved to S3');
+        setSaveNotification('☁️ Profile created & saved!');
       } else {
-        setSaveNotification('⚠️ Profile created but S3 save failed');
+        console.error('❌ Failed to save new profile to S3');
+        setSaveNotification('⚠️ Profile created but cloud save failed');
       }
     } catch (err) {
-      console.error('❌ S3 save failed:', err);
-      setSaveNotification('⚠️ Profile created but S3 save failed');
+      console.error('❌ Network error saving profile:', err);
+      setSaveNotification('⚠️ Network error - profile may not be saved');
     }
     
     setHasUnsavedChanges(false);
-    setTimeout(() => setSaveNotification(null), 2000);
+    setTimeout(() => setSaveNotification(null), 2500);
   };
 
   // ============ LEADS ============
@@ -709,7 +732,8 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   };
   
-  // ============ AUTO LAYOUT - All options on LEFT, flow right ============
+  // ============ AUTO LAYOUT - CRM Flow: Dead/Options LEFT, Success flow RIGHT ============
+  // This layout is designed for CRM: arrows show flow between stages, not options
   const autoLayoutHourglass = () => {
     const deadStages = stages.filter(s => s.statusId === 'dead');
     const newStages = stages.filter(s => s.statusId === 'new');
@@ -717,63 +741,55 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     const approvalStages = stages.filter(s => s.statusId === 'approval');
     const circleBackStages = stages.filter(s => s.statusId === 'circle-back');
     
-    // Layout: Dead/Options on LEFT → New Lead → Working → Approval/Won
-    const leftMargin = 80;
-    const centerY = 700;
+    // Layout: LEFT (dead/options) → CENTER (entry) → RIGHT (success flow)
+    const startX = 200;           // Far left for dead stages
+    const entryX = 900;           // Entry point (New Lead) in center-left
+    const centerY = 800;          // Vertical center
     
-    // Spacing constants - larger to PREVENT overlap
-    const deadSpacing = 440;       // Vertical gap between dead leads
-    const workingSpacing = 480;    // Vertical gap between working stages
-    const approvalSpacing = 500;   // Vertical gap between approval stages
-    const columnGap = 580;         // Horizontal gap between columns
-    
-    // Calculate column positions (left to right)
-    const deadColumnX = leftMargin;
-    const newColumnX = deadColumnX + 420 + 100; // After dead column
-    const workingStartX = newColumnX + 520 + 100; // After new column
+    // Spacing constants
+    const deadSpacing = 420;      // Vertical gap between dead leads
+    const workingSpacing = 480;   // Vertical gap between working stages  
+    const approvalSpacing = 500;  // Vertical gap between approval stages
+    const columnGap = 580;        // Horizontal gap between columns
     
     setStages(prev => prev.map(s => {
-      // DEAD LEADS - Far LEFT column, evenly spaced vertically
-      // These are OPTIONS/termination paths, positioned on left for clarity
+      // DEAD LEADS - Far LEFT column (these are exit points, not options)
       if (s.statusId === 'dead') {
         const idx = deadStages.findIndex(d => d.id === s.id);
         const totalDead = deadStages.length;
-        // Center the dead leads vertically
         const totalHeight = (totalDead - 1) * deadSpacing;
         const startY = centerY - totalHeight / 2;
         return { 
           ...s, 
-          x: deadColumnX, 
+          x: startX, 
           y: startY + idx * deadSpacing,
           width: 360,
           height: 340
         };
       }
       
-      // NEW LEAD - Second column, big focal point
+      // NEW LEAD - Entry point, center-left (focal point for incoming leads)
       if (s.statusId === 'new') {
         const idx = newStages.findIndex(n => n.id === s.id);
         return { 
           ...s, 
-          x: newColumnX, 
-          y: centerY - 230 + idx * 500, // Stack vertically if multiple new stages
-          width: 460,
-          height: 460
+          x: entryX, 
+          y: centerY - 200 + idx * 450,
+          width: 440,
+          height: 420
         };
       }
       
-      // WORKING - Column(s) after New Lead, evenly distributed
+      // WORKING - Column(s) to the RIGHT of entry, success flow progression
       if (s.statusId === 'working') {
         const idx = workingStages.findIndex(w => w.id === s.id);
         const totalWorking = workingStages.length;
         
-        // Determine column and row
-        const itemsPerColumn = 4;
+        const itemsPerColumn = 3;
         const col = Math.floor(idx / itemsPerColumn);
         const row = idx % itemsPerColumn;
         
-        // Calculate position
-        const xBase = workingStartX + col * columnGap;
+        const xBase = entryX + columnGap + col * columnGap;
         const rowsInThisColumn = Math.min(itemsPerColumn, totalWorking - col * itemsPerColumn);
         const columnHeight = (rowsInThisColumn - 1) * workingSpacing;
         const startY = centerY - columnHeight / 2;
@@ -782,73 +798,69 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           ...s, 
           x: xBase,
           y: startY + row * workingSpacing,
-          width: 400,
-          height: 380
+          width: 380,
+          height: 360
         };
       }
       
-      // APPROVAL/WON - Far right column(s), staggered for visual flow
+      // APPROVAL/WON - Far RIGHT (final success stages)
       if (s.statusId === 'approval') {
         const idx = approvalStages.findIndex(a => a.id === s.id);
         const totalApproval = approvalStages.length;
         
-        // Position in columns
-        const itemsPerColumn = 3;
+        const itemsPerColumn = 2;
         const col = Math.floor(idx / itemsPerColumn);
         const row = idx % itemsPerColumn;
         
-        // How many working columns are there?
-        const workingCols = Math.ceil(workingStages.length / 4);
-        const xBase = workingStartX + workingCols * columnGap + col * approvalSpacing;
+        const workingCols = Math.ceil(workingStages.length / 3);
+        const xBase = entryX + columnGap + (workingCols + col) * columnGap + 100;
         
-        // Stack vertically with offset
         const rowsInThisColumn = Math.min(itemsPerColumn, totalApproval - col * itemsPerColumn);
         const columnHeight = (rowsInThisColumn - 1) * approvalSpacing;
         const startY = centerY - columnHeight / 2;
         
-        // Last approval stage (usually WON) gets extra size
         const isLast = idx === totalApproval - 1;
         
         return { 
           ...s, 
           x: xBase,
           y: startY + row * approvalSpacing,
-          width: isLast ? 460 : 420,
-          height: isLast ? 440 : 400
+          width: isLast ? 440 : 400,
+          height: isLast ? 400 : 380
         };
       }
       
-      // CIRCLE BACK - Below the working area
+      // CIRCLE BACK - Below entry area (loop-back stages)
       if (s.statusId === 'circle-back') {
         const idx = circleBackStages.findIndex(c => c.id === s.id);
         return { 
           ...s, 
-          x: workingStartX + idx * 450, 
-          y: centerY + 600,
-          width: 380,
-          height: 340
+          x: entryX - 200 + idx * 420, 
+          y: centerY + 550,
+          width: 360,
+          height: 320
         };
       }
       
       return s;
     }));
     
-    // Position message nodes in a neat grid to the far right
-    const workingCols = Math.ceil(workingStages.length / 4);
-    const approvalCols = Math.ceil(approvalStages.length / 3);
-    const msgStartX = workingStartX + (workingCols + approvalCols) * columnGap + 200;
+    // Position ACTION nodes (advanced) in a neat grid to the far right
+    const workingCols = Math.ceil(workingStages.length / 3);
+    const approvalCols = Math.ceil(approvalStages.length / 2);
+    const msgStartX = entryX + columnGap + (workingCols + approvalCols) * columnGap + 300;
     
     setMessageNodes(prev => prev.map((m, idx) => ({
       ...m,
-      x: msgStartX + (idx % 2) * 380,
-      y: 200 + Math.floor(idx / 2) * 320
+      x: msgStartX + (idx % 2) * 350,
+      y: 250 + Math.floor(idx / 2) * 280
     })));
     
     // Fit view after layout
     setTimeout(fitView, 100);
     
-    setSaveNotification('✨ Layout applied! Dead leads on left, flow → right');
-    setTimeout(() => setSaveNotification(null), 2000);
+    setSaveNotification('✨ CRM Layout: Dead→Left, Success→Right');
+    setTimeout(() => setSaveNotification(null), 2500);
     setHasUnsavedChanges(true);
   };
 
@@ -879,7 +891,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   };
 
   // ============ PRESETS ============
-  const applySchemaPreset = (p: SchemaPreset, buttonElement?: HTMLButtonElement) => {
+  const applySchemaPreset = (p: SchemaPreset, buttonRect?: DOMRect) => {
     // Validate schema edges (fail fast if preset is malformed)
     const invalid = p.schema.edges
       .map(e => ({ e, v: validateWorkflowEdge(p.schema, e) }))
@@ -895,18 +907,16 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     const built = buildRuntimeFromSchema(p.schema, nodeSize);
     setActiveSchema(p.schema);
     
-    // Show tutorial popup next to button if enabled
-    if (tutorialEnabled && buttonElement) {
-      const rect = buttonElement.getBoundingClientRect();
+    // Close the old story panel - we'll use popup instead
+    storyActions.close();
+    
+    // Show tutorial popup near the button if enabled
+    if (tutorialEnabled && buttonRect) {
       setTutorialPopup({
-        visible: true,
+        show: true,
         preset: p,
-        buttonRect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+        position: { x: buttonRect.right + 10, y: buttonRect.top },
       });
-      storyActions.open(built.tutorialSequence);
-    } else {
-      storyActions.close();
-      setTutorialPopup({ visible: false, preset: null, buttonRect: null });
     }
     
     setViewMode('node');
@@ -919,12 +929,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setHistory([{ stages: built.stages, messageNodes: built.messageNodes, connections: built.connections, labels: built.labels }]);
     setHistoryIndex(0);
 
-    // AUTO-LAYOUT automatically applied for all presets
+    // Auto-layout on preset load
     setTimeout(() => {
       autoLayoutHourglass();
       setTimeout(() => {
-        fitView();
-        setSaveNotification(`✅ Loaded: ${p.name} (auto-layout applied)`);
+        focusNode(built.entryNodeId, 0.45);
+        setSaveNotification(`✅ Loaded: ${p.name}`);
         setTimeout(() => setSaveNotification(null), 2000);
       }, 150);
     }, 100);
@@ -933,7 +943,6 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const applyPreset = (p: Preset) => { 
     setActiveSchema(null);
     storyActions.close();
-    setTutorialPopup({ visible: false, preset: null, buttonRect: null });
     setStages(p.stages); 
     setMessageNodes(p.messageNodes);
     setConnections(p.connections); 
@@ -943,12 +952,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setHistory([{ stages: p.stages, messageNodes: p.messageNodes, connections: p.connections, labels: p.labels }]);
     setHistoryIndex(0);
     
-    // AUTO-LAYOUT automatically applied for all presets
+    // AUTO-LAYOUT by default for all presets, then fit view
     setTimeout(() => {
       autoLayoutHourglass();
       setTimeout(() => {
         fitView();
-        setSaveNotification(`✅ Loaded: ${p.name} (auto-layout applied)`);
+        setSaveNotification(`✅ Loaded: ${p.name}`);
         setTimeout(() => setSaveNotification(null), 2000);
       }, 150);
     }, 100); 
@@ -1062,8 +1071,9 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
             autoTrigger: false,
             label: midLabel || (ms.label ? String(ms.label) : strict),
             style: strict === 'Loop' ? 'dashed' : 'solid',
-            color: strict === 'Success' ? '#22c55e' : strict === 'Failure' ? '#ef4444' : '#94a3b8',
-            thickness: strict === 'Success' || strict === 'Failure' ? 4 : 3,
+            // Use sleek, muted edge colors
+            color: strictPathColor(strict as any),
+            thickness: strict === 'Success' ? 2.5 : strict === 'Failure' ? 2 : 1.8,
             strictPath: strict as any,
           });
         });
@@ -1160,7 +1170,10 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                       </div>
                     )}
                     <button 
-                      onClick={(e) => applySchemaPreset(p, e.currentTarget as HTMLButtonElement)} 
+                      onClick={(e) => {
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        applySchemaPreset(p, rect);
+                      }} 
                       className="w-full p-5 text-left"
                     >
                       <div className="flex items-center gap-4 mb-4">
@@ -1183,11 +1196,6 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                                p.complexity === 'advanced' ? '⭐⭐⭐ LEVEL 3' :
                                '🏆 ENTERPRISE'}
                             </span>
-                            {tutorialEnabled && (
-                              <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                                📖 Tutorial
-                              </span>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -1520,105 +1528,92 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           )}
         </div>
 
-        {/* Tutorial Popup - Floating next to sidebar, elegant and compact */}
+        {/* Tutorial Popup - Appears near preset button (elegant, non-intrusive) */}
         <AnimatePresence>
-          {tutorialEnabled && story.isOpen && storyNode && tutorialPopup.visible && (
+          {tutorialPopup.show && tutorialPopup.preset && (
             <motion.div
-              initial={{ x: -20, opacity: 0, scale: 0.95 }}
-              animate={{ x: 0, opacity: 1, scale: 1 }}
-              exit={{ x: -20, opacity: 0, scale: 0.95 }}
+              initial={{ opacity: 0, scale: 0.95, x: -10 }}
+              animate={{ opacity: 1, scale: 1, x: 0 }}
+              exit={{ opacity: 0, scale: 0.95, x: -10 }}
               transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              className="fixed z-[60] w-[360px] bg-slate-950/98 backdrop-blur-xl rounded-2xl border border-slate-700/60 shadow-2xl shadow-black/50"
-              style={{
-                left: 440, // Just outside the sidebar
-                top: Math.max(80, Math.min(tutorialPopup.buttonRect?.top || 200, window.innerHeight - 450)),
+              className="fixed z-[100] w-[380px] max-h-[500px] bg-slate-950/98 backdrop-blur-2xl border border-slate-700/60 rounded-2xl shadow-2xl overflow-hidden"
+              style={{ 
+                left: Math.min(tutorialPopup.position.x, window.innerWidth - 400),
+                top: Math.max(20, Math.min(tutorialPopup.position.y - 50, window.innerHeight - 520)),
               }}
             >
               {/* Header */}
-              <div className="p-4 border-b border-slate-800/60 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-t-2xl">
+              <div className="p-4 border-b border-slate-800/60 bg-gradient-to-r from-blue-500/10 to-purple-500/10">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">📖</span>
-                      <div className="text-xs font-bold text-blue-400 uppercase tracking-wider">Step-by-Step Guide</div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center text-xl">
+                      {tutorialPopup.preset.icon}
                     </div>
-                    <div className="text-base font-bold text-white mt-2 leading-tight">
-                      {storyNode.guidance.tutorial_title}
+                    <div>
+                      <div className="text-xs font-bold text-blue-400 uppercase tracking-wide">Tutorial</div>
+                      <div className="text-base font-bold text-white">{tutorialPopup.preset.name}</div>
                     </div>
                   </div>
                   <button
-                    onClick={() => { storyActions.close(); setTutorialPopup({ visible: false, preset: null, buttonRect: null }); }}
-                    className="w-8 h-8 rounded-lg bg-slate-800/80 border border-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700 flex items-center justify-center transition-all text-lg"
+                    onClick={() => setTutorialPopup({ show: false, preset: null, position: { x: 0, y: 0 } })}
+                    className="w-8 h-8 rounded-lg bg-slate-800/70 text-slate-400 hover:text-white hover:bg-slate-700 flex items-center justify-center transition-all"
                   >
                     ×
                   </button>
                 </div>
-                {/* Progress */}
-                <div className="flex items-center gap-2 mt-3">
-                  <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-300"
-                      style={{ width: `${((story.stepIndex + 1) / Math.max(1, story.sequence.length)) * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-xs text-slate-400 font-medium">
-                    {story.stepIndex + 1}/{story.sequence.length}
-                  </span>
-                </div>
               </div>
 
               {/* Content */}
-              <div className="p-4 max-h-[250px] overflow-y-auto">
-                <div className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
-                  {storyNode.guidance.tutorial_content}
+              <div className="p-4 overflow-y-auto max-h-[350px]">
+                <p className="text-sm text-slate-300 mb-4">{tutorialPopup.preset.description}</p>
+                
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Workflow Steps</h4>
+                  {tutorialPopup.preset.schema.nodes.slice(0, 6).map((node, idx) => (
+                    <div key={node.id} className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700/40">
+                      <div className="w-8 h-8 rounded-lg bg-slate-700/60 flex items-center justify-center text-sm flex-shrink-0">
+                        {node.icon || (idx + 1)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-white">{node.label}</div>
+                        <div className="text-xs text-slate-400 mt-0.5">{(node as any).guidance?.tutorial_title || node.type}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {tutorialPopup.preset.schema.nodes.length > 6 && (
+                    <div className="text-xs text-slate-500 text-center py-2">
+                      +{tutorialPopup.preset.schema.nodes.length - 6} more steps
+                    </div>
+                  )}
                 </div>
 
-                {storyNode.guidance.video_url && (
-                  <a href={storyNode.guidance.video_url} target="_blank" rel="noopener noreferrer"
-                    className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-medium hover:bg-blue-500/20 transition-all">
-                    🎬 Watch Video Tutorial
-                  </a>
-                )}
+                <div className="mt-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                  <div className="flex items-center gap-2 text-sm text-emerald-400">
+                    <span>✨</span>
+                    <span className="font-medium">Auto-layout applied: Dead→Left, Success→Right</span>
+                  </div>
+                </div>
               </div>
 
-              {/* Navigation Footer */}
-              <div className="p-4 border-t border-slate-800/60 bg-slate-900/50 rounded-b-2xl">
-                <div className="flex items-center gap-2">
+              {/* Footer */}
+              <div className="p-4 border-t border-slate-800/60 bg-slate-950/80">
+                <div className="flex items-center justify-between">
                   <button
-                    onClick={() => storyActions.prev()}
-                    disabled={story.stepIndex <= 0}
-                    className="flex-1 px-3 py-2 rounded-lg bg-slate-800/70 border border-slate-700/50 text-slate-200 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-medium"
-                  >
-                    ← Prev
-                  </button>
-                  <button
-                    onClick={() => storyNodeId && focusNode(storyNodeId, 0.6)}
-                    className="px-3 py-2 rounded-lg bg-slate-800/70 border border-slate-700/50 text-slate-200 hover:bg-slate-800 transition-all text-sm font-medium"
-                    title="Focus on this node"
-                  >
-                    🎯
-                  </button>
-                  <button
-                    onClick={() => storyActions.next()}
-                    disabled={story.stepIndex >= story.sequence.length - 1}
-                    className="flex-1 px-3 py-2 rounded-lg bg-gradient-to-r from-blue-500/30 to-purple-500/30 border border-blue-500/40 text-blue-200 hover:from-blue-500/40 hover:to-purple-500/40 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-medium"
-                  >
-                    Next →
-                  </button>
-                </div>
-                {/* Turn off tip */}
-                <div className="text-center mt-3">
-                  <button 
-                    onClick={() => { 
-                      setTutorialEnabled(false); 
-                      storyActions.close(); 
-                      setTutorialPopup({ visible: false, preset: null, buttonRect: null });
-                      setSaveNotification('📖 Tutorial disabled. Enable in Settings.');
-                      setTimeout(() => setSaveNotification(null), 3000);
+                    onClick={() => {
+                      setTutorialEnabled(false);
+                      setTutorialPopup({ show: false, preset: null, position: { x: 0, y: 0 } });
+                      setSaveNotification('Tutorial disabled - re-enable in Settings');
+                      setTimeout(() => setSaveNotification(null), 2500);
                     }}
                     className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
                   >
-                    Don't show tutorials → Settings
+                    Don't show again
+                  </button>
+                  <button
+                    onClick={() => setTutorialPopup({ show: false, preset: null, position: { x: 0, y: 0 } })}
+                    className="px-4 py-2 rounded-xl bg-blue-500/20 border border-blue-500/40 text-blue-300 hover:bg-blue-500/30 transition-all text-sm font-semibold"
+                  >
+                    Got it!
                   </button>
                 </div>
               </div>
@@ -1746,11 +1741,13 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               </div>
             ))}
 
-            {/* SCHEMA-DRIVEN CONNECTIONS (Orthogonal routing, strict_path colors) */}
+            {/* CRM FLOW ARROWS - Visual flow indicators only (non-interactive) */}
+            {/* Sleek, muted colors: Success=green, Failure=red, Loop=slate, Neutral=gray */}
             <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
               <defs>
-                <filter id="edgeGlow" x="-60%" y="-60%" width="220%" height="220%">
-                  <feGaussianBlur stdDeviation="2.5" result="blur" />
+                {/* Subtle glow filter for depth */}
+                <filter id="edgeGlow" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="1.5" result="blur" />
                   <feMerge>
                     <feMergeNode in="blur" />
                     <feMergeNode in="SourceGraphic" />
@@ -1758,56 +1755,100 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 </filter>
               </defs>
 
-              {/* FLOW ARROWS - Visual indicators only, NOT interactive, consistent color */}
               {visualConnections.map(c => {
                 const fromRect = getNodeRect(c.fromNodeId, c.fromType);
                 const toRect = getNodeRect(c.toNodeId, c.toType);
                 if (!fromRect || !toRect) return null;
 
-                const isLoop = c.style === 'dashed';
-                const pad = 26;
+                const strict = (c.strictPath as any) || (c.label as any) || 'Neutral';
+                const isFailure = strict === 'Failure';
+                const isLoop = strict === 'Loop' || c.style === 'dashed';
+
+                const pad = 24;
                 const start = { x: fromRect.x + fromRect.width, y: fromRect.y + fromRect.height / 2 };
                 const end = { x: toRect.x, y: toRect.y + toRect.height / 2 };
                 const sx = start.x + pad;
                 const ex = end.x - pad;
-                const midX = Math.round((sx + ex) / 2);
 
-                // Simple orthogonal routing
-                const pts = [
-                  start,
-                  { x: sx, y: start.y },
-                  { x: midX, y: start.y },
-                  { x: midX, y: end.y },
-                  { x: ex, y: end.y },
-                  end,
-                ];
+                const midX = Math.round((sx + ex) / 2);
+                const basementY = routingLanes.basementY;
+                const loopY = routingLanes.loopY;
+
+                let pts: Array<{ x: number; y: number }>;
+                if (isFailure) {
+                  // Route through basement to dead zone (LEFT side)
+                  pts = [
+                    start,
+                    { x: sx, y: start.y },
+                    { x: sx, y: basementY },
+                    { x: ex, y: basementY },
+                    { x: ex, y: end.y },
+                    end,
+                  ];
+                } else if (isLoop) {
+                  // Route upward for retry loops
+                  pts = [
+                    start,
+                    { x: sx, y: start.y },
+                    { x: sx, y: loopY },
+                    { x: ex, y: loopY },
+                    { x: ex, y: end.y },
+                    end,
+                  ];
+                } else {
+                  // Success/Neutral: clean orthogonal path flowing RIGHT
+                  pts = [
+                    start,
+                    { x: sx, y: start.y },
+                    { x: midX, y: start.y },
+                    { x: midX, y: end.y },
+                    { x: ex, y: end.y },
+                    end,
+                  ];
+                }
 
                 const d = pointsToPath(pts);
-                // SINGLE consistent color - sleek zinc gray for all arrows
-                const strokeColor = '#71717a';
-                const lineThickness = 2;
+                // Use sleek, muted edge colors based on path type
+                const strokeColor = strictPathColor(strict as any);
+                const thickness = strict === 'Success' ? 2.5 : strict === 'Failure' ? 2 : 1.8;
+                const opacity = strict === 'Success' ? 0.85 : strict === 'Failure' ? 0.75 : 0.65;
                 
                 const last = pts[pts.length - 1];
                 const prev = pts[pts.length - 2] || { x: last.x - 1, y: last.y };
                 const angle = Math.atan2(last.y - prev.y, last.x - prev.x) * 180 / Math.PI;
+                const arrowLen = 12;
+                const arrowHalfW = 5;
 
                 return (
-                  <g key={c.id} opacity={0.7}>
-                    {/* main line */}
+                  <g key={c.id} opacity={opacity}>
+                    {/* Subtle glow for depth - not distracting */}
                     <path
                       d={d}
                       fill="none"
                       stroke={strokeColor}
-                      strokeWidth={lineThickness}
-                      strokeDasharray={isLoop ? '6 4' : undefined}
+                      strokeWidth={thickness + 4}
+                      opacity={0.08}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      filter="url(#edgeGlow)"
+                    />
+                    {/* Main flow line */}
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke={strokeColor}
+                      strokeWidth={thickness}
+                      strokeDasharray={isLoop ? '8 6' : undefined}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
-                    {/* Arrow head */}
+
+                    {/* Arrow head - sleek and minimal */}
                     <g transform={`translate(${last.x}, ${last.y}) rotate(${angle})`}>
                       <polygon
-                        points="0,0 -8,4 -8,-4"
+                        points={`0,0 -${arrowLen},${arrowHalfW} -${arrowLen},-${arrowHalfW}`}
                         fill={strokeColor}
+                        opacity={0.9}
                       />
                     </g>
                   </g>
@@ -2351,3 +2392,4 @@ function RunwayMessageNode({ node, isSelected, isConnecting, zoom, storyDimmed, 
     </div>
   );
 }
+

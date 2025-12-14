@@ -153,18 +153,7 @@ export async function POST(request: NextRequest) {
     if (data.profile && data.profile.id) {
       const profile = data.profile;
       const key = `${WORKFLOWS_PREFIX}${profile.id}.json`;
-      
-      // Log profile data being saved
-      console.log('[WORKFLOW API] Saving single profile:', key, {
-        id: profile.id,
-        name: profile.name,
-        version: profile.version,
-        hasSchema: !!profile.schema,
-        stageCount: profile.stages?.length || 0,
-        messageNodeCount: profile.messageNodes?.length || 0,
-        connectionCount: profile.connections?.length || profile.schema?.edges?.length || 0,
-        hasSettings: !!profile.settings,
-      });
+      console.log('[WORKFLOW API] Saving single profile:', key);
 
       await s3.send(new PutObjectCommand({
         Bucket: bucket,
@@ -176,7 +165,7 @@ export async function POST(request: NextRequest) {
       // Optionally save active profile snapshot
       if (data.activeProfileId === profile.id || data.activeProfile?.id === profile.id) {
         const activeKey = `${WORKFLOWS_PREFIX}active-profile.json`;
-        console.log('[WORKFLOW API] Saving active profile snapshot:', activeKey);
+        console.log('[WORKFLOW API] Saving active profile:', activeKey);
         await s3.send(new PutObjectCommand({
           Bucket: bucket,
           Key: activeKey,
@@ -200,14 +189,8 @@ export async function POST(request: NextRequest) {
         }));
       }
 
-      console.log('[WORKFLOW API] ✅ Successfully saved profile:', profile.id);
-      return NextResponse.json({ 
-        success: true, 
-        savedCount: 1, 
-        message: 'Saved profile to S3',
-        profileId: profile.id,
-        version: profile.version,
-      });
+      console.log('[WORKFLOW API] Successfully saved single profile');
+      return NextResponse.json({ success: true, savedCount: 1, message: 'Saved profile to S3' });
     }
 
     // Check if this is a batch profiles save

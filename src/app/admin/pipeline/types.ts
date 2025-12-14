@@ -388,28 +388,18 @@ export interface SchemaPreset {
   schema: WorkflowSchema;
 }
 
-// Edge colors - muted, sleek, distinguishable from nodes
-// These represent connection PATHS (flow options), NOT interactive elements
+// Sleek, muted arrow colors - clearly show flow paths without being distracting
+// These are intentionally desaturated/muted to look professional
 export const EDGE_COLORS = {
-  success: '#4ade80',    // Soft green - main happy path
-  failure: '#f87171',    // Soft red - dead/termination path  
-  loop: '#a1a1aa',       // Zinc - retry/loop paths
-  neutral: '#d4d4d8',    // Light zinc - default connections
-  muted: '#71717a',      // Muted zinc - subtle connections
+  Success: '#4a9f6e',    // Muted green - main success flow
+  Failure: '#9e5555',    // Muted red - dead/failure paths  
+  Loop: '#6b7a8a',       // Slate gray - retry/loop paths
+  Neutral: '#7a8a9a',    // Light slate - neutral transitions
+  Active: '#5a8ab8',     // Muted blue - currently active
 } as const;
 
 export const strictPathColor = (strictPath: StrictPathType) => {
-  switch (strictPath) {
-    case 'Success':
-      return EDGE_COLORS.success;
-    case 'Failure':
-      return EDGE_COLORS.failure;
-    case 'Loop':
-      return EDGE_COLORS.loop;
-    case 'Neutral':
-    default:
-      return EDGE_COLORS.neutral;
-  }
+  return EDGE_COLORS[strictPath] || EDGE_COLORS.Neutral;
 };
 
 export function validateWorkflowEdge(schema: WorkflowSchema, edge: WorkflowEdge): { ok: true } | { ok: false; reason: string } {

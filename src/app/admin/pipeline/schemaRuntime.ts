@@ -9,7 +9,7 @@ import type {
   StageColor,
   StrictPathType,
 } from './types';
-import { NODE_SIZES, deriveTutorialSequence, stageColorHex } from './types';
+import { NODE_SIZES, deriveTutorialSequence, stageColorHex, EDGE_COLORS, strictPathColor } from './types';
 
 export type NodeSizeKey = keyof typeof NODE_SIZES;
 
@@ -182,15 +182,19 @@ export function buildRuntimeFromSchema(schema: WorkflowSchema, nodeSize: NodeSiz
   }
 
   // --- Convert edges to runtime connections ---
-  // SINGLE consistent color for all edges - arrows are flow indicators, NOT nodes
-  const EDGE_COLOR = '#71717a'; // Sleek zinc gray for all arrows
-  
+  // Use sleek, muted colors based on strict_path type (not node colors)
+  // This makes arrows clearly indicate flow type, not node identity
   const connections: NodeConnection[] = schema.edges.map(e => {
     const fromNode = nodesById.get(e.from);
     const toNode = nodesById.get(e.to);
     const fromType: 'stage' | 'message' = fromNode?.type === 'Status_Node' ? 'stage' : 'message';
     const toType: 'stage' | 'message' = toNode?.type === 'Status_Node' ? 'stage' : 'message';
     const style: NodeConnection['style'] = e.strict_path === 'Loop' ? 'dashed' : 'solid';
+    
+    // Use sleek, muted edge colors based on path type (Success/Failure/Loop/Neutral)
+    // This clearly distinguishes flow types without being distracting
+    const color = strictPathColor(e.strict_path);
+    const thickness = e.strict_path === 'Success' ? 3 : e.strict_path === 'Failure' ? 2.5 : 2;
     
     return {
       id: e.id,
@@ -201,10 +205,10 @@ export function buildRuntimeFromSchema(schema: WorkflowSchema, nodeSize: NodeSiz
       fromAnchor: 'right',
       toAnchor: 'left',
       autoTrigger: false,
-      label: e.label,
+      label: e.label || e.strict_path,
       style,
-      color: EDGE_COLOR,
-      thickness: 2,
+      color,
+      thickness,
       strictPath: e.strict_path as StrictPathType,
     };
   });
