@@ -290,29 +290,19 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       );
       setProfiles(updated);
 
-      // ALWAYS save to localStorage first as backup
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        localStorage.setItem(ACTIVE_PROFILE_KEY, activeProfileId);
-        console.log('💾 Saved to localStorage (backup)');
-      } catch (localErr) {
-        console.warn('⚠️ localStorage save failed:', localErr);
-      }
-
-      // Save to Cloud (AWS S3) - Robust save with proper structure
+      // S3 ONLY - No localStorage
       const payload = {
-        // Save the full profile with all data
         profile: updatedProfile,
         activeProfileId: activeProfileId,
         profileIds: updated.map(p => p.id),
       };
       
-      console.log('💾 Saving to S3:', {
+      console.log('💾 Saving to S3 ONLY:', {
         profileId: activeProfileId,
+        name: updatedProfile.name,
         mode: activeSchema ? 'schema-v3' : 'legacy-v2',
         stageCount: stages.length,
         connectionCount: connections.length,
-        hasSettings: !!updatedProfile.settings,
       });
       
       try {
@@ -320,10 +310,9 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-          credentials: 'include', // Include auth cookies
+          credentials: 'include',
         });
         
-        // Try to parse response as JSON
         let result;
         try {
           const text = await response.text();
@@ -335,16 +324,14 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         
         if (response.ok && result.success) {
           console.log('✅ S3 Save successful:', result);
-          setSaveNotification('☁️ Saved to cloud!');
+          setSaveNotification('☁️ Saved to S3!');
         } else {
           console.error('❌ S3 Save failed:', result, 'Status:', response.status);
-          // Still saved locally, so notify user
-          setSaveNotification('💾 Saved locally (cloud sync pending)');
+          setSaveNotification('⚠️ Save failed: ' + (result.error || result.details || `HTTP ${response.status}`));
         }
       } catch (err) {
-        console.error('❌ Cloud save error:', err);
-        // Still saved locally
-        setSaveNotification('💾 Saved locally (offline mode)');
+        console.error('❌ S3 save error:', err);
+        setSaveNotification('⚠️ Network error - could not save');
       }
 
       setIsLoading(false);
@@ -355,53 +342,47 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   }, [activeProfileId, activeSchema, stages, messageNodes, connections, labels, zoom, pan, profiles, gridSize, snapToGrid, nodeSize, showGrid, tutorialEnabled]);
 
-  // ============ LOAD - TRY S3 FIRST, THEN LOCAL ============
+  // ============ LOAD - S3 ONLY (No localStorage) ============
   useEffect(() => {
     const loadWorkflows = async () => {
-      // Try to load from S3 first
+      console.log('📥 Loading workflows from S3...');
+      
       try {
         const response = await fetch('/api/admin/workflows');
         if (response.ok) {
           const data = await response.json();
+          console.log('📥 S3 response:', data);
+          
           if (data.workflows && data.workflows.length > 0) {
             // Load full workflow data for each
             const fullWorkflows = await Promise.all(
               data.workflows.map(async (w: any) => {
                 const fullRes = await fetch(`/api/admin/workflows?id=${w.id}`);
-                if (fullRes.ok) return fullRes.json();
+                if (fullRes.ok) {
+                  const profile = await fullRes.json();
+                  console.log('📥 Loaded profile:', profile.id, profile.name);
+                  return profile;
+                }
                 return null;
               })
             );
             const validWorkflows = fullWorkflows.filter(Boolean);
             if (validWorkflows.length > 0) {
+              console.log('✅ Loaded', validWorkflows.length, 'profiles from S3');
               setProfiles(validWorkflows);
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(validWorkflows));
               loadProfileData(validWorkflows[0]);
               setActiveProfileId(validWorkflows[0].id);
-              localStorage.setItem(ACTIVE_PROFILE_KEY, validWorkflows[0].id);
               return;
             }
           }
         }
       } catch (err) {
-        console.log('S3 load failed, trying local storage:', err);
+        console.error('❌ S3 load failed:', err);
       }
 
-      // Fall back to local storage
-      const saved = localStorage.getItem(STORAGE_KEY);
-      const savedActive = localStorage.getItem(ACTIVE_PROFILE_KEY);
-      
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setProfiles(parsed);
-          if (savedActive) {
-            const found = parsed.find((p: WorkspaceProfile) => p.id === savedActive);
-            if (found) { loadProfileData(found); setActiveProfileId(savedActive); }
-            else if (parsed.length > 0) { loadProfileData(parsed[0]); setActiveProfileId(parsed[0].id); }
-          } else if (parsed.length > 0) { loadProfileData(parsed[0]); setActiveProfileId(parsed[0].id); }
-        } catch { applyPreset(ALL_PRESETS[0]); }
-      } else { applyPreset(ALL_PRESETS[0]); }
+      // No S3 data - start with first preset (auto-layout will be applied)
+      console.log('📥 No S3 data found, loading default preset...');
+      applyPreset(ALL_PRESETS[0]);
     };
 
     loadWorkflows();
@@ -474,10 +455,15 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
   const loadProfile = (id: string) => {
     const p = profiles.find(x => x.id === id);
-    if (p) { loadProfileData(p); setActiveProfileId(id); localStorage.setItem(ACTIVE_PROFILE_KEY, id); }
+    if (p) { 
+      loadProfileData(p); 
+      setActiveProfileId(id);
+      // Auto-layout when switching profiles
+      setTimeout(() => autoLayoutHourglass(), 100);
+    }
   };
 
-  const createProfile = (name: string) => {
+  const createProfile = async (name: string) => {
     if (profiles.length >= MAX_PROFILES) return;
     const now = new Date().toISOString();
     const entryId = `entry-${Date.now()}`;
@@ -514,21 +500,30 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       settings: DEFAULT_WORKSPACE_SETTINGS,
     };
     const updated = [...profiles, np];
-    setProfiles(updated); setActiveProfileId(np.id);
+    setProfiles(updated); 
+    setActiveProfileId(np.id);
     loadProfileData(np);
     
-    // Save to cloud
-    fetch('/api/admin/workflows', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profiles: updated, activeProfile: np }),
-    }).catch(() => {
-      // Fallback to local
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    });
+    // Save to S3 ONLY
+    try {
+      const response = await fetch('/api/admin/workflows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile: np, activeProfileId: np.id, profileIds: updated.map(p => p.id) }),
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        setSaveNotification('☁️ Profile created and saved to S3!');
+      } else {
+        setSaveNotification('⚠️ Profile created but S3 save failed');
+      }
+    } catch (err) {
+      console.error('❌ S3 save failed:', err);
+      setSaveNotification('⚠️ Profile created but S3 save failed');
+    }
     
     setHasUnsavedChanges(false);
-    setSaveNotification('☁️ Profile created!');
     setTimeout(() => setSaveNotification(null), 2000);
   };
 
@@ -900,7 +895,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     const built = buildRuntimeFromSchema(p.schema, nodeSize);
     setActiveSchema(p.schema);
     
-    // Show tutorial popup next to button if enabled (instead of slide-in panel)
+    // Show tutorial popup next to button if enabled
     if (tutorialEnabled && buttonElement) {
       const rect = buttonElement.getBoundingClientRect();
       setTutorialPopup({
@@ -924,17 +919,21 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setHistory([{ stages: built.stages, messageNodes: built.messageNodes, connections: built.connections, labels: built.labels }]);
     setHistoryIndex(0);
 
+    // AUTO-LAYOUT automatically applied for all presets
     setTimeout(() => {
-      // Focus to entry node for the first tutorial step
-      focusNode(built.entryNodeId, 0.55);
-      setSaveNotification(`✅ Loaded: ${p.name}`);
-      setTimeout(() => setSaveNotification(null), 2000);
-    }, 150);
+      autoLayoutHourglass();
+      setTimeout(() => {
+        fitView();
+        setSaveNotification(`✅ Loaded: ${p.name} (auto-layout applied)`);
+        setTimeout(() => setSaveNotification(null), 2000);
+      }, 150);
+    }, 100);
   };
 
   const applyPreset = (p: Preset) => { 
     setActiveSchema(null);
     storyActions.close();
+    setTutorialPopup({ visible: false, preset: null, buttonRect: null });
     setStages(p.stages); 
     setMessageNodes(p.messageNodes);
     setConnections(p.connections); 
@@ -944,12 +943,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setHistory([{ stages: p.stages, messageNodes: p.messageNodes, connections: p.connections, labels: p.labels }]);
     setHistoryIndex(0);
     
-    // AUTO-LAYOUT by default for all presets, then fit view
+    // AUTO-LAYOUT automatically applied for all presets
     setTimeout(() => {
       autoLayoutHourglass();
       setTimeout(() => {
         fitView();
-        setSaveNotification(`✅ Loaded: ${p.name}`);
+        setSaveNotification(`✅ Loaded: ${p.name} (auto-layout applied)`);
         setTimeout(() => setSaveNotification(null), 2000);
       }, 150);
     }, 100); 
@@ -1759,102 +1758,56 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 </filter>
               </defs>
 
+              {/* FLOW ARROWS - Visual indicators only, NOT interactive, consistent color */}
               {visualConnections.map(c => {
                 const fromRect = getNodeRect(c.fromNodeId, c.fromType);
                 const toRect = getNodeRect(c.toNodeId, c.toType);
                 if (!fromRect || !toRect) return null;
 
-                const strict = (c.strictPath as any) || (c.label as any) || 'Neutral';
-                const isFailure = strict === 'Failure';
-                const isLoop = strict === 'Loop' || c.style === 'dashed';
-                const isSuccess = strict === 'Success';
-
+                const isLoop = c.style === 'dashed';
                 const pad = 26;
                 const start = { x: fromRect.x + fromRect.width, y: fromRect.y + fromRect.height / 2 };
                 const end = { x: toRect.x, y: toRect.y + toRect.height / 2 };
                 const sx = start.x + pad;
                 const ex = end.x - pad;
-
                 const midX = Math.round((sx + ex) / 2);
-                const basementY = routingLanes.basementY;
-                const loopY = routingLanes.loopY;
 
-                let pts: Array<{ x: number; y: number }>;
-                if (isFailure) {
-                  // Route through basement gutter to avoid crossing main flow
-                  pts = [
-                    start,
-                    { x: sx, y: start.y },
-                    { x: sx, y: basementY },
-                    { x: ex, y: basementY },
-                    { x: ex, y: end.y },
-                    end,
-                  ];
-                } else if (isLoop) {
-                  // Route upward bubble lane
-                  pts = [
-                    start,
-                    { x: sx, y: start.y },
-                    { x: sx, y: loopY },
-                    { x: ex, y: loopY },
-                    { x: ex, y: end.y },
-                    end,
-                  ];
-                } else {
-                  // Default orthogonal path
-                  pts = [
-                    start,
-                    { x: sx, y: start.y },
-                    { x: midX, y: start.y },
-                    { x: midX, y: end.y },
-                    { x: ex, y: end.y },
-                    end,
-                  ];
-                }
+                // Simple orthogonal routing
+                const pts = [
+                  start,
+                  { x: sx, y: start.y },
+                  { x: midX, y: start.y },
+                  { x: midX, y: end.y },
+                  { x: ex, y: end.y },
+                  end,
+                ];
 
                 const d = pointsToPath(pts);
-                // MUTED edge colors - these are flow indicators, not interactive elements
-                // Sleek, minimal, clearly distinct from nodes
-                const strokeColor = isSuccess ? '#6ee7b7' : isFailure ? '#fca5a5' : isLoop ? '#a1a1aa' : '#d4d4d8';
-                const lineThickness = isSuccess ? 2.5 : 2; // Thinner, more subtle
-                const lineOpacity = isSuccess ? 0.85 : isFailure ? 0.75 : 0.6; // Muted opacity
+                // SINGLE consistent color - sleek zinc gray for all arrows
+                const strokeColor = '#71717a';
+                const lineThickness = 2;
                 
                 const last = pts[pts.length - 1];
                 const prev = pts[pts.length - 2] || { x: last.x - 1, y: last.y };
                 const angle = Math.atan2(last.y - prev.y, last.x - prev.x) * 180 / Math.PI;
-                const arrowLen = 10; // Smaller arrow
-                const arrowHalfW = 4;
 
                 return (
-                  <g key={c.id} opacity={lineOpacity}>
-                    {/* subtle glow - reduced */}
-                    <path
-                      d={d}
-                      fill="none"
-                      stroke={strokeColor}
-                      strokeWidth={lineThickness + 4}
-                      opacity={0.06}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      filter="url(#edgeGlow)"
-                    />
+                  <g key={c.id} opacity={0.7}>
                     {/* main line */}
                     <path
                       d={d}
                       fill="none"
                       stroke={strokeColor}
                       strokeWidth={lineThickness}
-                      strokeDasharray={isLoop ? '8 6' : undefined}
+                      strokeDasharray={isLoop ? '6 4' : undefined}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
-
-                    {/* Arrow head - smaller, subtle */}
+                    {/* Arrow head */}
                     <g transform={`translate(${last.x}, ${last.y}) rotate(${angle})`}>
                       <polygon
-                        points={`0,0 -${arrowLen},${arrowHalfW} -${arrowLen},-${arrowHalfW}`}
+                        points="0,0 -8,4 -8,-4"
                         fill={strokeColor}
-                        opacity={0.8}
                       />
                     </g>
                   </g>
