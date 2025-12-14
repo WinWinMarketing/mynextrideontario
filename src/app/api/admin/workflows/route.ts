@@ -3,7 +3,11 @@ import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, Del
 import { verifyAuth } from '@/lib/auth';
 import { config } from '@/lib/config';
 
-const WORKFLOWS_PREFIX = 'workflows/';
+// NOTE: Some buckets/IAM policies only allow writes under existing prefixes like `settings/*`.
+// We store workflows under `settings/workflows/` for maximum compatibility.
+// We also keep a legacy prefix for backwards compatibility reads.
+const WORKFLOWS_PREFIX = 'settings/workflows/';
+const WORKFLOWS_PREFIX_LEGACY = 'workflows/';
 
 function getS3Client(): S3Client {
   return new S3Client({
@@ -31,27 +35,39 @@ export async function GET(request: NextRequest) {
   try {
     if (workflowId) {
       // Get specific workflow
-      const result = await s3.send(new GetObjectCommand({
-        Bucket: bucket,
-        Key: `${WORKFLOWS_PREFIX}${workflowId}.json`,
-      }));
-      
-      const body = await result.Body?.transformToString();
-      if (body) {
-        return NextResponse.json(JSON.parse(body));
+      const tryKeys = [
+        `${WORKFLOWS_PREFIX}${workflowId}.json`,
+        `${WORKFLOWS_PREFIX_LEGACY}${workflowId}.json`,
+      ];
+
+      for (const key of tryKeys) {
+        try {
+          const result = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+          const body = await result.Body?.transformToString();
+          if (body) return NextResponse.json(JSON.parse(body));
+        } catch (err) {
+          // continue
+        }
       }
+
       return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
     } else {
       // List all workflows
-      const listResult = await s3.send(new ListObjectsV2Command({
-        Bucket: bucket,
-        Prefix: WORKFLOWS_PREFIX,
-      }));
+      const listResult = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: WORKFLOWS_PREFIX }));
+      // Legacy prefix (optional)
+      const listLegacy = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: WORKFLOWS_PREFIX_LEGACY }));
 
       const workflows = [];
-      if (listResult.Contents) {
-        for (const obj of listResult.Contents) {
+      const allObjects = [
+        ...(listResult.Contents || []),
+        ...(listLegacy.Contents || []),
+      ];
+
+      if (allObjects.length) {
+        for (const obj of allObjects) {
           if (!obj.Key || !obj.Key.endsWith('.json')) continue;
+          // skip the active snapshot and metadata entries
+          if (obj.Key.endsWith('active-profile.json') || obj.Key.endsWith('metadata.json')) continue;
           
           try {
             const getResult = await s3.send(new GetObjectCommand({
@@ -107,15 +123,48 @@ export async function POST(request: NextRequest) {
       hasSingleProfile: !!data.profile
     });
     
-    const s3 = getS3Client();
     const bucket = config.aws.bucketName;
-    console.log('[WORKFLOW API] Using bucket:', bucket);
+    const region = config.aws.region;
+    const accessKeyId = config.aws.accessKeyId;
+    const secretAccessKey = config.aws.secretAccessKey;
+
+    // Fail fast with a clear error if AWS config is missing (common cause of 500 in Vercel)
+    if (!bucket || !region || !accessKeyId || !secretAccessKey) {
+      console.error('[WORKFLOW API] Missing AWS configuration', {
+        hasBucket: !!bucket,
+        hasRegion: !!region,
+        hasAccessKeyId: !!accessKeyId,
+        hasSecretAccessKey: !!secretAccessKey,
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Missing AWS configuration',
+          details: 'Ensure AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, and LEADS_BUCKET_NAME are set in the environment.',
+        },
+        { status: 500 },
+      );
+    }
+
+    const s3 = getS3Client();
+    console.log('[WORKFLOW API] Using bucket/region:', { bucket, region });
     
     // Single profile save (optimized path)
     if (data.profile && data.profile.id) {
       const profile = data.profile;
       const key = `${WORKFLOWS_PREFIX}${profile.id}.json`;
-      console.log('[WORKFLOW API] Saving single profile:', key);
+      
+      // Log profile data being saved
+      console.log('[WORKFLOW API] Saving single profile:', key, {
+        id: profile.id,
+        name: profile.name,
+        version: profile.version,
+        hasSchema: !!profile.schema,
+        stageCount: profile.stages?.length || 0,
+        messageNodeCount: profile.messageNodes?.length || 0,
+        connectionCount: profile.connections?.length || profile.schema?.edges?.length || 0,
+        hasSettings: !!profile.settings,
+      });
 
       await s3.send(new PutObjectCommand({
         Bucket: bucket,
@@ -127,7 +176,7 @@ export async function POST(request: NextRequest) {
       // Optionally save active profile snapshot
       if (data.activeProfileId === profile.id || data.activeProfile?.id === profile.id) {
         const activeKey = `${WORKFLOWS_PREFIX}active-profile.json`;
-        console.log('[WORKFLOW API] Saving active profile:', activeKey);
+        console.log('[WORKFLOW API] Saving active profile snapshot:', activeKey);
         await s3.send(new PutObjectCommand({
           Bucket: bucket,
           Key: activeKey,
@@ -151,8 +200,14 @@ export async function POST(request: NextRequest) {
         }));
       }
 
-      console.log('[WORKFLOW API] Successfully saved single profile');
-      return NextResponse.json({ success: true, savedCount: 1, message: 'Saved profile to S3' });
+      console.log('[WORKFLOW API] ✅ Successfully saved profile:', profile.id);
+      return NextResponse.json({ 
+        success: true, 
+        savedCount: 1, 
+        message: 'Saved profile to S3',
+        profileId: profile.id,
+        version: profile.version,
+      });
     }
 
     // Check if this is a batch profiles save
@@ -229,11 +284,18 @@ export async function POST(request: NextRequest) {
     console.log('[WORKFLOW API] Successfully saved workflow');
     return NextResponse.json({ success: true, workflow });
   } catch (err: any) {
-    console.error('[WORKFLOW API] Error saving workflow:', err.message || err);
+    console.error('[WORKFLOW API] Error saving workflow:', {
+      name: err?.name,
+      message: err?.message,
+      code: err?.code,
+      $metadata: err?.$metadata,
+    });
     return NextResponse.json({ 
       success: false, 
       error: 'Failed to save workflow', 
-      details: err.message || 'Unknown error' 
+      details: err?.message || 'Unknown error',
+      aws: err?.$metadata ? { requestId: err.$metadata.requestId, httpStatusCode: err.$metadata.httpStatusCode } : undefined,
+      name: err?.name,
     }, { status: 500 });
   }
 }
@@ -256,10 +318,9 @@ export async function DELETE(request: NextRequest) {
   const bucket = config.aws.bucketName;
 
   try {
-    await s3.send(new DeleteObjectCommand({
-      Bucket: bucket,
-      Key: `${WORKFLOWS_PREFIX}${workflowId}.json`,
-    }));
+    // Prefer new prefix; also attempt legacy cleanup
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: `${WORKFLOWS_PREFIX}${workflowId}.json` }));
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: `${WORKFLOWS_PREFIX_LEGACY}${workflowId}.json` })).catch(() => {});
 
     return NextResponse.json({ success: true });
   } catch (err) {

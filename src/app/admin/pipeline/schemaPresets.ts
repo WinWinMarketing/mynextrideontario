@@ -150,17 +150,18 @@ const highTicketAutomotive = (() => {
 
   const actionCall1 = actionNode({
     id: 'auto.action.call1',
-    label: 'Call Attempt #1',
-    icon: '📞',
-    color: 'cyan',
-    actionType: 'call',
+    label: 'SMS Reminder: Contact Lead (Attempt #1)',
+    icon: '💬',
+    color: 'yellow',
+    actionType: 'sms',
     guidance: guidance(
-      'Call Attempt #1',
+      'Reminder: Contact Lead (Attempt #1)',
       [
-        'Make the first call ASAP.',
+        'This is an internal SMS reminder to you (not to the customer).',
         '',
-        '- If answered: qualify and move forward.',
-        '- If no answer: leave a short voicemail and start SMS follow-up.',
+        '- Manually call/contact the lead ASAP.',
+        '- If you reached them: mark Contacted and continue.',
+        '- If no answer: proceed to the email + wait loop.',
       ].join('\n'),
     ),
   });
@@ -201,19 +202,21 @@ const highTicketAutomotive = (() => {
     ),
   });
 
-  const actionSMS1 = actionNode({
-    id: 'auto.action.sms1',
-    label: 'SMS Follow-up',
-    icon: '💬',
-    color: 'yellow',
-    actionType: 'sms',
+  const actionEmailFollow = actionNode({
+    id: 'auto.action.email1',
+    label: 'Send Follow-up Email',
+    icon: '✉️',
+    color: 'cyan',
+    actionType: 'email',
+    triggerDelay: delay(24, 'hours'),
     guidance: guidance(
-      'SMS Follow-up',
+      'Follow-up Email (24h)',
       [
-        'Send a short SMS with a single CTA.',
+        'Send a simple, high-signal follow-up email.',
         '',
-        'Example:',
-        '> “Quick question — are you looking for SUV or Sedan? I can send options.”',
+        '- Include 2–3 options (or a question to narrow)',
+        '- Ask 1 easy-to-answer question',
+        '- Set the next reminder for 48–72 hours if no reply',
       ].join('\n'),
     ),
   });
@@ -231,24 +234,24 @@ const highTicketAutomotive = (() => {
         'This is a retry loop.',
         '',
         '- Wait 4 hours',
-        '- Then attempt Call #2',
+        '- Then attempt another manual outreach (attempt #2)',
       ].join('\n'),
     ),
   });
 
   const actionCall2 = actionNode({
     id: 'auto.action.call2',
-    label: 'Call Attempt #2',
-    icon: '📞',
-    color: 'cyan',
-    actionType: 'call',
+    label: 'SMS Reminder: Contact Lead (Attempt #2)',
+    icon: '💬',
+    color: 'yellow',
+    actionType: 'sms',
     guidance: guidance(
-      'Call Attempt #2',
+      'Reminder: Contact Lead (Attempt #2)',
       [
-        'Try a different time of day than Call #1.',
+        'This is an internal SMS reminder to you (not to the customer).',
         '',
-        '- If answered: qualify and schedule.',
-        '- If no answer: send Day-1 email + SMS.',
+        '- Manually call/contact at a different time of day than attempt #1.',
+        '- If no answer: route to the dead-zone or long-term nurture (your choice).',
       ].join('\n'),
     ),
   });
@@ -280,7 +283,7 @@ const highTicketAutomotive = (() => {
     guidance: guidance(
       'Schedule Appointment',
       [
-        'Book a call / showroom visit / test drive.',
+        'Schedule an appointment (manual).',
         '',
         '- Offer 2 time options.',
         '- Confirm location and expectations.',
@@ -380,17 +383,17 @@ const highTicketAutomotive = (() => {
   const edges = [
     edge(entry.id, actionCall1.id, 'Success', 'Start outreach'),
     edge(actionCall1.id, statusContacted.id, 'Success', 'Answered'),
-    edge(actionCall1.id, actionSMS1.id, 'Failure', 'No answer → SMS'),
+    edge(actionCall1.id, actionEmailFollow.id, 'Failure', 'No answer → email'),
 
     edge(statusContacted.id, actionIntentGate.id, 'Success', 'Classify intent'),
     edge(actionIntentGate.id, actionSchedule.id, 'Success', 'High intent → schedule'),
-    edge(actionIntentGate.id, actionSMS1.id, 'Neutral', 'Medium intent → SMS'),
+    edge(actionIntentGate.id, actionEmailFollow.id, 'Neutral', 'Medium intent → email'),
     edge(actionIntentGate.id, actionWait4h.id, 'Loop', 'Low/no reply → retry'),
 
-    edge(actionSMS1.id, statusQualified.id, 'Success', 'Positive reply'),
-    edge(actionSMS1.id, actionWait4h.id, 'Loop', 'No reply → wait'),
+    edge(actionEmailFollow.id, statusQualified.id, 'Success', 'Positive reply'),
+    edge(actionEmailFollow.id, actionWait4h.id, 'Loop', 'No reply → wait'),
 
-    edge(actionWait4h.id, actionCall2.id, 'Loop', 'Retry call'),
+    edge(actionWait4h.id, actionCall2.id, 'Loop', 'Retry outreach'),
     edge(actionCall2.id, statusQualified.id, 'Success', 'Answered'),
     edge(actionCall2.id, deadNoResponse.id, 'Failure', 'No response → dead'),
 
@@ -412,7 +415,7 @@ const highTicketAutomotive = (() => {
       actionCall1,
       statusContacted,
       actionIntentGate,
-      actionSMS1,
+      actionEmailFollow,
       actionWait4h,
       actionCall2,
       statusQualified,
@@ -429,7 +432,7 @@ const highTicketAutomotive = (() => {
       actionCall1.id,
       statusContacted.id,
       actionIntentGate.id,
-      actionSMS1.id,
+      actionEmailFollow.id,
       statusQualified.id,
       actionSchedule.id,
       statusMeeting.id,
@@ -573,11 +576,11 @@ const realEstateNurture = (() => {
 
   const actionQualify = actionNode({
     id: 're.action.qualify',
-    label: 'Qualification Call',
-    icon: '📞',
-    color: 'cyan',
-    actionType: 'call',
-    guidance: guidance('Qualification Call', 'Ask timeline, budget, and location preferences.'),
+    label: 'SMS Reminder: Qualification Outreach',
+    icon: '💬',
+    color: 'yellow',
+    actionType: 'sms',
+    guidance: guidance('Reminder: Qualification Outreach', 'Internal reminder to contact the lead and ask timeline, budget, and location preferences.'),
   });
 
   const statusNurture = statusNode({
@@ -601,12 +604,12 @@ const realEstateNurture = (() => {
 
   const actionCheckIn6mo = actionNode({
     id: 're.action.checkin6',
-    label: '6-Month Check-In',
-    icon: '🗓️',
+    label: 'SMS Reminder: 6-Month Check-In',
+    icon: '💬',
     color: 'slate',
-    actionType: 'call',
+    actionType: 'sms',
     triggerDelay: delay(6, 'months'),
-    guidance: guidance('6-Month Check-In', 'Personal call to re-evaluate needs and readiness.'),
+    guidance: guidance('Reminder: 6-Month Check-In', 'Internal reminder to personally check in and re-evaluate needs and readiness.'),
   });
 
   const statusAppointment = statusNode({
@@ -685,11 +688,11 @@ const urgentService = (() => {
 
   const actionCall = actionNode({
     id: 'svc.action.call1',
-    label: 'Call #1 (Immediate)',
-    icon: '📞',
+    label: 'SMS Reminder: Contact Now',
+    icon: '💬',
     color: 'orange',
-    actionType: 'call',
-    guidance: guidance('Call #1', 'Immediate call. If no answer, start rapid retry loop.'),
+    actionType: 'sms',
+    guidance: guidance('Reminder: Contact Now', 'Internal reminder: contact the customer immediately. If no answer, start the rapid retry loop.'),
   });
 
   const actionRapidLoop = actionNode({
@@ -708,7 +711,7 @@ const urgentService = (() => {
     icon: '👥',
     color: 'purple',
     actionType: 'notification',
-    guidance: guidance('Escalation', 'If Call #1 fails, notify a second agent to attempt contact.'),
+    guidance: guidance('Escalation', 'If the first outreach fails, notify a second agent to attempt contact.'),
   });
 
   const statusDispatched = statusNode({
@@ -720,13 +723,13 @@ const urgentService = (() => {
     guidance: guidance('Dispatched', 'Team dispatched; keep customer informed.'),
   });
 
-  const actionUpdateSMS = actionNode({
-    id: 'svc.action.smsupdate',
-    label: 'SMS ETA Update',
-    icon: '💬',
+  const actionUpdateEmail = actionNode({
+    id: 'svc.action.eta-email',
+    label: 'Send ETA Email',
+    icon: '✉️',
     color: 'yellow',
-    actionType: 'sms',
-    guidance: guidance('ETA SMS', 'Send ETA and what to expect.'),
+    actionType: 'email',
+    guidance: guidance('ETA Email', 'Send ETA and what to expect (email).'),
   });
 
   const statusCompleted = statusNode({
@@ -752,12 +755,12 @@ const urgentService = (() => {
     edge(entry.id, actionCall.id, 'Success'),
     edge(actionCall.id, statusDispatched.id, 'Success', 'Answered'),
     edge(actionCall.id, actionRapidLoop.id, 'Loop', 'No answer'),
-    edge(actionRapidLoop.id, actionCall.id, 'Loop', 'Retry Call #1'),
+    edge(actionRapidLoop.id, actionCall.id, 'Loop', 'Retry outreach'),
     edge(actionRapidLoop.id, actionEscalate.id, 'Neutral', 'Escalate'),
     edge(actionEscalate.id, statusDispatched.id, 'Success', 'Agent #2 reached'),
     edge(actionEscalate.id, deadNoContact.id, 'Failure', 'Still no contact'),
-    edge(statusDispatched.id, actionUpdateSMS.id, 'Success'),
-    edge(actionUpdateSMS.id, statusCompleted.id, 'Success'),
+    edge(statusDispatched.id, actionUpdateEmail.id, 'Success'),
+    edge(actionUpdateEmail.id, statusCompleted.id, 'Success'),
   ];
 
   return schema({
@@ -765,9 +768,9 @@ const urgentService = (() => {
     name: 'Emergency / Urgent Service',
     description: '5-minute rapid response loops with escalation and clean termination.',
     entryNodeId: entry.id,
-    nodes: [entry, actionCall, actionRapidLoop, actionEscalate, statusDispatched, actionUpdateSMS, statusCompleted, deadNoContact],
+    nodes: [entry, actionCall, actionRapidLoop, actionEscalate, statusDispatched, actionUpdateEmail, statusCompleted, deadNoContact],
     edges,
-    tutorialSequence: [entry.id, actionCall.id, actionRapidLoop.id, actionEscalate.id, statusDispatched.id, actionUpdateSMS.id, statusCompleted.id, deadNoContact.id],
+    tutorialSequence: [entry.id, actionCall.id, actionRapidLoop.id, actionEscalate.id, statusDispatched.id, actionUpdateEmail.id, statusCompleted.id, deadNoContact.id],
   });
 })();
 
@@ -819,7 +822,7 @@ const webinarFunnel = (() => {
     icon: '📨',
     color: 'emerald',
     actionType: 'email',
-    guidance: guidance('Attendee Follow-up', 'Send slides + book a call CTA.'),
+    guidance: guidance('Attendee Follow-up', 'Send slides + a CTA to book an appointment.'),
   });
 
   const actionFollowNoShow = actionNode({
@@ -951,11 +954,11 @@ const coldOutboundCompliance = (() => {
 
   const actionQualify = actionNode({
     id: 'out.action.qualify',
-    label: 'Qualification Call',
-    icon: '📞',
+    label: 'SMS Reminder: Qualification Outreach',
+    icon: '💬',
     color: 'yellow',
-    actionType: 'call',
-    guidance: guidance('Qualification', 'Confirm need, timeline, fit.'),
+    actionType: 'sms',
+    guidance: guidance('Reminder: Qualification Outreach', 'Internal reminder: confirm need, timeline, and fit (manual contact).'),
   });
 
   const statusConverted = statusNode({

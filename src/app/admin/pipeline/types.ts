@@ -36,6 +36,27 @@ export const STAGE_COLORS: StageColorDef[] = [
 // Helper to get color by ID
 export const getStageColor = (colorId: StageColor) => STAGE_COLORS.find(c => c.id === colorId) || STAGE_COLORS[0];
 
+// Hex colors for SVG strokes/lines (matches Tailwind *-500 palette)
+export const STAGE_COLOR_HEX: Record<StageColor, string> = {
+  blue: '#3b82f6',
+  cyan: '#06b6d4',
+  teal: '#14b8a6',
+  emerald: '#10b981',
+  green: '#22c55e',
+  yellow: '#eab308',
+  amber: '#f59e0b',
+  orange: '#f97316',
+  red: '#ef4444',
+  rose: '#f43f5e',
+  pink: '#ec4899',
+  purple: '#a855f7',
+  violet: '#8b5cf6',
+  indigo: '#6366f1',
+  slate: '#94a3b8',
+};
+
+export const stageColorHex = (colorId: StageColor) => STAGE_COLOR_HEX[colorId] || '#94a3b8';
+
 // ============ TIMER SYSTEM ============
 export interface TimerDelay {
   value: number;
@@ -179,6 +200,7 @@ export interface WorkspaceSettings {
   showConnections: boolean;
   showLabels: boolean;
   animateConnections: boolean;
+  tutorialEnabled: boolean;
 }
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
@@ -192,6 +214,7 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
   showConnections: true,
   showLabels: true,
   animateConnections: true,
+  tutorialEnabled: true,
 };
 
 // ============ WORKSPACE PROFILE ============
@@ -365,17 +388,27 @@ export interface SchemaPreset {
   schema: WorkflowSchema;
 }
 
+// Edge colors - muted, sleek, distinguishable from nodes
+// These represent connection PATHS (flow options), NOT interactive elements
+export const EDGE_COLORS = {
+  success: '#4ade80',    // Soft green - main happy path
+  failure: '#f87171',    // Soft red - dead/termination path  
+  loop: '#a1a1aa',       // Zinc - retry/loop paths
+  neutral: '#d4d4d8',    // Light zinc - default connections
+  muted: '#71717a',      // Muted zinc - subtle connections
+} as const;
+
 export const strictPathColor = (strictPath: StrictPathType) => {
   switch (strictPath) {
     case 'Success':
-      return '#22c55e'; // green
+      return EDGE_COLORS.success;
     case 'Failure':
-      return '#ef4444'; // red
+      return EDGE_COLORS.failure;
     case 'Loop':
-      return '#94a3b8'; // gray (slate)
+      return EDGE_COLORS.loop;
     case 'Neutral':
     default:
-      return '#94a3b8';
+      return EDGE_COLORS.neutral;
   }
 };
 

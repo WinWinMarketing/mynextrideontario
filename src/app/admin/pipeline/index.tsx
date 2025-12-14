@@ -13,7 +13,7 @@ import { ALL_PRESETS, Preset, PRESET_CATEGORIES } from './presets';
 import { ALL_SCHEMA_PRESETS, SCHEMA_PRESET_CATEGORIES } from './schemaPresets';
 import { buildRuntimeFromSchema } from './schemaRuntime';
 import { useStoryStore, storyActions } from './storyStore';
-import { EMAIL_TEMPLATES, SMS_TEMPLATES, CALL_TEMPLATES, ALL_TEMPLATES, MessageTemplate } from './templates';
+import { EMAIL_TEMPLATES, SMS_TEMPLATES, ALL_TEMPLATES, MessageTemplate } from './templates';
 
 interface FuturisticPipelineProps {
   leads: Lead[];
@@ -67,6 +67,13 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [activeSchema, setActiveSchema] = useState<WorkflowSchema | null>(null);
   const [showLegacyPresets, setShowLegacyPresets] = useState(false);
   const story = useStoryStore(s => s);
+  
+  // Tutorial Popup - positioned next to preset button
+  const [tutorialPopup, setTutorialPopup] = useState<{
+    visible: boolean;
+    preset: SchemaPreset | null;
+    buttonRect: { top: number; left: number; width: number; height: number } | null;
+  }>({ visible: false, preset: null, buttonRect: null });
 
   // Node Editor
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -77,6 +84,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [snapToGrid, setSnapToGrid] = useState(false); // Disabled by default for smooth movement
   const [nodeSize, setNodeSize] = useState<'small' | 'medium' | 'large' | 'xlarge'>('large');
   const [showGrid, setShowGrid] = useState(true);
+  const [tutorialEnabled, setTutorialEnabled] = useState(true);
   
   // View Mode - Builder hides action nodes for easier lead management
   const [viewMode, setViewMode] = useState<'builder' | 'node'>('node');
@@ -91,7 +99,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   const [isLoading, setIsLoading] = useState(false);
   
   // Template Selection for Actions
-  const [selectedTemplateType, setSelectedTemplateType] = useState<'email' | 'sms' | 'call'>('email');
+  const [selectedTemplateType, setSelectedTemplateType] = useState<'email' | 'sms'>('email');
   const [selectedTemplate, setSelectedTemplate] = useState<MessageTemplate | null>(null);
 
   // ============ SAVE STATE ============
@@ -248,6 +256,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               snapToGrid,
               nodeSize,
               showGrid,
+              tutorialEnabled,
             },
           }
         : {
@@ -271,6 +280,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               snapToGrid,
               nodeSize,
               showGrid,
+              tutorialEnabled,
             },
           };
 
@@ -280,9 +290,18 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       );
       setProfiles(updated);
 
+      // ALWAYS save to localStorage first as backup
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        localStorage.setItem(ACTIVE_PROFILE_KEY, activeProfileId);
+        console.log('💾 Saved to localStorage (backup)');
+      } catch (localErr) {
+        console.warn('⚠️ localStorage save failed:', localErr);
+      }
+
       // Save to Cloud (AWS S3) - Robust save with proper structure
       const payload = {
-        // Optimized: save only the changed profile (schema-first is small)
+        // Save the full profile with all data
         profile: updatedProfile,
         activeProfileId: activeProfileId,
         profileIds: updated.map(p => p.id),
@@ -293,6 +312,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         mode: activeSchema ? 'schema-v3' : 'legacy-v2',
         stageCount: stages.length,
         connectionCount: connections.length,
+        hasSettings: !!updatedProfile.settings,
       });
       
       try {
@@ -315,14 +335,16 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         
         if (response.ok && result.success) {
           console.log('✅ S3 Save successful:', result);
-          setSaveNotification('☁️ Saved to cloud! (' + (result.savedCount || 1) + ' profiles)');
+          setSaveNotification('☁️ Saved to cloud!');
         } else {
           console.error('❌ S3 Save failed:', result, 'Status:', response.status);
-          setSaveNotification('⚠️ Cloud save failed: ' + (result.error || result.details || `HTTP ${response.status}`));
+          // Still saved locally, so notify user
+          setSaveNotification('💾 Saved locally (cloud sync pending)');
         }
       } catch (err) {
         console.error('❌ Cloud save error:', err);
-        setSaveNotification('⚠️ Network error - check connection');
+        // Still saved locally
+        setSaveNotification('💾 Saved locally (offline mode)');
       }
 
       setIsLoading(false);
@@ -331,7 +353,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       setShowSaveReminder(false);
       setTimeout(() => setSaveNotification(null), 2000);
     }
-  }, [activeProfileId, activeSchema, stages, messageNodes, connections, labels, zoom, pan, profiles, gridSize, snapToGrid, nodeSize, showGrid]);
+  }, [activeProfileId, activeSchema, stages, messageNodes, connections, labels, zoom, pan, profiles, gridSize, snapToGrid, nodeSize, showGrid, tutorialEnabled]);
 
   // ============ LOAD - TRY S3 FIRST, THEN LOCAL ============
   useEffect(() => {
@@ -426,6 +448,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setSnapToGrid(p.settings?.snapToGrid ?? true);
     setNodeSize(profileNodeSize);
     setShowGrid(p.settings?.showGrid ?? true);
+    setTutorialEnabled(p.settings?.tutorialEnabled ?? true);
 
     if (p.version === 3 && p.schema) {
       setActiveSchema(p.schema);
@@ -579,35 +602,35 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
   const handleCanvasMouseUp = () => setIsDraggingCanvas(false);
   
-  // ============ SCROLL WHEEL = ZOOM (Industry Standard) ============
-  const handleWheel = (e: React.WheelEvent) => { 
-    e.preventDefault();
-    
-    // Scroll wheel = zoom in/out (like Figma, Runway, etc.)
-    const delta = e.deltaY > 0 ? -0.06 : 0.06;
-    
-    // Zoom towards cursor position for natural feel
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (rect) {
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      
+  // ============ SCROLL WHEEL = ZOOM (Non-passive native listener) ============
+  // Fixes: "Unable to preventDefault inside passive event listener invocation."
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const onWheel = (ev: WheelEvent) => {
+      // Wheel should only zoom the canvas, never scroll the page.
+      ev.preventDefault();
+
+      const delta = ev.deltaY > 0 ? -0.06 : 0.06;
+      const rect = el.getBoundingClientRect();
+      const mouseX = ev.clientX - rect.left;
+      const mouseY = ev.clientY - rect.top;
+
       setZoom(prevZoom => {
         const newZoom = Math.max(0.15, Math.min(1.5, prevZoom + delta));
-        
-        // Adjust pan to zoom towards cursor
         const zoomRatio = newZoom / prevZoom;
         setPan(prevPan => ({
           x: mouseX - (mouseX - prevPan.x) * zoomRatio,
           y: mouseY - (mouseY - prevPan.y) * zoomRatio,
         }));
-        
         return newZoom;
       });
-    } else {
-      setZoom(z => Math.max(0.15, Math.min(1.5, z + delta)));
-    }
-  };
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel as any);
+  }, []);
 
   const fitView = () => {
     if (stages.length === 0) { setZoom(0.4); setPan({ x: 100, y: 100 }); return; }
@@ -691,7 +714,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   };
   
-  // ============ AUTO LAYOUT - Center-focused hourglass pattern (no overlap) ============
+  // ============ AUTO LAYOUT - All options on LEFT, flow right ============
   const autoLayoutHourglass = () => {
     const deadStages = stages.filter(s => s.statusId === 'dead');
     const newStages = stages.filter(s => s.statusId === 'new');
@@ -699,57 +722,63 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     const approvalStages = stages.filter(s => s.statusId === 'approval');
     const circleBackStages = stages.filter(s => s.statusId === 'circle-back');
     
-    // Center point - where NEW LEAD sits (big focal point)
-    const centerX = 1400;
-    const centerY = 900;
+    // Layout: Dead/Options on LEFT → New Lead → Working → Approval/Won
+    const leftMargin = 80;
+    const centerY = 700;
     
     // Spacing constants - larger to PREVENT overlap
-    const deadSpacing = 520;       // Vertical gap between dead leads
-    const workingSpacing = 550;    // Vertical gap between working stages
-    const approvalSpacing = 580;   // Vertical gap between approval stages
-    const columnGap = 650;         // Horizontal gap between columns
+    const deadSpacing = 440;       // Vertical gap between dead leads
+    const workingSpacing = 480;    // Vertical gap between working stages
+    const approvalSpacing = 500;   // Vertical gap between approval stages
+    const columnGap = 580;         // Horizontal gap between columns
+    
+    // Calculate column positions (left to right)
+    const deadColumnX = leftMargin;
+    const newColumnX = deadColumnX + 420 + 100; // After dead column
+    const workingStartX = newColumnX + 520 + 100; // After new column
     
     setStages(prev => prev.map(s => {
-      // NEW LEAD - Center, big, focal point
+      // DEAD LEADS - Far LEFT column, evenly spaced vertically
+      // These are OPTIONS/termination paths, positioned on left for clarity
+      if (s.statusId === 'dead') {
+        const idx = deadStages.findIndex(d => d.id === s.id);
+        const totalDead = deadStages.length;
+        // Center the dead leads vertically
+        const totalHeight = (totalDead - 1) * deadSpacing;
+        const startY = centerY - totalHeight / 2;
+        return { 
+          ...s, 
+          x: deadColumnX, 
+          y: startY + idx * deadSpacing,
+          width: 360,
+          height: 340
+        };
+      }
+      
+      // NEW LEAD - Second column, big focal point
       if (s.statusId === 'new') {
         const idx = newStages.findIndex(n => n.id === s.id);
         return { 
           ...s, 
-          x: centerX - 230, 
+          x: newColumnX, 
           y: centerY - 230 + idx * 500, // Stack vertically if multiple new stages
           width: 460,
           height: 460
         };
       }
       
-      // DEAD LEADS - Far left column, evenly spaced vertically
-      if (s.statusId === 'dead') {
-        const idx = deadStages.findIndex(d => d.id === s.id);
-        const totalDead = deadStages.length;
-        // Center the dead leads vertically around the center point
-        const totalHeight = (totalDead - 1) * deadSpacing;
-        const startY = centerY - totalHeight / 2;
-        return { 
-          ...s, 
-          x: 100, 
-          y: startY + idx * deadSpacing,
-          width: 380,
-          height: 360
-        };
-      }
-      
-      // WORKING - Column(s) to the right of center, evenly distributed
+      // WORKING - Column(s) after New Lead, evenly distributed
       if (s.statusId === 'working') {
         const idx = workingStages.findIndex(w => w.id === s.id);
         const totalWorking = workingStages.length;
         
         // Determine column and row
-        const itemsPerColumn = 3;
+        const itemsPerColumn = 4;
         const col = Math.floor(idx / itemsPerColumn);
         const row = idx % itemsPerColumn;
         
         // Calculate position
-        const xBase = centerX + columnGap + col * columnGap;
+        const xBase = workingStartX + col * columnGap;
         const rowsInThisColumn = Math.min(itemsPerColumn, totalWorking - col * itemsPerColumn);
         const columnHeight = (rowsInThisColumn - 1) * workingSpacing;
         const startY = centerY - columnHeight / 2;
@@ -769,13 +798,13 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         const totalApproval = approvalStages.length;
         
         // Position in columns
-        const itemsPerColumn = 2;
+        const itemsPerColumn = 3;
         const col = Math.floor(idx / itemsPerColumn);
         const row = idx % itemsPerColumn;
         
         // How many working columns are there?
-        const workingCols = Math.ceil(workingStages.length / 3);
-        const xBase = centerX + columnGap + workingCols * columnGap + col * approvalSpacing;
+        const workingCols = Math.ceil(workingStages.length / 4);
+        const xBase = workingStartX + workingCols * columnGap + col * approvalSpacing;
         
         // Stack vertically with offset
         const rowsInThisColumn = Math.min(itemsPerColumn, totalApproval - col * itemsPerColumn);
@@ -794,12 +823,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
         };
       }
       
-      // CIRCLE BACK - Below the center-left area
+      // CIRCLE BACK - Below the working area
       if (s.statusId === 'circle-back') {
         const idx = circleBackStages.findIndex(c => c.id === s.id);
         return { 
           ...s, 
-          x: centerX - 600 + idx * 450, 
+          x: workingStartX + idx * 450, 
           y: centerY + 600,
           width: 380,
           height: 340
@@ -810,9 +839,9 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }));
     
     // Position message nodes in a neat grid to the far right
-    const workingCols = Math.ceil(workingStages.length / 3);
-    const approvalCols = Math.ceil(approvalStages.length / 2);
-    const msgStartX = centerX + columnGap + (workingCols + approvalCols) * columnGap + 200;
+    const workingCols = Math.ceil(workingStages.length / 4);
+    const approvalCols = Math.ceil(approvalStages.length / 3);
+    const msgStartX = workingStartX + (workingCols + approvalCols) * columnGap + 200;
     
     setMessageNodes(prev => prev.map((m, idx) => ({
       ...m,
@@ -823,7 +852,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     // Fit view after layout
     setTimeout(fitView, 100);
     
-    setSaveNotification('✨ Hourglass layout applied!');
+    setSaveNotification('✨ Layout applied! Dead leads on left, flow → right');
     setTimeout(() => setSaveNotification(null), 2000);
     setHasUnsavedChanges(true);
   };
@@ -855,7 +884,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   };
 
   // ============ PRESETS ============
-  const applySchemaPreset = (p: SchemaPreset) => {
+  const applySchemaPreset = (p: SchemaPreset, buttonElement?: HTMLButtonElement) => {
     // Validate schema edges (fail fast if preset is malformed)
     const invalid = p.schema.edges
       .map(e => ({ e, v: validateWorkflowEdge(p.schema, e) }))
@@ -870,7 +899,21 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
     const built = buildRuntimeFromSchema(p.schema, nodeSize);
     setActiveSchema(p.schema);
-    storyActions.open(built.tutorialSequence);
+    
+    // Show tutorial popup next to button if enabled (instead of slide-in panel)
+    if (tutorialEnabled && buttonElement) {
+      const rect = buttonElement.getBoundingClientRect();
+      setTutorialPopup({
+        visible: true,
+        preset: p,
+        buttonRect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+      });
+      storyActions.open(built.tutorialSequence);
+    } else {
+      storyActions.close();
+      setTutorialPopup({ visible: false, preset: null, buttonRect: null });
+    }
+    
     setViewMode('node');
     setStages(built.stages);
     setMessageNodes(built.messageNodes);
@@ -1037,7 +1080,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden flex">
       {/* PREMIUM LEFT SIDEBAR */}
-      <div className="w-[420px] bg-slate-900/95 border-r border-slate-700/50 flex flex-col z-40 flex-shrink-0 sidebar backdrop-blur-xl">
+      <div className="w-[420px] bg-slate-900/95 border-r border-slate-700/50 flex flex-col z-40 flex-shrink-0 sidebar backdrop-blur-xl relative">
         {/* Header - WinWin Branding */}
         <div className="p-6 border-b border-yellow-500/30 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900">
           <div className="flex items-center gap-3">
@@ -1094,63 +1137,6 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 ))}
               </div>
 
-              {/* Automated Storyteller (contextual sidebar extension) */}
-              {story.isOpen && storyNode && (
-                <div className="rounded-2xl border border-blue-500/30 bg-gradient-to-br from-slate-800/80 to-slate-900/60 p-4 shadow-lg shadow-blue-500/10">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold text-blue-300 tracking-wide">AUTOMATED STORYTELLER</div>
-                      <div className="text-base font-extrabold text-white mt-1 truncate">
-                        {storyNode.guidance.tutorial_title}
-                      </div>
-                      <div className="text-xs text-slate-400 mt-1">
-                        Step {story.stepIndex + 1} of {Math.max(1, story.sequence.length)}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => storyActions.close()}
-                      className="px-2 py-1 rounded-lg bg-slate-800/70 border border-slate-700/50 text-slate-300 hover:text-white hover:bg-slate-800 transition-all text-xs font-bold"
-                    >
-                      Close
-                    </button>
-                  </div>
-
-                  <div className="mt-3 text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
-                    {storyNode.guidance.tutorial_content}
-                  </div>
-
-                  {storyNode.guidance.video_url && (
-                    <div className="mt-3 text-xs text-slate-300">
-                      Video: <span className="text-blue-300">{storyNode.guidance.video_url}</span>
-                    </div>
-                  )}
-
-                  <div className="mt-4 flex items-center gap-2">
-                    <button
-                      onClick={() => storyActions.prev()}
-                      disabled={story.stepIndex <= 0}
-                      className="px-3 py-2 rounded-xl bg-slate-800/70 border border-slate-700/50 text-slate-200 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-semibold"
-                    >
-                      ← Prev
-                    </button>
-                    <button
-                      onClick={() => storyActions.next()}
-                      disabled={story.stepIndex >= story.sequence.length - 1}
-                      className="px-3 py-2 rounded-xl bg-blue-500/20 border border-blue-500/40 text-blue-200 hover:bg-blue-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-semibold"
-                    >
-                      Next →
-                    </button>
-                    <div className="flex-1" />
-                    <button
-                      onClick={() => storyNodeId && focusNode(storyNodeId, 0.6)}
-                      className="px-3 py-2 rounded-xl bg-slate-800/70 border border-slate-700/50 text-slate-200 hover:bg-slate-800 transition-all text-sm font-semibold"
-                    >
-                      Focus
-                    </button>
-                  </div>
-                </div>
-              )}
-
               <div className="space-y-4">
                 {/* Robust schema-first presets */}
                 {filteredSchemaPresets.map((p, idx) => {
@@ -1174,7 +1160,10 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                         </span>
                       </div>
                     )}
-                    <button onClick={() => applySchemaPreset(p)} className="w-full p-5 text-left">
+                    <button 
+                      onClick={(e) => applySchemaPreset(p, e.currentTarget as HTMLButtonElement)} 
+                      className="w-full p-5 text-left"
+                    >
                       <div className="flex items-center gap-4 mb-4">
                         <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-3xl shadow-inner ${
                           idx === 0 ? 'bg-gradient-to-br from-emerald-600/30 to-green-700/30' : 'bg-gradient-to-br from-slate-700 to-slate-800'
@@ -1195,6 +1184,11 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                                p.complexity === 'advanced' ? '⭐⭐⭐ LEVEL 3' :
                                '🏆 ENTERPRISE'}
                             </span>
+                            {tutorialEnabled && (
+                              <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                📖 Tutorial
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1335,8 +1329,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               <div className="flex gap-1 p-1 bg-slate-800/50 rounded-xl">
                 {[
                   { id: 'email' as const, label: 'Email', icon: '✉️' },
-                  { id: 'sms' as const, label: 'SMS', icon: '💬' },
-                  { id: 'call' as const, label: 'Call', icon: '📞' },
+                  { id: 'sms' as const, label: 'SMS Reminder (to you)', icon: '💬' },
                 ].map(t => (
                   <button key={t.id} onClick={() => setSelectedTemplateType(t.id)}
                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${selectedTemplateType === t.id ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-white'}`}>
@@ -1348,14 +1341,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
               {/* Template List - From Templates Tab */}
               <div className="space-y-2 max-h-[300px] overflow-y-auto">
                 <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Template</h4>
-                {(selectedTemplateType === 'email' ? EMAIL_TEMPLATES.slice(0, 8) : 
-                  selectedTemplateType === 'sms' ? SMS_TEMPLATES.slice(0, 8) : 
-                  CALL_TEMPLATES.slice(0, 8)).map(tpl => (
+                {(selectedTemplateType === 'email' ? EMAIL_TEMPLATES.slice(0, 10) : SMS_TEMPLATES.slice(0, 10)).map(tpl => (
                   <button key={tpl.id} onClick={() => {
-                    const colorMap = { email: 'blue' as StageColor, sms: 'cyan' as StageColor, call: 'yellow' as StageColor };
+                    const colorMap = { email: 'blue' as StageColor, sms: 'yellow' as StageColor };
                     const newMsg: MessageNode = {
                       id: `msg-${Date.now()}`,
-                      type: tpl.category as 'email' | 'sms' | 'call',
+                      type: tpl.category as 'email' | 'sms',
                       label: tpl.name,
                       icon: tpl.icon,
                       x: 2000 + messageNodes.length * 80,
@@ -1477,6 +1468,31 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 </div>
               </div>
 
+              {/* Tutorial Toggle */}
+              <div className="p-4 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-white">Preset Tutorial</h4>
+                    <p className="text-xs text-slate-400">Show the step-by-step walkthrough panel when loading a preset</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !tutorialEnabled;
+                      setTutorialEnabled(next);
+                      if (!next) storyActions.close();
+                      setHasUnsavedChanges(true);
+                    }}
+                    className={`px-4 py-2 rounded-xl border text-sm font-bold transition-all ${
+                      tutorialEnabled
+                        ? 'bg-blue-500/20 border-blue-500/40 text-blue-200 hover:bg-blue-500/30'
+                        : 'bg-slate-900/40 border-slate-700/60 text-slate-300 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    {tutorialEnabled ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              </div>
+
               {/* Profile Management */}
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-slate-300">Profile Management</h4>
@@ -1504,6 +1520,112 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
             </div>
           )}
         </div>
+
+        {/* Tutorial Popup - Floating next to sidebar, elegant and compact */}
+        <AnimatePresence>
+          {tutorialEnabled && story.isOpen && storyNode && tutorialPopup.visible && (
+            <motion.div
+              initial={{ x: -20, opacity: 0, scale: 0.95 }}
+              animate={{ x: 0, opacity: 1, scale: 1 }}
+              exit={{ x: -20, opacity: 0, scale: 0.95 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              className="fixed z-[60] w-[360px] bg-slate-950/98 backdrop-blur-xl rounded-2xl border border-slate-700/60 shadow-2xl shadow-black/50"
+              style={{
+                left: 440, // Just outside the sidebar
+                top: Math.max(80, Math.min(tutorialPopup.buttonRect?.top || 200, window.innerHeight - 450)),
+              }}
+            >
+              {/* Header */}
+              <div className="p-4 border-b border-slate-800/60 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-t-2xl">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">📖</span>
+                      <div className="text-xs font-bold text-blue-400 uppercase tracking-wider">Step-by-Step Guide</div>
+                    </div>
+                    <div className="text-base font-bold text-white mt-2 leading-tight">
+                      {storyNode.guidance.tutorial_title}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { storyActions.close(); setTutorialPopup({ visible: false, preset: null, buttonRect: null }); }}
+                    className="w-8 h-8 rounded-lg bg-slate-800/80 border border-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700 flex items-center justify-center transition-all text-lg"
+                  >
+                    ×
+                  </button>
+                </div>
+                {/* Progress */}
+                <div className="flex items-center gap-2 mt-3">
+                  <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-300"
+                      style={{ width: `${((story.stepIndex + 1) / Math.max(1, story.sequence.length)) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-slate-400 font-medium">
+                    {story.stepIndex + 1}/{story.sequence.length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="p-4 max-h-[250px] overflow-y-auto">
+                <div className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
+                  {storyNode.guidance.tutorial_content}
+                </div>
+
+                {storyNode.guidance.video_url && (
+                  <a href={storyNode.guidance.video_url} target="_blank" rel="noopener noreferrer"
+                    className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-medium hover:bg-blue-500/20 transition-all">
+                    🎬 Watch Video Tutorial
+                  </a>
+                )}
+              </div>
+
+              {/* Navigation Footer */}
+              <div className="p-4 border-t border-slate-800/60 bg-slate-900/50 rounded-b-2xl">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => storyActions.prev()}
+                    disabled={story.stepIndex <= 0}
+                    className="flex-1 px-3 py-2 rounded-lg bg-slate-800/70 border border-slate-700/50 text-slate-200 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-medium"
+                  >
+                    ← Prev
+                  </button>
+                  <button
+                    onClick={() => storyNodeId && focusNode(storyNodeId, 0.6)}
+                    className="px-3 py-2 rounded-lg bg-slate-800/70 border border-slate-700/50 text-slate-200 hover:bg-slate-800 transition-all text-sm font-medium"
+                    title="Focus on this node"
+                  >
+                    🎯
+                  </button>
+                  <button
+                    onClick={() => storyActions.next()}
+                    disabled={story.stepIndex >= story.sequence.length - 1}
+                    className="flex-1 px-3 py-2 rounded-lg bg-gradient-to-r from-blue-500/30 to-purple-500/30 border border-blue-500/40 text-blue-200 hover:from-blue-500/40 hover:to-purple-500/40 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-medium"
+                  >
+                    Next →
+                  </button>
+                </div>
+                {/* Turn off tip */}
+                <div className="text-center mt-3">
+                  <button 
+                    onClick={() => { 
+                      setTutorialEnabled(false); 
+                      storyActions.close(); 
+                      setTutorialPopup({ visible: false, preset: null, buttonRect: null });
+                      setSaveNotification('📖 Tutorial disabled. Enable in Settings.');
+                      setTimeout(() => setSaveNotification(null), 3000);
+                    }}
+                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    Don't show tutorials → Settings
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* MAIN CANVAS */}
@@ -1613,7 +1735,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           onMouseMove={handleCanvasMouseMove} 
           onMouseUp={handleCanvasMouseUp}
           onMouseLeave={() => { handleCanvasMouseUp(); setConnectingFrom(null); }} 
-          onWheel={handleWheel}>
+        >
           <div ref={canvasRef} className="absolute" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0', width: '10000px', height: '8000px' }}>
             
             {/* Labels */}
@@ -1628,15 +1750,6 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
             {/* SCHEMA-DRIVEN CONNECTIONS (Orthogonal routing, strict_path colors) */}
             <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
               <defs>
-                <marker id="arrowSuccess" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
-                  <path d="M 0 0 L 14 7 L 0 14 L 3 7 Z" fill="#22c55e" />
-                </marker>
-                <marker id="arrowFailure" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
-                  <path d="M 0 0 L 14 7 L 0 14 L 3 7 Z" fill="#ef4444" />
-                </marker>
-                <marker id="arrowNeutral" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
-                  <path d="M 0 0 L 14 7 L 0 14 L 3 7 Z" fill="#94a3b8" />
-                </marker>
                 <filter id="edgeGlow" x="-60%" y="-60%" width="220%" height="220%">
                   <feGaussianBlur stdDeviation="2.5" result="blur" />
                   <feMerge>
@@ -1655,12 +1768,6 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 const isFailure = strict === 'Failure';
                 const isLoop = strict === 'Loop' || c.style === 'dashed';
                 const isSuccess = strict === 'Success';
-
-                const markerEnd = isSuccess
-                  ? 'url(#arrowSuccess)'
-                  : isFailure
-                    ? 'url(#arrowFailure)'
-                    : 'url(#arrowNeutral)';
 
                 const pad = 26;
                 const start = { x: fromRect.x + fromRect.width, y: fromRect.y + fromRect.height / 2 };
@@ -1706,17 +1813,28 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                 }
 
                 const d = pointsToPath(pts);
+                // MUTED edge colors - these are flow indicators, not interactive elements
+                // Sleek, minimal, clearly distinct from nodes
+                const strokeColor = isSuccess ? '#6ee7b7' : isFailure ? '#fca5a5' : isLoop ? '#a1a1aa' : '#d4d4d8';
+                const lineThickness = isSuccess ? 2.5 : 2; // Thinner, more subtle
+                const lineOpacity = isSuccess ? 0.85 : isFailure ? 0.75 : 0.6; // Muted opacity
+                
+                const last = pts[pts.length - 1];
+                const prev = pts[pts.length - 2] || { x: last.x - 1, y: last.y };
+                const angle = Math.atan2(last.y - prev.y, last.x - prev.x) * 180 / Math.PI;
+                const arrowLen = 10; // Smaller arrow
+                const arrowHalfW = 4;
 
                 return (
-                  <g key={c.id} opacity={0.96}>
-                    {/* subtle glow */}
+                  <g key={c.id} opacity={lineOpacity}>
+                    {/* subtle glow - reduced */}
                     <path
                       d={d}
                       fill="none"
-                      stroke={c.color || '#94a3b8'}
-                      strokeWidth={(c.thickness || 3) + 7}
-                      opacity={0.10}
-                      strokeLinecap="square"
+                      stroke={strokeColor}
+                      strokeWidth={lineThickness + 4}
+                      opacity={0.06}
+                      strokeLinecap="round"
                       strokeLinejoin="round"
                       filter="url(#edgeGlow)"
                     />
@@ -1724,13 +1842,21 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
                     <path
                       d={d}
                       fill="none"
-                      stroke={c.color || '#94a3b8'}
-                      strokeWidth={c.thickness || 3}
-                      strokeDasharray={isLoop ? '10 8' : undefined}
-                      strokeLinecap="square"
+                      stroke={strokeColor}
+                      strokeWidth={lineThickness}
+                      strokeDasharray={isLoop ? '8 6' : undefined}
+                      strokeLinecap="round"
                       strokeLinejoin="round"
-                      markerEnd={markerEnd}
                     />
+
+                    {/* Arrow head - smaller, subtle */}
+                    <g transform={`translate(${last.x}, ${last.y}) rotate(${angle})`}>
+                      <polygon
+                        points={`0,0 -${arrowLen},${arrowHalfW} -${arrowLen},-${arrowHalfW}`}
+                        fill={strokeColor}
+                        opacity={0.8}
+                      />
+                    </g>
                   </g>
                 );
               })}
@@ -2095,7 +2221,7 @@ function RunwayStageNode({ stage, leads, isSelected, isConnecting, isDropTarget,
       <button onClick={onConnect} className={`connect-btn absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-all shadow-lg ${isConnecting ? 'bg-yellow-500 border-yellow-400 text-black' : 'bg-blue-500/40 border-blue-400 text-blue-300 hover:bg-blue-500/60'}`}>+</button>
       
       <motion.div onClick={onSelect} onMouseDown={handleMouseDown}
-        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all shadow-2xl ${isSelected ? `${color.border} ring-2 ring-blue-500/40 shadow-${color.glow}` : 'border-slate-600/50 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/50' : ''} ${isDropTarget ? 'ring-2 ring-green-400/50' : ''} ${storyHighlighted ? 'ring-4 ring-blue-400/50 shadow-blue-500/20' : ''} ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all shadow-2xl ${isSelected ? `${color.border} ring-2 ring-blue-500/40 shadow-${color.glow}` : 'border-slate-600/50 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/50' : ''} ${isDropTarget ? 'ring-2 ring-green-400/50' : ''} ${storyHighlighted ? 'ring-4 ring-blue-400/50 shadow-blue-500/20 animate-pulse' : ''} ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         style={{ width: stage.width, height: stage.height }}>
         
         {/* Header */}
@@ -2234,7 +2360,7 @@ function RunwayMessageNode({ node, isSelected, isConnecting, zoom, storyDimmed, 
       <button onClick={onConnect} className={`connect-btn absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-all shadow-lg ${isConnecting ? 'bg-yellow-500 border-yellow-400 text-black' : 'bg-cyan-500/40 border-cyan-400 text-cyan-300 hover:bg-cyan-500/60'}`}>+</button>
       
       <motion.div onClick={onSelect} onMouseDown={handleMouseDown}
-        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all shadow-xl ${isSelected ? `${color.border} ring-2 ring-cyan-500/40` : 'border-slate-600/50 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/50' : ''} ${storyHighlighted ? 'ring-4 ring-blue-400/50 shadow-blue-500/20' : ''} ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+        className={`relative rounded-2xl overflow-hidden backdrop-blur-xl bg-gradient-to-br ${color.bg} border-2 transition-all shadow-xl ${isSelected ? `${color.border} ring-2 ring-cyan-500/40` : 'border-slate-600/50 hover:border-slate-500'} ${isConnecting ? 'ring-2 ring-yellow-400/50' : ''} ${storyHighlighted ? 'ring-4 ring-blue-400/50 shadow-blue-500/20 animate-pulse' : ''} ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         style={{ width: node.width, height: node.height }}>
         
         <div className="px-4 py-3 border-b border-slate-600/30 bg-slate-900/60 flex items-center gap-3">

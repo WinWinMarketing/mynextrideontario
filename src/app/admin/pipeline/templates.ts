@@ -382,34 +382,35 @@ My Next Ride Ontario` },
 
 // ============ SMS TEMPLATES - EXTENSIVE ============
 export const SMS_TEMPLATES: MessageTemplate[] = [
-  // ===== FIRST CONTACT =====
-  { id: 'sms-intro-1', category: 'sms', useCase: 'First Contact', name: 'Introduction', icon: '👋', tags: ['intro', 'friendly'],
-    message: `Hi {{name}}, this is from My Next Ride Ontario! I saw your application for a {{vehicle}} and wanted to reach out. When's a good time to chat?` },
+  // ===== INTERNAL SMS REMINDERS (to yourself / your team) =====
+  // NOTE: In this system, SMS nodes are NOT sent to the customer. They are reminders to YOU.
+  { id: 'sms-intro-1', category: 'sms', useCase: 'Reminder', name: 'Reminder: Contact New Lead (5 min)', icon: '🔔', tags: ['reminder', 'new', 'speed'],
+    message: `REMINDER: New lead "{{name}}"\n\n✅ Contact within 5 minutes\n- Review basics: vehicle, budget, timeline\n- Add quick notes after outreach` },
 
-  { id: 'sms-intro-2', category: 'sms', useCase: 'First Contact', name: 'Quick Hello', icon: '📱', tags: ['intro', 'quick'],
-    message: `Hey {{name}}! Thanks for your inquiry. I have some great options for you. Can I call you today?` },
+  { id: 'sms-intro-2', category: 'sms', useCase: 'Reminder', name: 'Reminder: Send Welcome Email', icon: '✉️', tags: ['reminder', 'email'],
+    message: `REMINDER: Send welcome email to {{name}}\n\n- Include next steps\n- Ask 1 clarifying question\n- Set follow-up timer (24h)` },
 
-  { id: 'sms-intro-3', category: 'sms', useCase: 'First Contact', name: 'Same Day Response', icon: '⚡', tags: ['intro', 'fast'],
-    message: `{{name}}, just got your application! Looking at options for you right now. Quick question - flexible on the {{vehicle}} or set on that model?` },
+  { id: 'sms-intro-3', category: 'sms', useCase: 'Reminder', name: 'Reminder: Inventory Check', icon: '🚗', tags: ['reminder', 'inventory'],
+    message: `REMINDER: Check inventory for {{name}}\n\n- Vehicle interest: {{vehicle}}\n- Budget: {{budget}}\n- Prepare 3 options + 1 alternative` },
 
-  { id: 'sms-intro-4', category: 'sms', useCase: 'First Contact', name: 'Budget Focused', icon: '💰', tags: ['intro', 'budget'],
-    message: `Hi {{name}}! Saw your request. With your budget, I've got some great options. Best time to call you today?` },
+  { id: 'sms-intro-4', category: 'sms', useCase: 'Reminder', name: 'Reminder: Qualification Notes', icon: '🧾', tags: ['reminder', 'qualify'],
+    message: `REMINDER: Qualify {{name}}\n\n- Timeline\n- Budget/payment comfort\n- Trade-in?\n- Must-have features\n\nLog notes in the lead profile.` },
 
-  // ===== FOLLOW UP =====
-  { id: 'sms-followup-1', category: 'sms', useCase: 'Follow Up', name: 'Quick Check', icon: '🔄', tags: ['followup', 'check'],
-    message: `Hi {{name}}, just checking in on your vehicle search. Any questions I can help with?` },
+  // ===== FOLLOW-UP REMINDERS =====
+  { id: 'sms-followup-1', category: 'sms', useCase: 'Follow Up', name: 'Follow Up: 24h Check-in', icon: '⏱️', tags: ['followup', '24h'],
+    message: `FOLLOW-UP (24h): {{name}}\n\n- Send quick check-in email\n- If no reply: schedule 48h reminder` },
 
-  { id: 'sms-followup-2', category: 'sms', useCase: 'Follow Up', name: 'Missed Call', icon: '📞', tags: ['followup', 'missed'],
-    message: `Hey {{name}}, tried calling earlier. Let me know when you're free to chat about your {{vehicle}}!` },
+  { id: 'sms-followup-2', category: 'sms', useCase: 'Follow Up', name: 'Follow Up: 48h Second Touch', icon: '📨', tags: ['followup', '48h'],
+    message: `FOLLOW-UP (48h): {{name}}\n\n- Send a value email (new options / new angle)\n- Ask 1 simple question to reply` },
 
-  { id: 'sms-followup-3', category: 'sms', useCase: 'Follow Up', name: 'Gentle Nudge', icon: '💭', tags: ['followup', 'gentle'],
-    message: `{{name}}, still interested in finding your perfect vehicle? I'm here when you're ready 🚗` },
+  { id: 'sms-followup-3', category: 'sms', useCase: 'Follow Up', name: 'Follow Up: 72h Final Ping', icon: '✅', tags: ['followup', '72h'],
+    message: `FOLLOW-UP (72h): {{name}}\n\n- Send final “still looking?” email\n- If no response: route to nurture or dead-zone` },
 
-  { id: 'sms-followup-4', category: 'sms', useCase: 'Follow Up', name: 'Options Ready', icon: '✅', tags: ['followup', 'ready'],
-    message: `{{name}}, I found some good options for you! When can we connect?` },
+  { id: 'sms-followup-4', category: 'sms', useCase: 'Reminder', name: 'Reminder: Book Appointment Options', icon: '📅', tags: ['reminder', 'appointment'],
+    message: `REMINDER: Offer appointment options to {{name}}\n\nGive 2 time options + confirm location.\nThen update status to “Appointment Booked”.` },
 
-  { id: 'sms-followup-5', category: 'sms', useCase: 'Follow Up', name: 'Final Check', icon: '🔔', tags: ['followup', 'final'],
-    message: `Hey {{name}}, want to make sure I'm not missing you. Still looking for a vehicle? Let me know! 🙏` },
+  { id: 'sms-followup-5', category: 'sms', useCase: 'Reminder', name: 'Reminder: Update Lead Notes', icon: '📝', tags: ['reminder', 'notes'],
+    message: `REMINDER: Update notes for {{name}}\n\n- What they want\n- Objections\n- Next step + date\n\nThis keeps the pipeline clean.` },
 
   // ===== URGENT / HOT =====
   { id: 'sms-urgent-1', category: 'sms', useCase: 'Urgent', name: 'Hot Deal', icon: '🔥', tags: ['urgent', 'deal'],
@@ -739,8 +740,8 @@ export const ALL_TEMPLATES = {
 
 export const TEMPLATE_CATEGORIES = [
   { id: 'email', label: 'Email', icon: '✉️', count: EMAIL_TEMPLATES.length, description: 'Email templates for all stages' },
-  { id: 'sms', label: 'SMS/Text', icon: '💬', count: SMS_TEMPLATES.length, description: 'Quick text message templates' },
-  { id: 'call', label: 'Call Scripts', icon: '📞', count: CALL_TEMPLATES.length, description: 'Phone call scripts and tips' },
+  { id: 'sms', label: 'SMS Reminders (Internal)', icon: '💬', count: SMS_TEMPLATES.length, description: 'Internal reminders to you (not sent to the lead)' },
+  { id: 'call', label: 'Call Scripts (Manual)', icon: '📞', count: CALL_TEMPLATES.length, description: 'Manual call scripts (not automation)' },
   { id: 'meeting', label: 'Meeting', icon: '📅', count: MEETING_TEMPLATES.length, description: 'Meeting setup and prep' },
   { id: 'notification', label: 'Alerts', icon: '🔔', count: NOTIFICATION_TEMPLATES.length, description: 'Notification templates' },
   { id: 'deadLead', label: 'Dead Leads', icon: '💀', count: DEAD_LEAD_TEMPLATES.length, description: 'Dead lead recovery' },

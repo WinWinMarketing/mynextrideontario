@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
+import type { NextRequest } from 'next/server';
 import { config } from './config';
 
 const COOKIE_NAME = 'admin_session';
@@ -57,4 +58,11 @@ export async function verifyAdminSession(): Promise<boolean> {
 export async function clearAdminSession(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(COOKIE_NAME);
+}
+
+// Backwards-compatible auth helper for API routes that expect a `{ authenticated }` result.
+// (Some routes were written against an earlier auth utility shape.)
+export async function verifyAuth(_request?: NextRequest): Promise<{ authenticated: boolean }> {
+  const authenticated = await verifyAdminSession();
+  return { authenticated };
 }

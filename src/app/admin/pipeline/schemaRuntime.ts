@@ -9,7 +9,7 @@ import type {
   StageColor,
   StrictPathType,
 } from './types';
-import { NODE_SIZES, deriveTutorialSequence, strictPathColor } from './types';
+import { NODE_SIZES, deriveTutorialSequence, stageColorHex } from './types';
 
 export type NodeSizeKey = keyof typeof NODE_SIZES;
 
@@ -182,14 +182,27 @@ export function buildRuntimeFromSchema(schema: WorkflowSchema, nodeSize: NodeSiz
   }
 
   // --- Convert edges to runtime connections ---
+  // Use MUTED edge colors - edges are visual flow indicators, NOT interactive nodes
+  // Colors are sleek and clearly distinct from the node colors
+  const edgeColor = (path: string, toNode?: WorkflowNode) => {
+    // Muted, sleek colors for edges - clearly different from node colors
+    if (path === 'Success') return '#6ee7b7'; // Muted emerald for success path
+    if (path === 'Failure' || (toNode && isDeadStatus(toNode))) return '#fca5a5'; // Muted red for failure/dead
+    if (path === 'Loop') return '#a1a1aa'; // Zinc for loops
+    return '#d4d4d8'; // Light zinc for neutral
+  };
+
   const connections: NodeConnection[] = schema.edges.map(e => {
     const fromNode = nodesById.get(e.from);
     const toNode = nodesById.get(e.to);
     const fromType: 'stage' | 'message' = fromNode?.type === 'Status_Node' ? 'stage' : 'message';
     const toType: 'stage' | 'message' = toNode?.type === 'Status_Node' ? 'stage' : 'message';
     const style: NodeConnection['style'] = e.strict_path === 'Loop' ? 'dashed' : 'solid';
-    const color = strictPathColor(e.strict_path);
-    const thickness = e.strict_path === 'Success' || e.strict_path === 'Failure' ? 4 : 3;
+    
+    // Muted edge color - edges represent flow options, not nodes
+    const color = edgeColor(e.strict_path, toNode);
+    const thickness = e.strict_path === 'Success' ? 3 : 2; // Thinner, more subtle
+    
     return {
       id: e.id,
       fromNodeId: e.from,
