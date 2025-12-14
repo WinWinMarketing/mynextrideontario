@@ -1,14 +1,29 @@
 # My Next Ride Ontario
 
-A modern lead generation application for vehicle financing in Ontario. Built with Next.js 14, TypeScript, and Tailwind CSS.
+A modern lead generation and CRM pipeline application for vehicle financing in Ontario. Built with Next.js 14, TypeScript, and Tailwind CSS.
 
 ## Features
 
-- **Public Landing Page**: Dark blue hero with animated loading screen, how-it-works section, credit profiles, and Google Maps service area
-- **Application Form**: 4-step form with dropdowns for all selections, validation, and driver's license upload
-- **Admin Dashboard**: Professional dashboard with 5 status types, notes, and prominent license viewing
-- **AWS S3 Integration**: Secure storage for lead data and driver's license images
-- **Email Notifications**: Automated email alerts via Mailgun
+### Public Site
+- **Landing Page**: Dark blue hero with animated loading, how-it-works section, credit profiles, and Google Maps service area
+- **Application Form**: 4-step form with validation and driver's license upload
+
+### Admin Dashboard
+- **Visual Pipeline Builder**: Drag-and-drop CRM workflow designer
+- **Lead Management**: Kanban-style lead tracking with 5 status types
+- **Multi-Channel Communication**: SMS reminders, email templates
+- **AWS S3 Integration**: All data stored in cloud (no localStorage)
+
+### Pipeline Features (NEW!)
+- **Sleek Flow Arrows**: Muted, minimal colors that clearly show flow paths
+  - Success = muted green
+  - Failure = muted red  
+  - Loop = slate gray
+- **CRM Auto-Layout**: Dead/options on LEFT, success flow to RIGHT
+- **Tutorial Popup**: Elegant popup near preset buttons (not buried in sidebar)
+- **Tutorial Toggle**: Can disable tutorials in Settings
+- **S3-Only Storage**: All profiles and pipelines save directly to AWS S3
+- **Schema-First Architecture**: Robust workflow presets with state-machine validation
 
 ## Tech Stack
 
@@ -115,12 +130,18 @@ src/
     └── validation.ts            # Zod schemas
 ```
 
-## Lead Storage
+## Data Storage (AWS S3)
 
+### Lead Data
 - **Leads**: `leads/YYYY/MM/timestamp-id.json`
 - **Driver's Licenses**: `drivers-licenses/id.ext`
 - **Showcase Images**: `showcase-images/id.ext`
-- **Settings**: `settings/email-settings.json`
+
+### Pipeline Data (S3-Only, No localStorage)
+- **Workflows**: `settings/workflows/profile-id.json`
+- **Active Profile**: `settings/workflows/active-profile.json`
+- **Metadata**: `settings/workflows/metadata.json`
+- **Email Settings**: `settings/email-settings.json`
 
 All files use signed URLs for secure access.
 
