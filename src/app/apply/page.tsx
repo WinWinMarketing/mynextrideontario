@@ -7,12 +7,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { Button, Input, Select, FileUpload } from '@/components/ui';
 import { Logo } from '@/components/Logo';
-
-export const metadata = {
-  title: 'Apply | My Next Ride Ontario Vehicle Financing',
-  description: 'Submit your vehicle financing application in minutes. Secure, fast, and reviewed within 24 hours for all credit types.',
-  alternates: { canonical: '/apply' },
-};
 import {
   leadApplicationSchema,
   LeadApplicationData,

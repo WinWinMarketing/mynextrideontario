@@ -5,12 +5,6 @@ import Link from 'next/link';
 import { Button } from '@/components/ui';
 import { Logo } from '@/components/Logo';
 
-export const metadata = {
-  title: 'About | My Next Ride Ontario',
-  description: 'Learn how My Next Ride Ontario helps every credit profile find the right vehicle with a 17-lender network and a 24-hour response promise.',
-  alternates: { canonical: '/about' },
-};
-
 export default function AboutPage() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white">

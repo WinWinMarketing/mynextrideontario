@@ -5,12 +5,6 @@ import Link from 'next/link';
 import { Button } from '@/components/ui';
 import { Logo } from '@/components/Logo';
 
-export const metadata = {
-  title: 'Contact | My Next Ride Ontario',
-  description: 'Contact My Next Ride Ontario for fast answers about vehicle financing in the GTA. We respond within 24 hours.',
-  alternates: { canonical: '/contact' },
-};
-
 export default function ContactPage() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
