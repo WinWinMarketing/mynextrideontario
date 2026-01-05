@@ -220,218 +220,169 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   }, [hasUnsavedChanges]);
 
-  // ============ SAVE TO S3 (Cloud-only CRM Storage) ============
+  // ============ SAVE TO CLOUD (S3) ============
   const manualSave = useCallback(async () => {
-    if (!activeProfileId) {
-      console.warn('⚠️ No active profile to save');
-      return;
-    }
-    
-    setIsLoading(true);
-    const now = new Date().toISOString();
-    const current = profiles.find(p => p.id === activeProfileId);
+    if (activeProfileId) {
+      setIsLoading(true);
+      const now = new Date().toISOString();
+      const current = profiles.find(p => p.id === activeProfileId);
 
-    // Build the complete profile with all current state
-    // Schema-first (V3): Save schema + settings, layout computed at runtime
-    // Legacy (V2): Save full stages/messageNodes/connections
-    const updatedProfile: WorkspaceProfile = activeSchema
-      ? {
-          id: activeProfileId,
-          name: current?.name || 'Pipeline',
-          description: current?.description,
-          icon: current?.icon,
-          createdAt: current?.createdAt || now,
-          updatedAt: now,
-          version: 3,
-          schema: activeSchema,
-          settings: {
-            ...DEFAULT_WORKSPACE_SETTINGS,
-            zoom,
-            panX: pan.x,
-            panY: pan.y,
-            gridSize,
-            snapToGrid,
-            nodeSize,
-            showGrid,
-            tutorialEnabled,
-          },
-        }
-      : {
-          id: activeProfileId,
-          name: current?.name || 'Pipeline',
-          description: current?.description,
-          icon: current?.icon,
-          createdAt: current?.createdAt || now,
-          updatedAt: now,
-          version: 2,
-          stages,
-          messageNodes,
-          connections,
-          labels,
-          emailTemplates: current?.emailTemplates || [],
-          settings: {
-            ...DEFAULT_WORKSPACE_SETTINGS,
-            zoom,
-            panX: pan.x,
-            panY: pan.y,
-            gridSize,
-            snapToGrid,
-            nodeSize,
-            showGrid,
-            tutorialEnabled,
-          },
-        };
+      // Schema-first persistence (V3):
+      // - Save schema only (no coordinates)
+      // - Runtime layout is computed on load via schemaRuntime.ts
+      const updatedProfile: WorkspaceProfile = activeSchema
+        ? {
+            id: activeProfileId,
+            name: current?.name || 'Workflow',
+            description: current?.description,
+            icon: current?.icon,
+            createdAt: current?.createdAt || now,
+            updatedAt: now,
+            version: 3,
+            schema: activeSchema,
+            settings: {
+              ...DEFAULT_WORKSPACE_SETTINGS,
+              zoom,
+              panX: pan.x,
+              panY: pan.y,
+              gridSize,
+              snapToGrid,
+              nodeSize,
+              showGrid,
+              tutorialEnabled,
+            },
+          }
+        : {
+            id: activeProfileId,
+            name: current?.name || 'Workflow',
+            description: current?.description,
+            icon: current?.icon,
+            createdAt: current?.createdAt || now,
+            updatedAt: now,
+            stages,
+            messageNodes,
+            connections,
+            labels,
+            emailTemplates: current?.emailTemplates || [],
+            settings: {
+              ...DEFAULT_WORKSPACE_SETTINGS,
+              zoom,
+              panX: pan.x,
+              panY: pan.y,
+              gridSize,
+              snapToGrid,
+              nodeSize,
+              showGrid,
+              tutorialEnabled,
+            },
+          };
 
-    // Update local profiles array
-    const updatedProfiles = profiles.map(p => 
-      p.id === activeProfileId ? updatedProfile : p
-    );
-    setProfiles(updatedProfiles);
+      // Update local state
+      const updated = profiles.map(p => 
+        p.id === activeProfileId ? updatedProfile : p
+      );
+      setProfiles(updated);
 
-    // ========== S3 SAVE (PRIMARY STORAGE) ==========
-    console.log('💾 Saving to S3:', {
-      profileId: activeProfileId,
-      profileName: updatedProfile.name,
-      version: activeSchema ? 'schema-v3' : 'legacy-v2',
-      stageCount: stages.length,
-      messageNodeCount: messageNodes.length,
-      connectionCount: connections.length,
-    });
-    
-    try {
-      const response = await fetch('/api/admin/workflows', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          profile: updatedProfile,
-          activeProfileId: activeProfileId,
-          profileIds: updatedProfiles.map(p => p.id),
-        }),
+      // Save to Cloud (AWS S3) - Robust save with proper structure
+      const payload = {
+        // Optimized: save only the changed profile (schema-first is small)
+        profile: updatedProfile,
+        activeProfileId: activeProfileId,
+        profileIds: updated.map(p => p.id),
+      };
+      
+      console.log('💾 Saving to S3:', {
+        profileId: activeProfileId,
+        mode: activeSchema ? 'schema-v3' : 'legacy-v2',
+        stageCount: stages.length,
+        connectionCount: connections.length,
       });
       
-      let result: any = { success: false };
       try {
-        const text = await response.text();
-        result = text ? JSON.parse(text) : { success: false, error: 'Empty response' };
-      } catch (parseErr) {
-        console.error('❌ Failed to parse S3 response:', parseErr);
-        result = { success: false, error: 'Invalid server response' };
+        const response = await fetch('/api/admin/workflows', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          credentials: 'include', // Include auth cookies
+        });
+        
+        // Try to parse response as JSON
+        let result;
+        try {
+          const text = await response.text();
+          result = text ? JSON.parse(text) : { success: false, error: 'Empty response' };
+        } catch (parseErr) {
+          console.error('❌ Failed to parse S3 response:', parseErr);
+          result = { success: false, error: 'Invalid response from server' };
+        }
+        
+        if (response.ok && result.success) {
+          console.log('✅ S3 Save successful:', result);
+          setSaveNotification('☁️ Saved to cloud! (' + (result.savedCount || 1) + ' profiles)');
+        } else {
+          console.error('❌ S3 Save failed:', result, 'Status:', response.status);
+          setSaveNotification('⚠️ Cloud save failed: ' + (result.error || result.details || `HTTP ${response.status}`));
+        }
+      } catch (err) {
+        console.error('❌ Cloud save error:', err);
+        setSaveNotification('⚠️ Network error - check connection');
       }
-      
-      if (response.ok && result.success) {
-        console.log('✅ S3 Save successful:', result);
-        setSaveNotification(`☁️ Saved "${updatedProfile.name}" to cloud`);
-        setLastSaveTime(new Date());
-        setHasUnsavedChanges(false);
-        setShowSaveReminder(false);
-      } else {
-        console.error('❌ S3 Save failed:', result, 'Status:', response.status);
-        setSaveNotification(`⚠️ Save failed: ${result.error || result.details || `HTTP ${response.status}`}`);
-      }
-    } catch (err: any) {
-      console.error('❌ S3 save network error:', err);
-      setSaveNotification('⚠️ Network error - please check connection');
-    }
 
-    setIsLoading(false);
-    setTimeout(() => setSaveNotification(null), 2500);
+      setIsLoading(false);
+      setLastSaveTime(new Date());
+      setHasUnsavedChanges(false);
+      setShowSaveReminder(false);
+      setTimeout(() => setSaveNotification(null), 2000);
+    }
   }, [activeProfileId, activeSchema, stages, messageNodes, connections, labels, zoom, pan, profiles, gridSize, snapToGrid, nodeSize, showGrid, tutorialEnabled]);
 
-  // ============ LOAD - S3 ONLY (Cloud-first CRM) ============
+  // ============ LOAD - TRY S3 FIRST, THEN LOCAL ============
   useEffect(() => {
     const loadWorkflows = async () => {
-      setIsLoading(true);
-      console.log('🔄 Loading workflows from S3...');
-      
+      // Try to load from S3 first
       try {
-        const response = await fetch('/api/admin/workflows', { credentials: 'include' });
-        
+        const response = await fetch('/api/admin/workflows');
         if (response.ok) {
           const data = await response.json();
-          console.log('📦 S3 response:', { workflowCount: data.workflows?.length || 0 });
-          
           if (data.workflows && data.workflows.length > 0) {
-            // Load full workflow data for each profile
+            // Load full workflow data for each
             const fullWorkflows = await Promise.all(
               data.workflows.map(async (w: any) => {
-                try {
-                  const fullRes = await fetch(`/api/admin/workflows?id=${w.id}`, { credentials: 'include' });
-                  if (fullRes.ok) {
-                    const profile = await fullRes.json();
-                    console.log(`✅ Loaded profile: ${profile.name} (${profile.id})`);
-                    return profile;
-                  }
-                } catch (err) {
-                  console.warn(`⚠️ Failed to load profile ${w.id}:`, err);
-                }
+                const fullRes = await fetch(`/api/admin/workflows?id=${w.id}`);
+                if (fullRes.ok) return fullRes.json();
                 return null;
               })
             );
-            
             const validWorkflows = fullWorkflows.filter(Boolean);
-            console.log(`📊 Loaded ${validWorkflows.length} valid profiles from S3`);
-            
             if (validWorkflows.length > 0) {
               setProfiles(validWorkflows);
-              
-              // Load the first/active profile
-              const activeProfile = validWorkflows[0];
-              loadProfileData(activeProfile);
-              setActiveProfileId(activeProfile.id);
-              
-              setSaveNotification(`☁️ Loaded ${validWorkflows.length} profiles from cloud`);
-              setTimeout(() => setSaveNotification(null), 2500);
-              setIsLoading(false);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(validWorkflows));
+              loadProfileData(validWorkflows[0]);
+              setActiveProfileId(validWorkflows[0].id);
+              localStorage.setItem(ACTIVE_PROFILE_KEY, validWorkflows[0].id);
               return;
             }
           }
-        } else {
-          console.warn('⚠️ S3 load returned non-OK status:', response.status);
         }
       } catch (err) {
-        console.error('❌ S3 load error:', err);
+        console.log('S3 load failed, trying local storage:', err);
       }
 
-      // No S3 data found - create initial profile with default preset
-      console.log('📝 No S3 data found, creating initial profile...');
-      const defaultPreset = ALL_SCHEMA_PRESETS[0]; // High-Ticket Automotive
-      const now = new Date().toISOString();
-      const initialProfile: WorkspaceProfile = {
-        id: `profile-${Date.now()}`,
-        name: 'My First Pipeline',
-        description: 'Auto-created from High-Ticket Automotive preset',
-        createdAt: now,
-        updatedAt: now,
-        version: 3,
-        schema: defaultPreset.schema,
-        settings: DEFAULT_WORKSPACE_SETTINGS,
-      };
+      // Fall back to local storage
+      const saved = localStorage.getItem(STORAGE_KEY);
+      const savedActive = localStorage.getItem(ACTIVE_PROFILE_KEY);
       
-      setProfiles([initialProfile]);
-      setActiveProfileId(initialProfile.id);
-      loadProfileData(initialProfile);
-      
-      // Save to S3 immediately
-      try {
-        await fetch('/api/admin/workflows', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            profile: initialProfile,
-            activeProfileId: initialProfile.id,
-            profileIds: [initialProfile.id],
-          }),
-        });
-        console.log('✅ Initial profile saved to S3');
-        setSaveNotification('☁️ Created initial pipeline in cloud');
-        setTimeout(() => setSaveNotification(null), 2500);
-      } catch (saveErr) {
-        console.error('❌ Failed to save initial profile:', saveErr);
-      }
-      
-      setIsLoading(false);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setProfiles(parsed);
+          if (savedActive) {
+            const found = parsed.find((p: WorkspaceProfile) => p.id === savedActive);
+            if (found) { loadProfileData(found); setActiveProfileId(savedActive); }
+            else if (parsed.length > 0) { loadProfileData(parsed[0]); setActiveProfileId(parsed[0].id); }
+          } else if (parsed.length > 0) { loadProfileData(parsed[0]); setActiveProfileId(parsed[0].id); }
+        } catch { applyPreset(ALL_PRESETS[0]); }
+      } else { applyPreset(ALL_PRESETS[0]); }
     };
 
     loadWorkflows();
@@ -502,47 +453,18 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setHistoryIndex(0);
   };
 
-  const loadProfile = async (id: string) => {
-    const profile = profiles.find(x => x.id === id);
-    if (!profile) return;
-    
-    loadProfileData(profile);
-    setActiveProfileId(id);
-    
-    // Update S3 with new active profile (no localStorage)
-    try {
-      await fetch('/api/admin/workflows', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          profile: profile,
-          activeProfileId: id,
-          profileIds: profiles.map(p => p.id),
-        }),
-      });
-      console.log('✅ Active profile updated in S3:', profile.name);
-    } catch (err) {
-      console.warn('⚠️ Could not update active profile in S3:', err);
-    }
+  const loadProfile = (id: string) => {
+    const p = profiles.find(x => x.id === id);
+    if (p) { loadProfileData(p); setActiveProfileId(id); localStorage.setItem(ACTIVE_PROFILE_KEY, id); }
   };
 
-  const createProfile = async (name: string) => {
-    if (profiles.length >= MAX_PROFILES) {
-      setSaveNotification(`⚠️ Maximum ${MAX_PROFILES} profiles reached`);
-      setTimeout(() => setSaveNotification(null), 2000);
-      return;
-    }
-    
-    setIsLoading(true);
+  const createProfile = (name: string) => {
+    if (profiles.length >= MAX_PROFILES) return;
     const now = new Date().toISOString();
     const entryId = `entry-${Date.now()}`;
-    
-    // Create new profile with basic schema
-    const newProfile: WorkspaceProfile = { 
+    const np: WorkspaceProfile = { 
       id: `profile-${Date.now()}`,
       name,
-      description: 'Custom pipeline',
       createdAt: now,
       updatedAt: now,
       version: 3,
@@ -572,41 +494,22 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       },
       settings: DEFAULT_WORKSPACE_SETTINGS,
     };
+    const updated = [...profiles, np];
+    setProfiles(updated); setActiveProfileId(np.id);
+    loadProfileData(np);
     
-    const updatedProfiles = [...profiles, newProfile];
+    // Save to cloud
+    fetch('/api/admin/workflows', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profiles: updated, activeProfile: np }),
+    }).catch(() => {
+      // Fallback to local
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    });
     
-    // Save to S3 immediately
-    try {
-      const response = await fetch('/api/admin/workflows', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          profile: newProfile,
-          activeProfileId: newProfile.id,
-          profileIds: updatedProfiles.map(p => p.id),
-        }),
-      });
-      
-      const result = await response.json();
-      
-      if (response.ok && result.success) {
-        setProfiles(updatedProfiles);
-        setActiveProfileId(newProfile.id);
-        loadProfileData(newProfile);
-        console.log('✅ New profile created and saved to S3:', newProfile.name);
-        setSaveNotification(`☁️ Created "${name}" in cloud`);
-      } else {
-        console.error('❌ Failed to save new profile:', result);
-        setSaveNotification('⚠️ Failed to create profile');
-      }
-    } catch (err) {
-      console.error('❌ Network error creating profile:', err);
-      setSaveNotification('⚠️ Network error - profile not saved');
-    }
-    
-    setIsLoading(false);
     setHasUnsavedChanges(false);
+    setSaveNotification('☁️ Profile created!');
     setTimeout(() => setSaveNotification(null), 2000);
   };
 
@@ -792,7 +695,7 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     }
   };
   
-  // ============ AUTO LAYOUT - CRM Flow: Dead on LEFT, Success flow to RIGHT ============
+  // ============ AUTO LAYOUT - Center-focused hourglass pattern (no overlap) ============
   const autoLayoutHourglass = () => {
     const deadStages = stages.filter(s => s.statusId === 'dead');
     const newStages = stages.filter(s => s.statusId === 'new');
@@ -800,57 +703,57 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     const approvalStages = stages.filter(s => s.statusId === 'approval');
     const circleBackStages = stages.filter(s => s.statusId === 'circle-back');
     
-    // Layout: Dead(LEFT) -> Entry(CENTER-LEFT) -> Working(CENTER) -> Approval(RIGHT)
-    const startX = 100;           // Dead leads start here (far left)
-    const entryX = 600;           // Entry/New lead column
-    const workingStartX = 1200;   // Working stages start
-    const approvalStartX = 2400;  // Approval/Won stages
-    const centerY = 800;          // Vertical center
+    // Center point - where NEW LEAD sits (big focal point)
+    const centerX = 1400;
+    const centerY = 900;
     
-    // Spacing constants
-    const deadSpacing = 420;      // Vertical gap between dead leads
-    const workingSpacing = 480;   // Vertical gap between working stages
-    const approvalSpacing = 500;  // Vertical gap between approval stages
-    const columnGap = 550;        // Horizontal gap between working columns
+    // Spacing constants - larger to PREVENT overlap
+    const deadSpacing = 520;       // Vertical gap between dead leads
+    const workingSpacing = 550;    // Vertical gap between working stages
+    const approvalSpacing = 580;   // Vertical gap between approval stages
+    const columnGap = 650;         // Horizontal gap between columns
     
     setStages(prev => prev.map(s => {
-      // DEAD LEADS - Far LEFT column (CRM: failures on left)
-      if (s.statusId === 'dead') {
-        const idx = deadStages.findIndex(d => d.id === s.id);
-        const totalDead = deadStages.length;
-        const totalHeight = (totalDead - 1) * deadSpacing;
-        const startY = centerY - totalHeight / 2;
-        return { 
-          ...s, 
-          x: startX, 
-          y: startY + idx * deadSpacing,
-          width: 360,
-          height: 340
-        };
-      }
-      
-      // NEW LEAD - Entry point, center-left (start of flow)
+      // NEW LEAD - Center, big, focal point
       if (s.statusId === 'new') {
         const idx = newStages.findIndex(n => n.id === s.id);
         return { 
           ...s, 
-          x: entryX, 
-          y: centerY - 200 + idx * 450,
-          width: 420,
-          height: 400
+          x: centerX - 230, 
+          y: centerY - 230 + idx * 500, // Stack vertically if multiple new stages
+          width: 460,
+          height: 460
         };
       }
       
-      // WORKING - Center columns, evenly distributed
+      // DEAD LEADS - Far left column, evenly spaced vertically
+      if (s.statusId === 'dead') {
+        const idx = deadStages.findIndex(d => d.id === s.id);
+        const totalDead = deadStages.length;
+        // Center the dead leads vertically around the center point
+        const totalHeight = (totalDead - 1) * deadSpacing;
+        const startY = centerY - totalHeight / 2;
+        return { 
+          ...s, 
+          x: 100, 
+          y: startY + idx * deadSpacing,
+          width: 380,
+          height: 360
+        };
+      }
+      
+      // WORKING - Column(s) to the right of center, evenly distributed
       if (s.statusId === 'working') {
         const idx = workingStages.findIndex(w => w.id === s.id);
         const totalWorking = workingStages.length;
         
+        // Determine column and row
         const itemsPerColumn = 3;
         const col = Math.floor(idx / itemsPerColumn);
         const row = idx % itemsPerColumn;
         
-        const xBase = workingStartX + col * columnGap;
+        // Calculate position
+        const xBase = centerX + columnGap + col * columnGap;
         const rowsInThisColumn = Math.min(itemsPerColumn, totalWorking - col * itemsPerColumn);
         const columnHeight = (rowsInThisColumn - 1) * workingSpacing;
         const startY = centerY - columnHeight / 2;
@@ -859,64 +762,73 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           ...s, 
           x: xBase,
           y: startY + row * workingSpacing,
-          width: 380,
-          height: 360
+          width: 400,
+          height: 380
         };
       }
       
-      // APPROVAL/WON - Far RIGHT (success destination)
+      // APPROVAL/WON - Far right column(s), staggered for visual flow
       if (s.statusId === 'approval') {
         const idx = approvalStages.findIndex(a => a.id === s.id);
         const totalApproval = approvalStages.length;
         
+        // Position in columns
+        const itemsPerColumn = 2;
+        const col = Math.floor(idx / itemsPerColumn);
+        const row = idx % itemsPerColumn;
+        
+        // How many working columns are there?
         const workingCols = Math.ceil(workingStages.length / 3);
-        const xBase = workingStartX + (workingCols || 1) * columnGap + 200;
+        const xBase = centerX + columnGap + workingCols * columnGap + col * approvalSpacing;
         
-        const totalHeight = (totalApproval - 1) * approvalSpacing;
-        const startY = centerY - totalHeight / 2;
+        // Stack vertically with offset
+        const rowsInThisColumn = Math.min(itemsPerColumn, totalApproval - col * itemsPerColumn);
+        const columnHeight = (rowsInThisColumn - 1) * approvalSpacing;
+        const startY = centerY - columnHeight / 2;
         
-        // Last approval stage (WON) gets extra emphasis
+        // Last approval stage (usually WON) gets extra size
         const isLast = idx === totalApproval - 1;
         
         return { 
           ...s, 
-          x: xBase + idx * 100, // Slight stagger right
-          y: startY + idx * approvalSpacing,
-          width: isLast ? 440 : 400,
-          height: isLast ? 420 : 380
+          x: xBase,
+          y: startY + row * approvalSpacing,
+          width: isLast ? 460 : 420,
+          height: isLast ? 440 : 400
         };
       }
       
-      // CIRCLE BACK - Below entry, indicating retry flow
+      // CIRCLE BACK - Below the center-left area
       if (s.statusId === 'circle-back') {
         const idx = circleBackStages.findIndex(c => c.id === s.id);
         return { 
           ...s, 
-          x: entryX + 100 + idx * 420, 
-          y: centerY + 500,
-          width: 360,
-          height: 320
+          x: centerX - 600 + idx * 450, 
+          y: centerY + 600,
+          width: 380,
+          height: 340
         };
       }
       
       return s;
     }));
     
-    // Position action nodes between working and approval columns
+    // Position message nodes in a neat grid to the far right
     const workingCols = Math.ceil(workingStages.length / 3);
-    const msgStartX = workingStartX + (workingCols || 1) * columnGap - 200;
+    const approvalCols = Math.ceil(approvalStages.length / 2);
+    const msgStartX = centerX + columnGap + (workingCols + approvalCols) * columnGap + 200;
     
     setMessageNodes(prev => prev.map((m, idx) => ({
       ...m,
-      x: msgStartX + (idx % 2) * 340,
-      y: 200 + Math.floor(idx / 2) * 280
+      x: msgStartX + (idx % 2) * 380,
+      y: 200 + Math.floor(idx / 2) * 320
     })));
     
     // Fit view after layout
     setTimeout(fitView, 100);
     
-    setSaveNotification('✨ CRM Flow layout applied! (Dead→Left, Success→Right)');
-    setTimeout(() => setSaveNotification(null), 2500);
+    setSaveNotification('✨ Hourglass layout applied!');
+    setTimeout(() => setSaveNotification(null), 2000);
     setHasUnsavedChanges(true);
   };
 
@@ -962,6 +874,8 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
 
     const built = buildRuntimeFromSchema(p.schema, nodeSize);
     setActiveSchema(p.schema);
+    if (tutorialEnabled) storyActions.open(built.tutorialSequence);
+    else storyActions.close();
     setViewMode('node');
     setStages(built.stages);
     setMessageNodes(built.messageNodes);
@@ -972,24 +886,12 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
     setHistory([{ stages: built.stages, messageNodes: built.messageNodes, connections: built.connections, labels: built.labels }]);
     setHistoryIndex(0);
 
-    // Apply auto-layout after schema is loaded (CRM flow: dead left, success right)
     setTimeout(() => {
-      autoLayoutHourglass();
-      
-      // Start tutorial if enabled (popup appears next to sidebar)
-      if (tutorialEnabled && built.tutorialSequence.length > 0) {
-        storyActions.open(built.tutorialSequence);
-      } else {
-        storyActions.close();
-      }
-      
-      // Focus on entry node
-      setTimeout(() => {
-        focusNode(built.entryNodeId, 0.45);
-        setSaveNotification(`✅ Loaded: ${p.name} (tutorial ${tutorialEnabled ? 'enabled' : 'disabled'})`);
-        setTimeout(() => setSaveNotification(null), 2500);
-      }, 200);
-    }, 100);
+      // Focus to entry node for the first tutorial step
+      focusNode(built.entryNodeId, 0.55);
+      setSaveNotification(`✅ Loaded: ${p.name}`);
+      setTimeout(() => setSaveNotification(null), 2000);
+    }, 150);
   };
 
   const applyPreset = (p: Preset) => { 
@@ -1090,17 +992,6 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
       return 'Success';
     };
 
-    // Muted, sleek edge colors - indicates flow, not options
-    const getEdgeColor = (strict: string) => {
-      switch (strict) {
-        case 'Success': return '#5eead4';   // subtle teal
-        case 'Failure': return '#f87171';   // muted rose
-        case 'Loop': return '#a78bfa';      // subtle violet  
-        case 'Neutral':
-        default: return '#64748b';          // slate-500
-      }
-    };
-
     const nextEdgesByFrom = new Map<string, NodeConnection[]>();
     connections.forEach(c => {
       const arr = nextEdgesByFrom.get(c.fromNodeId) || [];
@@ -1134,8 +1025,8 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
             autoTrigger: false,
             label: midLabel || (ms.label ? String(ms.label) : strict),
             style: strict === 'Loop' ? 'dashed' : 'solid',
-            color: getEdgeColor(strict),
-            thickness: strict === 'Success' ? 3 : strict === 'Failure' ? 3 : 2,
+            color: strict === 'Success' ? '#22c55e' : strict === 'Failure' ? '#ef4444' : '#94a3b8',
+            thickness: strict === 'Success' || strict === 'Failure' ? 4 : 3,
             strictPath: strict as any,
           });
         });
@@ -1584,94 +1475,77 @@ export function FuturisticPipeline({ leads, onStatusChange, onViewDetails, starr
           )}
         </div>
 
+        {/* Storyteller Slide-In Panel (separate left menu popup) */}
+        <AnimatePresence>
+          {tutorialEnabled && story.isOpen && storyNode && (
+            <motion.div
+              initial={{ x: 420, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: 420, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 38 }}
+              className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-2xl border-l border-slate-700/40 shadow-2xl"
+            >
+              <div className="p-5 border-b border-slate-800/60 bg-gradient-to-r from-slate-900/80 to-slate-950/60">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-extrabold text-blue-300 tracking-wide">PRESET TUTORIAL</div>
+                    <div className="text-lg font-extrabold text-white mt-1 truncate">
+                      {storyNode.guidance.tutorial_title}
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      Step {story.stepIndex + 1} of {Math.max(1, story.sequence.length)}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => storyActions.close()}
+                    className="px-3 py-2 rounded-xl bg-slate-800/70 border border-slate-700/50 text-slate-200 hover:text-white hover:bg-slate-800 transition-all text-sm font-bold"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-5 overflow-y-auto h-[calc(100%-156px)]">
+                <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
+                  {storyNode.guidance.tutorial_content}
+                </div>
+
+                {storyNode.guidance.video_url && (
+                  <div className="mt-4 text-xs text-slate-300">
+                    Video: <span className="text-blue-300">{storyNode.guidance.video_url}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="absolute bottom-0 left-0 right-0 p-5 border-t border-slate-800/60 bg-slate-950/80 backdrop-blur-xl">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => storyActions.prev()}
+                    disabled={story.stepIndex <= 0}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800/70 border border-slate-700/50 text-slate-200 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-semibold"
+                  >
+                    ← Prev
+                  </button>
+                  <button
+                    onClick={() => storyActions.next()}
+                    disabled={story.stepIndex >= story.sequence.length - 1}
+                    className="px-4 py-2.5 rounded-xl bg-blue-500/20 border border-blue-500/40 text-blue-200 hover:bg-blue-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-semibold"
+                  >
+                    Next →
+                  </button>
+                  <div className="flex-1" />
+                  <button
+                    onClick={() => storyNodeId && focusNode(storyNodeId, 0.6)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800/70 border border-slate-700/50 text-slate-200 hover:bg-slate-800 transition-all text-sm font-semibold"
+                  >
+                    Focus
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-
-      {/* TUTORIAL POPUP - Floating next to sidebar, not taking over */}
-      <AnimatePresence>
-        {tutorialEnabled && story.isOpen && storyNode && (
-          <motion.div
-            initial={{ opacity: 0, x: -20, scale: 0.95 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: -20, scale: 0.95 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            className="fixed left-[440px] top-[140px] z-[60] w-[380px] bg-slate-900/98 backdrop-blur-2xl rounded-2xl border border-slate-700/60 shadow-2xl shadow-black/40"
-            style={{ maxHeight: 'calc(100vh - 200px)' }}
-          >
-            {/* Arrow pointing to sidebar */}
-            <div className="absolute -left-3 top-6 w-0 h-0 border-t-[10px] border-t-transparent border-r-[12px] border-r-slate-700/60 border-b-[10px] border-b-transparent" />
-            <div className="absolute -left-2.5 top-6 w-0 h-0 border-t-[10px] border-t-transparent border-r-[12px] border-r-slate-900/98 border-b-[10px] border-b-transparent" />
-            
-            {/* Header */}
-            <div className="p-4 border-b border-slate-800/60 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-t-2xl">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-bold tracking-wide">TUTORIAL</span>
-                    <span className="text-[10px] text-slate-500">Step {story.stepIndex + 1}/{story.sequence.length}</span>
-                  </div>
-                  <div className="text-base font-bold text-white leading-tight">
-                    {storyNode.guidance.tutorial_title}
-                  </div>
-                </div>
-                <button
-                  onClick={() => storyActions.close()}
-                  className="w-7 h-7 rounded-lg bg-slate-800/70 border border-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700 flex items-center justify-center transition-all text-lg"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 380px)' }}>
-              <div className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
-                {storyNode.guidance.tutorial_content}
-              </div>
-
-              {storyNode.guidance.video_url && (
-                <div className="mt-3 p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300">
-                  📹 Video: {storyNode.guidance.video_url}
-                </div>
-              )}
-            </div>
-
-            {/* Footer - Navigation */}
-            <div className="p-3 border-t border-slate-800/60 bg-slate-950/50 rounded-b-2xl">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => storyActions.prev()}
-                  disabled={story.stepIndex <= 0}
-                  className="px-3 py-2 rounded-lg bg-slate-800/70 border border-slate-700/50 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs font-semibold"
-                >
-                  ← Prev
-                </button>
-                <button
-                  onClick={() => storyActions.next()}
-                  disabled={story.stepIndex >= story.sequence.length - 1}
-                  className="px-3 py-2 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-300 hover:bg-blue-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs font-semibold"
-                >
-                  Next →
-                </button>
-                <div className="flex-1" />
-                <button
-                  onClick={() => storyNodeId && focusNode(storyNodeId, 0.55)}
-                  className="px-3 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 transition-all text-xs font-semibold"
-                >
-                  🎯 Focus
-                </button>
-              </div>
-              
-              {/* Progress bar */}
-              <div className="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
-                  style={{ width: `${((story.stepIndex + 1) / story.sequence.length) * 100}%` }}
-                />
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* MAIN CANVAS */}
       <div className="flex-1 relative">

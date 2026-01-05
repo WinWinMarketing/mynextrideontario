@@ -5,6 +5,12 @@ import { useState, useEffect } from 'react';
 import { Button, Input, Card } from '@/components/ui';
 import { AdminDashboard } from './AdminDashboard';
 
+export const metadata = {
+  title: 'Admin | My Next Ride Ontario',
+  description: 'Admin dashboard (restricted).',
+  robots: { index: false, follow: false },
+};
+
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [password, setPassword] = useState('');

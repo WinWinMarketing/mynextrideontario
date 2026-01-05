@@ -6,7 +6,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { Lead, LeadStatus, DeadReason, ShowcaseVehicle, MAX_SHOWCASE_VEHICLES } from './validation';
+import { Lead, LeadStatus, DeadReason, ShowcaseVehicle, MAX_SHOWCASE_VEHICLES, LeadInteractionType, LeadInteraction, LeadStatusChange } from './validation';
 import { generateId, getMonthYearKey } from './utils';
 import { config, SETTINGS_KEY, SHOWCASE_SETTINGS_KEY, EmailSettings, ShowcaseSettings, defaultEmailSettings, defaultShowcaseSettings } from './config';
 
@@ -23,6 +23,19 @@ function getS3Client(): S3Client {
 
 function getBucketName(): string {
   return config.aws.bucketName;
+}
+
+const EMAIL_LOG_KEY = 'email-logs/events.json';
+const MAX_EMAIL_LOGS = 200;
+
+function normalizeLead(raw: Lead): Lead {
+  return {
+    ...raw,
+    notes: raw.notes || '',
+    interactions: raw.interactions || [],
+    statusHistory: raw.statusHistory || [{ status: raw.status, changedAt: raw.createdAt } as LeadStatusChange],
+    lastInteractionAt: raw.lastInteractionAt || raw.createdAt,
+  };
 }
 
 // Get email settings from S3
@@ -99,14 +112,18 @@ export async function saveLead(
   }
   
   // Create lead object
+  const createdAt = now.toISOString();
   const lead: Lead = {
     id,
-    createdAt: now.toISOString(),
+    createdAt,
     monthYear,
     status: 'new',
     notes: '',
     driversLicenseKey,
     formData,
+    interactions: [],
+    statusHistory: [{ status: 'new', changedAt: createdAt }],
+    lastInteractionAt: createdAt,
   };
   
   console.log('💾 Saving lead JSON:', {
@@ -165,7 +182,7 @@ export async function getLeadsByMonth(year: number, month: number): Promise<Lead
         const body = await getResult.Body?.transformToString();
         if (body) {
           const lead = JSON.parse(body) as Lead;
-          leads.push(lead);
+          leads.push(normalizeLead(lead));
         }
       } catch (err) {
         console.error(`Error fetching lead ${obj.Key}:`, err);
@@ -191,6 +208,10 @@ export async function updateLead(
     status?: LeadStatus;
     deadReason?: DeadReason;
     notes?: string;
+    interaction?: {
+      type: LeadInteractionType;
+      note?: string;
+    };
   }
 ): Promise<Lead | null> {
   const s3 = getS3Client();
@@ -218,14 +239,44 @@ export async function updateLead(
       const body = await getResult.Body?.transformToString();
       if (!body) continue;
       
-      const lead = JSON.parse(body) as Lead;
+      const lead = normalizeLead(JSON.parse(body) as Lead);
       
       if (lead.id === leadId) {
+        const now = new Date().toISOString();
         // Apply updates
-        const updatedLead: Lead = {
-          ...lead,
-          ...updates,
-        };
+        const updatedLead: Lead = { ...lead };
+
+        if (updates.status !== undefined && updates.status !== lead.status) {
+          updatedLead.status = updates.status;
+          updatedLead.statusHistory = [
+            ...(lead.statusHistory || []),
+            { status: updates.status, changedAt: now, deadReason: updates.deadReason, note: updates.notes } as LeadStatusChange,
+          ];
+          updatedLead.deadReason = updates.deadReason ?? updatedLead.deadReason;
+          if (updates.status === 'approval') {
+            updatedLead.closedAt = now;
+          }
+          updatedLead.lastInteractionAt = now;
+        } else {
+          if (updates.deadReason !== undefined) {
+            updatedLead.deadReason = updates.deadReason;
+          }
+        }
+
+        if (updates.notes !== undefined) {
+          updatedLead.notes = updates.notes;
+        }
+
+        if (updates.interaction) {
+          const interaction: LeadInteraction = {
+            id: generateId(),
+            type: updates.interaction.type,
+            note: updates.interaction.note,
+            createdAt: now,
+          };
+          updatedLead.interactions = [...(lead.interactions || []), interaction];
+          updatedLead.lastInteractionAt = now;
+        }
         
         // Save back to S3
         await s3.send(new PutObjectCommand({
@@ -244,6 +295,62 @@ export async function updateLead(
     console.error('Error updating lead:', err);
     return null;
   }
+}
+
+export interface EmailLogEvent {
+  id: string;
+  to: string;
+  subject: string;
+  type: 'admin-notification' | 'client';
+  leadId?: string;
+  status: 'sent' | 'failed';
+  error?: string;
+  timestamp: string;
+}
+
+async function getEmailLogEvents(): Promise<EmailLogEvent[]> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+
+  try {
+    const result = await s3.send(new GetObjectCommand({
+      Bucket: bucket,
+      Key: EMAIL_LOG_KEY,
+    }));
+
+    const body = await result.Body?.transformToString();
+    if (body) {
+      return JSON.parse(body) as EmailLogEvent[];
+    }
+  } catch {
+    // No log file yet
+  }
+
+  return [];
+}
+
+export async function addEmailLog(event: EmailLogEvent): Promise<void> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  const existing = await getEmailLogEvents();
+  const merged = [event, ...existing]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, MAX_EMAIL_LOGS);
+
+  await s3.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: EMAIL_LOG_KEY,
+    Body: JSON.stringify(merged, null, 2),
+    ContentType: 'application/json',
+  }));
+}
+
+export async function getRecentEmailFailures(limit = 10): Promise<EmailLogEvent[]> {
+  const events = await getEmailLogEvents();
+  return events
+    .filter(e => e.status === 'failed')
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, limit);
 }
 
 // Generate a signed URL for viewing a driver's license

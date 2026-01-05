@@ -230,6 +230,23 @@ export const deadReasonOptions = [
 
 export type DeadReason = typeof deadReasonOptions[number]['value'];
 
+// Lead interactions & history
+export type LeadInteractionType = 'call' | 'message' | 'email' | 'follow-up' | 'note';
+
+export interface LeadInteraction {
+  id: string;
+  type: LeadInteractionType;
+  note?: string;
+  createdAt: string;
+}
+
+export interface LeadStatusChange {
+  status: LeadStatus;
+  changedAt: string;
+  deadReason?: DeadReason;
+  note?: string;
+}
+
 // Showcase Vehicle
 export interface ShowcaseVehicle {
   id: string;
@@ -258,4 +275,8 @@ export interface Lead {
   notes: string;
   driversLicenseKey?: string;
   formData: LeadApplicationData;
+  interactions?: LeadInteraction[];
+  statusHistory?: LeadStatusChange[];
+  lastInteractionAt?: string;
+  closedAt?: string;
 }

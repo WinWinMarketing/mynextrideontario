@@ -3,8 +3,8 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useCallback } from 'react';
 import { Button, Select, Modal, Input } from '@/components/ui';
-import { Lead, LeadStatus, deadReasonOptions, leadStatusOptions, ShowcaseVehicle } from '@/lib/validation';
-import { formatDate } from '@/lib/utils';
+import { Lead, LeadStatus, deadReasonOptions, leadStatusOptions, ShowcaseVehicle, LeadInteractionType } from '@/lib/validation';
+import { formatDate, formatMonthYear } from '@/lib/utils';
 import { DEFAULT_TEMPLATES, EmailTemplate } from '@/lib/email';
 import { Logo, LogoIcon } from '@/components/Logo';
 import { FuturisticPipeline } from './FuturisticPipeline';
@@ -15,17 +15,30 @@ interface AdminDashboardProps {
 
 type TabType = 'dashboard' | 'leads' | 'pipeline' | 'templates' | 'showcase' | 'analytics' | 'settings';
 
+type EmailAlert = {
+  id: string;
+  to: string;
+  subject: string;
+  timestamp: string;
+  error?: string;
+  type: 'admin-notification' | 'client';
+};
+
 export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [analyticsLeads, setAnalyticsLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [analyticsRangeMonths, setAnalyticsRangeMonths] = useState(3);
+  const [analyticsGrouping, setAnalyticsGrouping] = useState<'weekly' | 'monthly'>('weekly');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all');
   const [starredLeads, setStarredLeads] = useState<Set<string>>(new Set());
   const [licenseUrls, setLicenseUrls] = useState<Record<string, string>>({});
   const [detailModal, setDetailModal] = useState<Lead | null>(null);
   const [emailModal, setEmailModal] = useState<{ lead: Lead } | null>(null);
+  const [emailAlerts, setEmailAlerts] = useState<EmailAlert[]>([]);
   const [templates] = useState<EmailTemplate[]>(DEFAULT_TEMPLATES);
   const [showcase, setShowcase] = useState<ShowcaseVehicle[]>([]);
   const [showcaseEnabled, setShowcaseEnabled] = useState(true);
@@ -71,28 +84,86 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     } catch (e) { console.error('Error fetching showcase:', e); }
   }, []);
 
-  useEffect(() => { fetchLeads(); fetchShowcase(); }, [fetchLeads, fetchShowcase]);
+  const fetchEmailAlerts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/email-logs?limit=20');
+      if (res.ok) {
+        const data = await res.json();
+        setEmailAlerts(data.failures || []);
+      }
+    } catch (e) {
+      console.error('Error fetching email alerts:', e);
+    }
+  }, []);
+
+  const fetchAnalyticsLeads = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/leads?rangeMonths=${analyticsRangeMonths}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAnalyticsLeads(data.leads || []);
+      }
+    } catch (e) {
+      console.error('Error fetching analytics leads:', e);
+    }
+  }, [analyticsRangeMonths]);
+
+  useEffect(() => { fetchLeads(); fetchShowcase(); fetchEmailAlerts(); }, [fetchLeads, fetchShowcase, fetchEmailAlerts]);
+  useEffect(() => { fetchAnalyticsLeads(); }, [fetchAnalyticsLeads]);
 
   const updateStatus = async (leadId: string, status: LeadStatus, deadReason?: string) => {
     try {
-      await fetch('/api/admin/leads', {
+      const res = await fetch('/api/admin/leads', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leadId, year: selectedYear, month: selectedMonth, status, deadReason }),
       });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.lead) {
+          setLeads(prev => prev.map(l => l.id === leadId ? data.lead : l));
+          return;
+        }
+      }
       setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status, deadReason: deadReason as any } : l));
     } catch (e) { console.error('Error updating status:', e); }
   };
 
   const saveNotes = async (leadId: string, notes: string) => {
     try {
-      await fetch('/api/admin/leads', {
+      const res = await fetch('/api/admin/leads', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leadId, year: selectedYear, month: selectedMonth, notes }),
       });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.lead) {
+          setLeads(prev => prev.map(l => l.id === leadId ? data.lead : l));
+          return;
+        }
+      }
       setLeads(prev => prev.map(l => l.id === leadId ? { ...l, notes } : l));
     } catch (e) { console.error('Error saving notes:', e); }
+  };
+
+  const logInteraction = async (leadId: string, type: LeadInteractionType, note?: string) => {
+    try {
+      const res = await fetch('/api/admin/leads', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId, year: selectedYear, month: selectedMonth, interaction: { type, note } }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.lead) {
+          setLeads(prev => prev.map(l => l.id === leadId ? data.lead : l));
+          setDetailModal(prev => prev && prev.id === leadId ? data.lead : prev);
+          return;
+        }
+      }
+    } catch (e) { console.error('Error logging interaction:', e); }
   };
 
   const toggleStar = (id: string) => {
@@ -188,7 +259,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
       {/* Main Content */}
       <main className="pt-16 min-h-screen">
         <AnimatePresence mode="wait">
-          {activeTab === 'dashboard' && <DashboardView key="dash" stats={stats} analytics={analytics} leads={leads} onNav={setActiveTab} />}
+          {activeTab === 'dashboard' && <DashboardView key="dash" stats={stats} analytics={analytics} leads={leads} emailAlerts={emailAlerts} onNav={setActiveTab} />}
           {activeTab === 'leads' && (
             <LeadsView
               key="leads"
@@ -220,7 +291,18 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
               />
             </motion.div>
           )}
-          {activeTab === 'analytics' && <AnalyticsView key="analytics" stats={stats} analytics={analytics} leads={leads} />}
+          {activeTab === 'analytics' && (
+            <AnalyticsView
+              key="analytics"
+              stats={stats}
+              analytics={analytics}
+              leads={analyticsLeads.length ? analyticsLeads : leads}
+              rangeMonths={analyticsRangeMonths}
+              grouping={analyticsGrouping}
+              onRangeChange={setAnalyticsRangeMonths}
+              onGroupingChange={setAnalyticsGrouping}
+            />
+          )}
           {activeTab === 'templates' && <TemplatesView key="templates" templates={templates} />}
           {activeTab === 'showcase' && (
             <ShowcaseView
@@ -245,6 +327,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             onSaveNotes={saveNotes}
             onClose={() => setDetailModal(null)}
             onSendEmail={() => { setDetailModal(null); setEmailModal({ lead: detailModal }); }}
+            onLogInteraction={(type: LeadInteractionType, note?: string) => logInteraction(detailModal.id, type, note)}
           />
         )}
       </Modal>
@@ -260,7 +343,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
 }
 
 // Dashboard View - LARGER TEXT
-function DashboardView({ stats, analytics, leads, onNav }: { stats: any; analytics: any; leads: Lead[]; onNav: (tab: TabType) => void }) {
+function DashboardView({ stats, analytics, leads, onNav, emailAlerts }: { stats: any; analytics: any; leads: Lead[]; onNav: (tab: TabType) => void; emailAlerts: EmailAlert[] }) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-10">
       <div className="max-w-7xl mx-auto">
@@ -290,6 +373,32 @@ function DashboardView({ stats, analytics, leads, onNav }: { stats: any; analyti
             </div>
           ))}
         </div>
+
+        {emailAlerts.length > 0 && (
+          <div className="mb-10 bg-red-50 border border-red-200 rounded-2xl p-5 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="text-2xl">🚨</div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <p className="text-lg font-bold text-red-700">Email delivery issues</p>
+                    <p className="text-sm text-red-600">{emailAlerts.length} failed email{emailAlerts.length > 1 ? 's' : ''} need attention.</p>
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => onNav('analytics')}>View analytics</Button>
+                </div>
+                <div className="grid md:grid-cols-2 gap-3 mt-4">
+                  {emailAlerts.slice(0, 4).map(alert => (
+                    <div key={alert.id} className="bg-white rounded-xl p-4 border border-red-100 shadow-sm">
+                      <p className="text-sm text-slate-500">{formatDate(alert.timestamp)}</p>
+                      <p className="text-base font-semibold text-slate-900 truncate">{alert.subject}</p>
+                      <p className="text-sm text-red-600">{alert.error || 'Delivery failed'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Quick Actions - LARGER */}
         <div className="grid md:grid-cols-3 gap-6 mb-10">
@@ -349,50 +458,217 @@ function DashboardView({ stats, analytics, leads, onNav }: { stats: any; analyti
 }
 
 // Analytics View - NEW
-function AnalyticsView({ stats, analytics, leads }: { stats: any; analytics: any; leads: Lead[] }) {
-  const monthlyData = leads.reduce((acc, lead) => {
-    const date = new Date(lead.createdAt);
-    const key = `${date.getMonth() + 1}/${date.getDate()}`;
-    acc[key] = (acc[key] || 0) + 1;
+function AnalyticsView({ stats: _stats, analytics, leads, rangeMonths, grouping, onRangeChange, onGroupingChange }: { stats: any; analytics: any; leads: Lead[]; rangeMonths: number; grouping: 'weekly' | 'monthly'; onRangeChange: (n: number) => void; onGroupingChange: (g: 'weekly' | 'monthly') => void }) {
+  const seriesLeads = leads || [];
+  const rangeStats = {
+    total: seriesLeads.length,
+    new: seriesLeads.filter(l => l.status === 'new').length,
+    working: seriesLeads.filter(l => l.status === 'working').length,
+    circleBack: seriesLeads.filter(l => l.status === 'circle-back').length,
+    approval: seriesLeads.filter(l => l.status === 'approval').length,
+    dead: seriesLeads.filter(l => l.status === 'dead').length,
+  };
+  const baseDeadReasons = analytics?.deadReasons?.length ? analytics.deadReasons : deadReasonOptions;
+  const rangeAnalytics = {
+    conversionRate: rangeStats.total > 0 ? Math.round((rangeStats.approval / rangeStats.total) * 100) : 0,
+    deadRate: rangeStats.total > 0 ? Math.round((rangeStats.dead / rangeStats.total) * 100) : 0,
+    activeRate: rangeStats.total > 0 ? Math.round(((rangeStats.working + rangeStats.circleBack) / rangeStats.total) * 100) : 0,
+    deadReasons: baseDeadReasons.map((r: any) => ({
+      ...r,
+      count: seriesLeads.filter(l => l.status === 'dead' && l.deadReason === r.value).length,
+    })).filter((r: any) => r.count > 0),
+  };
+
+  const getWeekKey = (d: Date) => {
+    const oneJan = new Date(d.getFullYear(), 0, 1);
+    const dayOfYear = ((d.getTime() - oneJan.getTime()) / 86400000) + oneJan.getDay() + 1;
+    const week = Math.ceil(dayOfYear / 7);
+    return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+  };
+
+  const buildBuckets = (list: Lead[], mode: 'weekly' | 'monthly') => {
+    const map = new Map<string, { count: number; label: string; date: Date }>();
+    list.forEach((lead) => {
+      const d = new Date(lead.createdAt);
+      const key = mode === 'monthly'
+        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        : getWeekKey(d);
+      const label = mode === 'monthly' ? formatMonthYear(d) : key.replace('-', ' ');
+      const existing = map.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(key, { count: 1, label, date: d });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
+  };
+
+  const buckets = buildBuckets(seriesLeads, grouping);
+  const maxBucket = Math.max(...buckets.map((b) => b.count), 1);
+  const linePoints = buckets.length > 0
+    ? buckets.map((b, idx) => {
+        const x = buckets.length === 1 ? 0 : (idx / (buckets.length - 1)) * 100;
+        const y = 30 - (b.count / maxBucket) * 30;
+        return `${x},${y}`;
+      }).join(' ')
+    : '';
+
+  const totals = seriesLeads.reduce((acc, lead) => {
+    const interactions = lead.interactions || [];
+    acc.totalInteractions += interactions.length;
+    interactions.forEach((i) => {
+      if (i.type === 'call') acc.calls += 1;
+      if (i.type === 'message') acc.messages += 1;
+      if (i.type === 'email') acc.emails += 1;
+      if (i.type === 'follow-up') acc.followUps += 1;
+    });
+    if (lead.closedAt) {
+      acc.closures.push(new Date(lead.closedAt).getTime() - new Date(lead.createdAt).getTime());
+    }
+    const firstInteraction = interactions[0];
+    if (firstInteraction) {
+      acc.firstResponse.push(new Date(firstInteraction.createdAt).getTime() - new Date(lead.createdAt).getTime());
+    }
     return acc;
-  }, {} as Record<string, number>);
+  }, { calls: 0, messages: 0, emails: 0, followUps: 0, totalInteractions: 0, closures: [] as number[], firstResponse: [] as number[] });
+
+  const avgInteractions = seriesLeads.length ? (totals.totalInteractions / seriesLeads.length) : 0;
+  const avgDaysToClose = totals.closures.length
+    ? Math.round((totals.closures.reduce((a, b) => a + b, 0) / totals.closures.length) / (1000 * 60 * 60 * 24))
+    : 0;
+  const avgResponseHours = totals.firstResponse.length
+    ? Math.round((totals.firstResponse.reduce((a, b) => a + b, 0) / totals.firstResponse.length) / (1000 * 60 * 60) * 10) / 10
+    : null;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-10">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-10">
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">📊 Analytics Dashboard</h1>
-          <p className="text-xl text-slate-500">Deep insights into your lead performance</p>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-4xl font-bold text-slate-900 mb-2">📊 Analytics Dashboard</h1>
+            <p className="text-xl text-slate-500">Deep insights into your lead performance</p>
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            <Select
+              value={String(rangeMonths)}
+              onChange={(e) => onRangeChange(parseInt(e.target.value))}
+              options={[
+                { value: '1', label: 'Current Month' },
+                { value: '3', label: 'Last 3 Months' },
+                { value: '6', label: 'Last 6 Months' },
+                { value: '12', label: 'Last 12 Months' },
+              ]}
+            />
+            <Select
+              value={grouping}
+              onChange={(e) => onGroupingChange(e.target.value as 'weekly' | 'monthly')}
+              options={[
+                { value: 'weekly', label: 'Weekly' },
+                { value: 'monthly', label: 'Monthly' },
+              ]}
+            />
+          </div>
         </div>
 
-        {/* Key Metrics - LARGE */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+        {/* Key Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
           <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-8 text-white shadow-lg">
             <p className="text-blue-100 text-lg mb-2">Total Leads</p>
-            <p className="text-5xl font-bold">{stats.total}</p>
+            <p className="text-5xl font-bold">{rangeStats.total}</p>
+            <p className="text-sm text-blue-100/80 mt-2">Across selected range</p>
           </div>
           <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-8 text-white shadow-lg">
-            <p className="text-emerald-100 text-lg mb-2">Conversion Rate</p>
-            <p className="text-5xl font-bold">{analytics.conversionRate}%</p>
+            <p className="text-emerald-100 text-lg mb-2">Avg Interactions</p>
+            <p className="text-5xl font-bold">{avgInteractions.toFixed(1)}</p>
+            <p className="text-sm text-emerald-100/80">Per lead</p>
           </div>
-          <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-2xl p-8 text-white shadow-lg">
-            <p className="text-red-100 text-lg mb-2">Dead Lead Rate</p>
-            <p className="text-5xl font-bold">{analytics.deadRate}%</p>
+          <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl p-8 text-white shadow-lg">
+            <p className="text-indigo-100 text-lg mb-2">Avg Days to Close</p>
+            <p className="text-5xl font-bold">{avgDaysToClose}</p>
+            <p className="text-sm text-indigo-100/80">From form to approval</p>
           </div>
-          <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl p-8 text-white shadow-lg">
-            <p className="text-amber-100 text-lg mb-2">Active Pipeline</p>
-            <p className="text-5xl font-bold">{analytics.activeRate}%</p>
+          <div className="bg-gradient-to-br from-orange-500 to-amber-600 rounded-2xl p-8 text-white shadow-lg">
+            <p className="text-orange-100 text-lg mb-2">First Response</p>
+            <p className="text-5xl font-bold">{avgResponseHours !== null ? `${avgResponseHours}h` : '—'}</p>
+            <p className="text-sm text-orange-100/80">Average response time</p>
           </div>
         </div>
 
-        {/* Charts Row */}
+        {/* Charts */}
+        <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-lg mb-10">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-2xl font-bold text-slate-800">Leads over time</h3>
+              <p className="text-slate-500">Bar + line chart, {grouping === 'weekly' ? 'weekly' : 'monthly'} view</p>
+            </div>
+            <div className="text-sm text-slate-500">Max: {maxBucket}</div>
+          </div>
+          {buckets.length === 0 ? (
+            <p className="text-center text-slate-400 py-8">No leads in this range</p>
+          ) : (
+            <>
+              <div className="flex items-end gap-3 h-56">
+                {buckets.map((b) => (
+                  <div key={b.label} className="flex-1 flex flex-col items-center gap-2">
+                    <div className="w-full bg-slate-100 rounded-lg overflow-hidden h-full flex items-end">
+                      <div className="w-full bg-primary-500 rounded-lg transition-all" style={{ height: `${(b.count / maxBucket) * 100}%` }} />
+                    </div>
+                    <span className="text-xs text-slate-500 text-center">{b.label}</span>
+                    <span className="text-sm font-semibold text-slate-800">{b.count}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-6">
+                <svg viewBox="0 0 100 30" className="w-full h-24 text-primary-600">
+                  <polyline
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    points={linePoints}
+                  />
+                  {buckets.map((b, idx) => {
+                    const x = buckets.length === 1 ? 0 : (idx / (buckets.length - 1)) * 100;
+                    const y = 30 - (b.count / maxBucket) * 30;
+                    return <circle key={b.label} cx={x} cy={y} r={1.5} fill="currentColor" />;
+                  })}
+                </svg>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Communication metrics */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <p className="text-sm text-slate-500 mb-1">Calls Logged</p>
+            <p className="text-3xl font-bold text-slate-900">{totals.calls}</p>
+            <p className="text-sm text-slate-400">Outbound + inbound calls</p>
+          </div>
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <p className="text-sm text-slate-500 mb-1">Messages Sent</p>
+            <p className="text-3xl font-bold text-slate-900">{totals.messages}</p>
+            <p className="text-sm text-slate-400">SMS / chat logged</p>
+          </div>
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <p className="text-sm text-slate-500 mb-1">Emails Sent</p>
+            <p className="text-3xl font-bold text-slate-900">{totals.emails}</p>
+            <p className="text-sm text-slate-400">Tracked email sends</p>
+          </div>
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <p className="text-sm text-slate-500 mb-1">Follow Ups Logged</p>
+            <p className="text-3xl font-bold text-slate-900">{totals.followUps}</p>
+            <p className="text-sm text-slate-400">Follow-up touches</p>
+          </div>
+        </div>
+
+        {/* Dead lead breakdown & pipeline distribution retained */}
         <div className="grid lg:grid-cols-2 gap-8 mb-10">
-          {/* Dead Lead Breakdown */}
           <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-lg">
             <h3 className="text-2xl font-bold text-slate-800 mb-6">💀 Dead Lead Breakdown</h3>
-            {analytics.deadReasons.length > 0 ? (
+            {rangeAnalytics.deadReasons.length > 0 ? (
               <div className="space-y-4">
-                {analytics.deadReasons.map((r: any) => (
+                {rangeAnalytics.deadReasons.map((r: any) => (
                   <div key={r.value} className="flex items-center gap-4">
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
@@ -400,7 +676,7 @@ function AnalyticsView({ stats, analytics, leads }: { stats: any; analytics: any
                         <span className="text-lg font-bold text-slate-900">{r.count}</span>
                       </div>
                       <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-red-500 rounded-full" style={{ width: `${(r.count / stats.dead) * 100}%` }} />
+                        <div className="h-full bg-red-500 rounded-full" style={{ width: `${(r.count / (rangeStats.dead || 1)) * 100}%` }} />
                       </div>
                     </div>
                   </div>
@@ -411,16 +687,15 @@ function AnalyticsView({ stats, analytics, leads }: { stats: any; analytics: any
             )}
           </div>
 
-          {/* Pipeline Distribution */}
           <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-lg">
             <h3 className="text-2xl font-bold text-slate-800 mb-6">📈 Pipeline Distribution</h3>
             <div className="space-y-4">
               {[
-                { label: 'New Leads', value: stats.new, color: 'bg-blue-500', total: stats.total },
-                { label: 'Working', value: stats.working, color: 'bg-yellow-500', total: stats.total },
-                { label: 'Follow Up', value: stats.circleBack, color: 'bg-cyan-500', total: stats.total },
-                { label: 'Approved', value: stats.approval, color: 'bg-emerald-500', total: stats.total },
-                { label: 'Dead', value: stats.dead, color: 'bg-red-500', total: stats.total },
+                { label: 'New Leads', value: rangeStats.new, color: 'bg-blue-500', total: rangeStats.total },
+                { label: 'Working', value: rangeStats.working, color: 'bg-yellow-500', total: rangeStats.total },
+                { label: 'Follow Up', value: rangeStats.circleBack, color: 'bg-cyan-500', total: rangeStats.total },
+                { label: 'Approved', value: rangeStats.approval, color: 'bg-emerald-500', total: rangeStats.total },
+                { label: 'Dead', value: rangeStats.dead, color: 'bg-red-500', total: rangeStats.total },
               ].map((item) => (
                 <div key={item.label}>
                   <div className="flex items-center justify-between mb-2">
@@ -436,20 +711,19 @@ function AnalyticsView({ stats, analytics, leads }: { stats: any; analytics: any
           </div>
         </div>
 
-        {/* Additional Stats */}
         <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-lg">
           <h3 className="text-2xl font-bold text-slate-800 mb-6">📋 Performance Summary</h3>
           <div className="grid md:grid-cols-3 gap-8">
             <div className="text-center">
-              <p className="text-6xl font-bold text-slate-900 mb-2">{stats.new}</p>
+              <p className="text-6xl font-bold text-slate-900 mb-2">{rangeStats.new}</p>
               <p className="text-lg text-slate-500">Leads waiting for first contact</p>
             </div>
             <div className="text-center">
-              <p className="text-6xl font-bold text-slate-900 mb-2">{stats.circleBack}</p>
+              <p className="text-6xl font-bold text-slate-900 mb-2">{rangeStats.circleBack}</p>
               <p className="text-lg text-slate-500">Leads requiring follow-up</p>
             </div>
             <div className="text-center">
-              <p className="text-6xl font-bold text-slate-900 mb-2">{stats.approval}</p>
+              <p className="text-6xl font-bold text-slate-900 mb-2">{rangeStats.approval}</p>
               <p className="text-lg text-slate-500">Successfully converted</p>
             </div>
           </div>
@@ -550,10 +824,64 @@ function LeadCard({ lead, hasLicense, isStarred, onToggleStar, onViewDetails, on
   );
 }
 
-function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClose, onSendEmail }: any) {
+function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClose, onSendEmail, onLogInteraction }: any) {
   const { formData } = lead;
   const [notes, setNotes] = useState(lead.notes || '');
   const [deadReason, setDeadReason] = useState(lead.deadReason || '');
+  const defaultFollowUp = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(10, 0, 0, 0);
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - offset * 60000);
+    return local.toISOString().slice(0, 16);
+  };
+  const [followUpAt, setFollowUpAt] = useState(defaultFollowUp());
+  const [interactionNote, setInteractionNote] = useState('');
+
+  const followUpDate = followUpAt ? new Date(followUpAt) : null;
+  const formatCalDate = (d: Date) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const googleCalLink = followUpDate
+    ? `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(`Follow up with ${formData.fullName}`)}&dates=${formatCalDate(followUpDate)}/${formatCalDate(new Date(followUpDate.getTime() + 30 * 60000))}&details=${encodeURIComponent(`Call: ${formData.phone} / Email: ${formData.email}`)}`
+    : '#';
+
+  const downloadAppleCal = () => {
+    if (!followUpDate) return;
+    const end = new Date(followUpDate.getTime() + 30 * 60000);
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      `DTSTART:${formatCalDate(followUpDate)}`,
+      `DTEND:${formatCalDate(end)}`,
+      `SUMMARY:Follow up with ${formData.fullName}`,
+      `DESCRIPTION:Call ${formData.phone} or email ${formData.email}`,
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\n');
+    const blob = new Blob([ics], { type: 'text/calendar' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `follow-up-${lead.id}.ics`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const timeline = [
+    ...(lead.statusHistory || []).map((s: any) => ({
+      at: s.changedAt,
+      label: `Status → ${leadStatusOptions.find(l => l.value === s.status)?.label || s.status}`,
+      note: s.deadReason || s.note,
+      type: 'status',
+    })),
+    ...(lead.interactions || []).map((i: any) => ({
+      at: i.createdAt,
+      label: `Interaction: ${i.type.replace('-', ' ')}`,
+      note: i.note,
+      type: i.type,
+    })),
+  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -606,6 +934,54 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClos
           <Select label="Dead Lead Reason" value={deadReason} onChange={(e) => { setDeadReason(e.target.value); onStatusChange(lead.id, 'dead', e.target.value); }} 
             options={[{ value: '', label: 'Select a reason...' }, ...deadReasonOptions]} />
         )}
+      </div>
+
+      <div className="bg-white rounded-2xl p-6 border border-slate-200 mb-8">
+        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4">Calendar Follow-Up</h3>
+        <div className="grid md:grid-cols-3 gap-4 items-end">
+          <Input label="Follow up time" type="datetime-local" value={followUpAt} onChange={(e) => setFollowUpAt(e.target.value)} />
+          <Button size="lg" variant="secondary" disabled={!followUpDate} onClick={() => followUpDate && window.open(googleCalLink, '_blank')} className="w-full">Add to Google Calendar</Button>
+          <Button size="lg" variant="primary" disabled={!followUpDate} onClick={downloadAppleCal} className="w-full">Add to Apple / iCal</Button>
+        </div>
+        <p className="text-sm text-slate-500 mt-2">Auto-fills the lead name, phone, and email so you never miss a follow-up.</p>
+      </div>
+
+      <div className="bg-slate-50 rounded-2xl p-6 mb-8">
+        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4">Activity & Timeline</h3>
+        <div className="flex flex-wrap gap-3 mb-4">
+          {[
+            { label: 'Log Call', type: 'call', icon: '📞' },
+            { label: 'Log Message', type: 'message', icon: '💬' },
+            { label: 'Log Email', type: 'email', icon: '✉️' },
+            { label: 'Log Follow Up', type: 'follow-up', icon: '🔄' },
+          ].map(btn => (
+            <Button key={btn.type} size="sm" variant="secondary" onClick={() => { onLogInteraction?.(btn.type, interactionNote || undefined); setInteractionNote(''); }}>
+              {btn.icon} {btn.label}
+            </Button>
+          ))}
+        </div>
+        <div className="flex flex-col md:flex-row gap-3 mb-4">
+          <textarea
+            value={interactionNote}
+            onChange={(e) => setInteractionNote(e.target.value)}
+            placeholder="Add a quick note for this interaction..."
+            className="w-full h-20 p-4 rounded-xl border-2 border-slate-200 focus:border-primary-500 outline-none resize-none text-base"
+          />
+          <Button size="lg" onClick={() => { if (!interactionNote.trim()) return; onLogInteraction?.('note', interactionNote.trim()); setInteractionNote(''); }} className="md:w-48">Save Note to Timeline</Button>
+        </div>
+        <div className="space-y-3 max-h-72 overflow-y-auto">
+          {timeline.length === 0 ? (
+            <p className="text-slate-400">No interactions logged yet. Track calls, emails, and follow-ups here.</p>
+          ) : timeline.map((item, idx) => (
+            <div key={`${item.label}-${idx}`} className="flex justify-between items-start gap-3 bg-white p-3 rounded-xl border border-slate-200">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                {item.note && <p className="text-sm text-slate-500">{item.note}</p>}
+              </div>
+              <span className="text-xs text-slate-500 whitespace-nowrap">{formatDate(item.at)}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="bg-slate-50 rounded-2xl p-6">
@@ -666,7 +1042,7 @@ function EmailComposer({ lead, templates, onClose }: { lead: Lead; templates: Em
     if (!subject || !body) return;
     setSending(true);
     try {
-      const res = await fetch('/api/admin/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ toEmail: lead.formData.email, toName: lead.formData.fullName, subject, body }) });
+      const res = await fetch('/api/admin/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ toEmail: lead.formData.email, toName: lead.formData.fullName, subject, body, leadId: lead.id }) });
       if (res.ok) setSent(true);
     } catch (e) { console.error(e); }
     finally { setSending(false); }

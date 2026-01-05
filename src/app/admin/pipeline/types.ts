@@ -388,36 +388,17 @@ export interface SchemaPreset {
   schema: WorkflowSchema;
 }
 
-// Muted, sleek edge colors - subtle flow indicators rather than bright highlights
-export const EDGE_COLORS = {
-  // Primary flow color - subtle slate blue
-  flow: '#64748b',        // slate-500
-  flowMuted: '#475569',   // slate-600
-  // Success path - subtle teal (not bright green)
-  success: '#5eead4',     // teal-300 at 60% opacity feel
-  successMuted: '#2dd4bf', // teal-400
-  // Failure/dead path - muted rose
-  failure: '#f87171',     // red-400
-  failureMuted: '#fb7185', // rose-400
-  // Loop/retry - subtle purple
-  loop: '#a78bfa',        // violet-400
-  loopMuted: '#8b5cf6',   // violet-500
-  // Neutral - slate
-  neutral: '#94a3b8',     // slate-400
-  neutralMuted: '#64748b', // slate-500
-};
-
 export const strictPathColor = (strictPath: StrictPathType) => {
   switch (strictPath) {
     case 'Success':
-      return EDGE_COLORS.successMuted;
+      return '#22c55e'; // green
     case 'Failure':
-      return EDGE_COLORS.failureMuted;
+      return '#ef4444'; // red
     case 'Loop':
-      return EDGE_COLORS.loopMuted;
+      return '#94a3b8'; // gray (slate)
     case 'Neutral':
     default:
-      return EDGE_COLORS.neutralMuted;
+      return '#94a3b8';
   }
 };
 

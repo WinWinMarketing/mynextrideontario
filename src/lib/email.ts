@@ -1,5 +1,7 @@
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 import { Lead } from './validation';
+import { addEmailLog } from './s3';
+import { generateId } from './utils';
 
 // AWS SES Configuration
 const getSESClient = () => {
@@ -20,6 +22,25 @@ const getSESClient = () => {
 
 const FROM_EMAIL = process.env.SES_FROM_EMAIL || 'testing@winwinmarketingtesting2.com';
 const TO_EMAIL = process.env.SES_TO_EMAIL || 'winwinmarketingcanada@gmail.com';
+
+async function logEmailEvent(event: {
+  to: string;
+  subject: string;
+  type: 'admin-notification' | 'client';
+  leadId?: string;
+  status: 'sent' | 'failed';
+  error?: string;
+}) {
+  try {
+    await addEmailLog({
+      ...event,
+      id: generateId(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('❌ Failed to write email log:', err);
+  }
+}
 
 function formatBudget(formData: Lead['formData']): string {
   if (formData.paymentType === 'finance') {
@@ -113,7 +134,19 @@ function buildAdminEmailHtml(lead: Lead): string {
 // Send notification to admin
 export async function sendLeadNotificationEmail(lead: Lead): Promise<boolean> {
   const ses = getSESClient();
-  if (!ses) return false;
+  const subject = `🚗 New Application: ${lead.formData.fullName} - ${formatVehicleType(lead.formData.vehicleType)}`;
+
+  if (!ses) {
+    await logEmailEvent({
+      to: TO_EMAIL,
+      subject,
+      type: 'admin-notification',
+      leadId: lead.id,
+      status: 'failed',
+      error: 'AWS SES credentials missing',
+    });
+    return false;
+  }
 
   try {
     console.log('📧 Sending admin notification via AWS SES...');
@@ -124,17 +157,32 @@ export async function sendLeadNotificationEmail(lead: Lead): Promise<boolean> {
       Source: FROM_EMAIL,
       Destination: { ToAddresses: [TO_EMAIL] },
       Message: {
-        Subject: { Data: `🚗 New Application: ${lead.formData.fullName} - ${formatVehicleType(lead.formData.vehicleType)}`, Charset: 'UTF-8' },
+        Subject: { Data: subject, Charset: 'UTF-8' },
         Body: { Html: { Data: buildAdminEmailHtml(lead), Charset: 'UTF-8' } },
       },
     });
 
     const result = await ses.send(command);
     console.log('✅ Admin email sent! MessageId:', result.MessageId);
+    await logEmailEvent({
+      to: TO_EMAIL,
+      subject,
+      type: 'admin-notification',
+      leadId: lead.id,
+      status: 'sent',
+    });
     return true;
   } catch (error: any) {
     console.error('❌ SES Error:', error.message || error);
     console.error('   Error Code:', error.Code || error.name);
+    await logEmailEvent({
+      to: TO_EMAIL,
+      subject,
+      type: 'admin-notification',
+      leadId: lead.id,
+      status: 'failed',
+      error: error?.message || error?.Code || 'Unknown SES error',
+    });
     return false;
   }
 }
@@ -144,10 +192,21 @@ export async function sendClientEmail(
   toEmail: string,
   toName: string,
   subject: string,
-  body: string
+  body: string,
+  meta?: { leadId?: string; templateId?: string }
 ): Promise<boolean> {
   const ses = getSESClient();
-  if (!ses) return false;
+  if (!ses) {
+    await logEmailEvent({
+      to: toEmail,
+      subject,
+      type: 'client',
+      leadId: meta?.leadId,
+      status: 'failed',
+      error: 'AWS SES credentials missing',
+    });
+    return false;
+  }
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -184,9 +243,24 @@ export async function sendClientEmail(
 
     const result = await ses.send(command);
     console.log('✅ Client email sent! MessageId:', result.MessageId);
+    await logEmailEvent({
+      to: toEmail,
+      subject,
+      type: 'client',
+      leadId: meta?.leadId,
+      status: 'sent',
+    });
     return true;
   } catch (error: any) {
     console.error('❌ Client email error:', error.message || error);
+    await logEmailEvent({
+      to: toEmail,
+      subject,
+      type: 'client',
+      leadId: meta?.leadId,
+      status: 'failed',
+      error: error?.message || 'Unknown client email error',
+    });
     return false;
   }
 }

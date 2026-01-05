@@ -182,35 +182,19 @@ export function buildRuntimeFromSchema(schema: WorkflowSchema, nodeSize: NodeSiz
   }
 
   // --- Convert edges to runtime connections ---
-  // Use muted, sleek colors for flow indication - not bright node colors
   const connections: NodeConnection[] = schema.edges.map(e => {
     const fromNode = nodesById.get(e.from);
     const toNode = nodesById.get(e.to);
     const fromType: 'stage' | 'message' = fromNode?.type === 'Status_Node' ? 'stage' : 'message';
     const toType: 'stage' | 'message' = toNode?.type === 'Status_Node' ? 'stage' : 'message';
     const style: NodeConnection['style'] = e.strict_path === 'Loop' ? 'dashed' : 'solid';
-    
-    // Muted, sleek edge colors based on path type (not node colors)
-    // This makes arrows indicate flow direction, not options
-    let color: string;
-    switch (e.strict_path) {
-      case 'Success':
-        color = '#5eead4'; // subtle teal
-        break;
-      case 'Failure':
-        color = '#f87171'; // muted rose-red
-        break;
-      case 'Loop':
-        color = '#a78bfa'; // subtle violet
-        break;
-      case 'Neutral':
-      default:
-        color = '#64748b'; // slate-500 (default flow)
-    }
-    
-    // Slightly thinner, more elegant lines
-    const thickness = e.strict_path === 'Success' ? 3 : e.strict_path === 'Failure' ? 3 : 2;
-    
+    // Edge/arrow color matches node box color:
+    // - Default: from-node color
+    // - If routing to a dead-zone node: use the target node's color (red/rose/etc)
+    const fromColor = fromNode ? stageColorHex(nodeColor(fromNode)) : '#94a3b8';
+    const toColor = toNode ? stageColorHex(nodeColor(toNode)) : '#94a3b8';
+    const color = toNode && isDeadStatus(toNode) ? toColor : fromColor;
+    const thickness = e.strict_path === 'Success' || e.strict_path === 'Failure' ? 4 : 3;
     return {
       id: e.id,
       fromNodeId: e.from,

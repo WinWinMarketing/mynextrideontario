@@ -22,6 +22,12 @@ const staggerContainer = {
   },
 };
 
+export const metadata = {
+  title: 'My Next Ride Ontario | Auto financing in 24h',
+  description: 'Apply online and get matched to the right vehicle and lender in Ontario within 24 hours. All credit types welcome.',
+  alternates: { canonical: '/' },
+};
+
 export default function HomePage() {
   return (
     <>

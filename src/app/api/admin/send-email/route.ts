@@ -10,13 +10,13 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { toEmail, toName, subject, body: emailBody } = body;
+    const { toEmail, toName, subject, body: emailBody, leadId } = body;
 
     if (!toEmail || !toName || !subject || !emailBody) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const success = await sendClientEmail(toEmail, toName, subject, emailBody);
+    const success = await sendClientEmail(toEmail, toName, subject, emailBody, { leadId });
 
     if (success) {
       return NextResponse.json({ success: true, message: 'Email sent successfully' });
@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to send email' }, { status: 500 });
   }
 }
+
+
 
 
 
