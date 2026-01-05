@@ -6,14 +6,13 @@ import { Button, Select, Modal, Input } from '@/components/ui';
 import { Lead, LeadStatus, deadReasonOptions, leadStatusOptions, ShowcaseVehicle, LeadInteractionType } from '@/lib/validation';
 import { formatDate, formatMonthYear } from '@/lib/utils';
 import { DEFAULT_TEMPLATES, EmailTemplate } from '@/lib/email';
-import { Logo, LogoIcon } from '@/components/Logo';
-import { FuturisticPipeline } from './FuturisticPipeline';
+import { Logo } from '@/components/Logo';
 
 interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type TabType = 'dashboard' | 'leads' | 'pipeline' | 'templates' | 'showcase' | 'analytics' | 'settings';
+type TabType = 'dashboard' | 'leads' | 'templates' | 'showcase' | 'analytics' | 'settings';
 
 type EmailAlert = {
   id: string;
@@ -229,7 +228,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
           <Logo size="sm" />
 
           <nav className="flex gap-1 bg-slate-100 p-1.5 rounded-xl">
-            {(['dashboard', 'leads', 'pipeline', 'analytics', 'templates', 'showcase'] as TabType[]).map(tab => (
+            {(['dashboard', 'leads', 'analytics', 'templates', 'showcase'] as TabType[]).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -241,7 +240,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
               >
                 {tab === 'dashboard' && '🏠 '}
                 {tab === 'leads' && '👥 '}
-                {tab === 'pipeline' && '🚀 '}
                 {tab === 'analytics' && '📊 '}
                 {tab === 'templates' && '✉️ '}
                 {tab === 'showcase' && '🚗 '}
@@ -279,17 +277,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
               onSendEmail={(lead) => setEmailModal({ lead })}
               stats={stats}
             />
-          )}
-          {activeTab === 'pipeline' && (
-            <motion.div key="pipeline" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-[calc(100vh-64px)]">
-              <FuturisticPipeline
-                leads={leads}
-                onStatusChange={updateStatus}
-                onViewDetails={setDetailModal}
-                starredLeads={starredLeads}
-                onToggleStar={toggleStar}
-              />
-            </motion.div>
           )}
           {activeTab === 'analytics' && (
             <AnalyticsView
@@ -407,10 +394,10 @@ function DashboardView({ stats, analytics, leads, onNav, emailAlerts }: { stats:
             <h3 className="text-2xl font-bold text-slate-900 mb-2">View All Leads</h3>
             <p className="text-base text-slate-500">Manage and filter your pipeline</p>
           </button>
-          <button onClick={() => onNav('pipeline')} className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-8 text-left hover:from-slate-800 hover:to-slate-700 transition-colors shadow-lg">
-            <span className="text-4xl block mb-4">🚀</span>
-            <h3 className="text-2xl font-bold text-white mb-2">Visual Pipeline</h3>
-            <p className="text-base text-slate-400">Interactive funnel builder</p>
+          <button onClick={() => onNav('templates')} className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-8 text-left hover:from-slate-800 hover:to-slate-700 transition-colors shadow-lg">
+            <span className="text-4xl block mb-4">✉️</span>
+            <h3 className="text-2xl font-bold text-white mb-2">Email Templates</h3>
+            <p className="text-base text-slate-400">Pre-built email responses</p>
           </button>
           <button onClick={() => onNav('analytics')} className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-8 text-left hover:from-blue-500 hover:to-blue-600 transition-colors shadow-lg">
             <span className="text-4xl block mb-4">📊</span>
