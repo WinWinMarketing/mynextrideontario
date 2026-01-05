@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://mynextrideontario.vercel.app';
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://winwinmarketingtesting2.com';
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const pages = [
