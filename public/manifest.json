@@ -1,0 +1,19 @@
+{
+  "name": "My Next Ride Ontario",
+  "short_name": "MNRO",
+  "description": "Find your perfect vehicle match in Ontario with our 17-lender network",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1948b3",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

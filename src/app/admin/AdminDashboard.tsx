@@ -292,7 +292,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
               onToggleStar={toggleStar}
               onStatusChange={updateStatus}
               onViewDetails={setDetailModal}
-              onSendEmail={(lead) => setEmailModal({ lead })}
+              onSendEmail={(lead: Lead) => setEmailModal({ lead })}
               stats={stats}
             />
           )}
@@ -997,21 +997,17 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClos
                 {item.type !== 'status' && (
                   <button
                     onClick={() => {
-                      if (confirm('Remove this timeline entry?')) {
-                        // Remove interaction from lead
-                        const updatedInteractions = (lead.interactions || []).filter((_, i) => {
-                          const allInteractions = [...(lead.statusHistory || []).map(() => null), ...(lead.interactions || [])];
-                          return i !== idx - (lead.statusHistory || []).length;
-                        });
-                        // You would need an API endpoint to update interactions
-                        // For now, just refresh the page
+                      if (confirm('Remove this timeline entry? This will refresh the page.')) {
+                        // Simplified: just reload for now
+                        // Future: Add DELETE endpoint for specific interaction IDs
                         window.location.reload();
                       }
                     }}
-                    className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity"
-                    title="Delete"
+                    className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity text-sm"
+                    title="Delete entry"
+                    type="button"
                   >
-                    🗑️
+                    ✖
                   </button>
                 )}
               </div>
