@@ -8,7 +8,7 @@ A modern lead generation application for vehicle financing in Ontario. Built wit
 - **Application Form**: 4-step form with dropdowns for all selections, validation, and driver's license upload
 - **Admin Dashboard**: Professional dashboard with 5 status types, notes, and prominent license viewing
 - **AWS S3 Integration**: Secure storage for lead data and driver's license images
-- **Email Notifications**: Automated email alerts via Mailgun
+- **Email Notifications**: Manual email system via AWS SES with failure tracking
 
 ## Tech Stack
 
@@ -18,7 +18,7 @@ A modern lead generation application for vehicle financing in Ontario. Built wit
 - **Animation**: Framer Motion
 - **Form Handling**: React Hook Form + Zod
 - **Storage**: AWS S3 (SDK v3)
-- **Email**: Mailgun
+- **Email**: AWS SES
 - **Auth**: JWT with jose
 
 ## Environment Variables
@@ -32,8 +32,9 @@ AWS_ACCESS_KEY_ID=your_aws_access_key
 AWS_SECRET_ACCESS_KEY=your_aws_secret_key
 AWS_REGION=us-east-1
 LEADS_BUCKET_NAME=martin-leads
-MAILGUN_API_KEY=your_mailgun_api_key
-MAILGUN_DOMAIN=your-domain.mailgun.org
+SES_FROM_EMAIL=testing@winwinmarketingtesting2.com
+SES_TO_EMAIL=winwinmarketingcanada@gmail.com
+NEXT_PUBLIC_SITE_URL=https://winwinmarketingtesting2.com
 ```
 
 ### Required (Client-side)
@@ -108,7 +109,7 @@ src/
 │   └── ShowcaseSection.tsx      # Vehicle carousel
 └── lib/
     ├── auth.ts                  # JWT authentication
-    ├── email.ts                 # Mailgun integration
+    ├── email.ts                 # AWS SES integration
     ├── s3.ts                    # AWS S3 operations
     ├── config.ts                # Configuration
     ├── utils.ts                 # Helper functions

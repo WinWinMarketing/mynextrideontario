@@ -37,20 +37,31 @@ export function GoogleMap() {
 
       try {
         const map = new google.maps.Map(mapRef.current, {
-          center: { lat: 43.72, lng: -79.30 },
-          zoom: 9,
+          center: { lat: 43.70, lng: -79.35 },
+          zoom: 10,
+          minZoom: 8,
+          maxZoom: 14,
+          restriction: {
+            latLngBounds: {
+              north: 44.15,
+              south: 43.40,
+              west: -79.95,
+              east: -78.65,
+            },
+            strictBounds: false,
+          },
           styles: [
             { featureType: 'all', elementType: 'labels.text.fill', stylers: [{ color: '#333333' }] },
-            { featureType: 'landscape', stylers: [{ color: '#f0f0f0' }] },
+            { featureType: 'landscape', stylers: [{ color: '#f5f5f5' }] },
             { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-            { featureType: 'road', stylers: [{ visibility: 'simplified' }, { saturation: -100 }, { lightness: 60 }] },
-            { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#e0e0e0' }] },
+            { featureType: 'road', stylers: [{ visibility: 'simplified' }, { saturation: -100 }, { lightness: 70 }] },
+            { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#e8e8e8' }] },
             { featureType: 'road.arterial', stylers: [{ visibility: 'simplified' }] },
             { featureType: 'road.local', stylers: [{ visibility: 'off' }] },
             { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-            { featureType: 'water', stylers: [{ color: '#a8d4e6' }] },
-            { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#1e293b' }, { weight: 0.5 }] },
-            { featureType: 'administrative.locality', elementType: 'labels.text.stroke', stylers: [{ color: '#ffffff' }, { weight: 4 }] },
+            { featureType: 'water', stylers: [{ color: '#b8d9e8' }] },
+            { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#1e293b' }, { weight: 0.6 }] },
+            { featureType: 'administrative.locality', elementType: 'labels.text.stroke', stylers: [{ color: '#ffffff' }, { weight: 5 }] },
           ],
           disableDefaultUI: true,
           zoomControl: true,
@@ -59,7 +70,7 @@ export function GoogleMap() {
           gestureHandling: 'cooperative',
           mapTypeControl: false,
           streetViewControl: false,
-          fullscreenControl: false,
+          fullscreenControl: true,
         });
 
         // Load GeoJSON boundaries
@@ -67,19 +78,27 @@ export function GoogleMap() {
           console.log('Loaded', features.length, 'boundary features');
         });
 
-        // Style the features based on type
-        map.data.setStyle((feature) => {
-          const type = feature.getProperty('type');
-          const isExcluded = type === 'excluded';
+        // Style the features based on type with dynamic scaling
+        const updateStyles = () => {
+          const zoom = map.getZoom() || 10;
+          const baseWeight = zoom < 10 ? 2.5 : zoom < 12 ? 3 : 3.5;
           
-          return {
-            fillColor: isExcluded ? '#ef4444' : '#22c55e',
-            fillOpacity: isExcluded ? 0.25 : 0.20,
-            strokeColor: isExcluded ? '#dc2626' : '#16a34a',
-            strokeWeight: isExcluded ? 3 : 2,
-            strokeOpacity: 0.9,
-          };
-        });
+          map.data.setStyle((feature) => {
+            const type = feature.getProperty('type');
+            const isExcluded = type === 'excluded';
+            
+            return {
+              fillColor: isExcluded ? '#ef4444' : '#22c55e',
+              fillOpacity: isExcluded ? 0.18 : 0.15,
+              strokeColor: isExcluded ? '#dc2626' : '#16a34a',
+              strokeWeight: isExcluded ? baseWeight + 0.5 : baseWeight,
+              strokeOpacity: 1,
+            };
+          });
+        };
+        
+        updateStyles();
+        map.addListener('zoom_changed', updateStyles);
 
         // Add hover effects
         map.data.addListener('mouseover', (event: google.maps.Data.MouseEvent) => {

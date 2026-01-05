@@ -61,14 +61,15 @@ export async function POST(request: NextRequest) {
       licenseKey: lead.driversLicenseKey,
     });
 
-    // Send email notification
-    try {
-      console.log('📧 Attempting to send email notification...');
-      const emailSent = await sendLeadNotificationEmail(lead);
-      console.log(emailSent ? '✅ Email sent' : '⚠️ Email not sent');
-    } catch (emailError) {
-      console.error('❌ Email notification failed:', emailError);
-    }
+    // Auto-email disabled - admin will manually send emails from dashboard
+    // Uncomment below if you want auto-notifications on new leads
+    // try {
+    //   console.log('📧 Attempting to send email notification...');
+    //   const emailSent = await sendLeadNotificationEmail(lead);
+    //   console.log(emailSent ? '✅ Email sent' : '⚠️ Email not sent');
+    // } catch (emailError) {
+    //   console.error('❌ Email notification failed:', emailError);
+    // }
 
     return NextResponse.json(
       { 

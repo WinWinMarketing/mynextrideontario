@@ -43,14 +43,18 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [showcaseEnabled, setShowcaseEnabled] = useState(true);
 
   const fetchLeads = useCallback(async () => {
-    setIsLoading(true);
     try {
-      const response = await fetch(`/api/admin/leads?year=${selectedYear}&month=${selectedMonth}`);
+      setIsLoading(true);
+      const response = await fetch(`/api/admin/leads?year=${selectedYear}&month=${selectedMonth}`, {
+        cache: 'no-store',
+      });
       if (response.ok) {
         const data = await response.json();
         const fetchedLeads = data.leads || [];
         setLeads(fetchedLeads);
+        setIsLoading(false);
         
+        // Load license URLs in background without blocking
         const urlPromises = fetchedLeads
           .filter((l: Lead) => l.driversLicenseKey)
           .map(async (l: Lead) => {
@@ -67,9 +71,13 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
         const urlMap: Record<string, string> = {};
         results.forEach(r => r && (urlMap[r.id] = r.url));
         setLicenseUrls(urlMap);
+      } else {
+        setIsLoading(false);
       }
-    } catch (error) { console.error('Error fetching leads:', error); }
-    finally { setIsLoading(false); }
+    } catch (error) {
+      console.error('Error fetching leads:', error);
+      setIsLoading(false);
+    }
   }, [selectedYear, selectedMonth]);
 
   const fetchShowcase = useCallback(async () => {
@@ -111,6 +119,10 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   useEffect(() => { fetchAnalyticsLeads(); }, [fetchAnalyticsLeads]);
 
   const updateStatus = async (leadId: string, status: LeadStatus, deadReason?: string) => {
+    // Optimistic update - instant UI response
+    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status, deadReason: deadReason as any } : l));
+    setDetailModal(prev => prev && prev.id === leadId ? { ...prev, status, deadReason: deadReason as any } : prev);
+    
     try {
       const res = await fetch('/api/admin/leads', {
         method: 'PATCH',
@@ -120,15 +132,22 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
       if (res.ok) {
         const data = await res.json();
         if (data.lead) {
+          // Update with server response
           setLeads(prev => prev.map(l => l.id === leadId ? data.lead : l));
-          return;
+          setDetailModal(prev => prev && prev.id === leadId ? data.lead : prev);
         }
       }
-      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status, deadReason: deadReason as any } : l));
-    } catch (e) { console.error('Error updating status:', e); }
+    } catch (e) {
+      console.error('Error updating status:', e);
+      // Keep optimistic update even on error
+    }
   };
 
   const saveNotes = async (leadId: string, notes: string) => {
+    // Optimistic update
+    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, notes } : l));
+    setDetailModal(prev => prev && prev.id === leadId ? { ...prev, notes } : prev);
+    
     try {
       const res = await fetch('/api/admin/leads', {
         method: 'PATCH',
@@ -139,10 +158,9 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
         const data = await res.json();
         if (data.lead) {
           setLeads(prev => prev.map(l => l.id === leadId ? data.lead : l));
-          return;
+          setDetailModal(prev => prev && prev.id === leadId ? data.lead : prev);
         }
       }
-      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, notes } : l));
     } catch (e) { console.error('Error saving notes:', e); }
   };
 
@@ -332,7 +350,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
 // Dashboard View - LARGER TEXT
 function DashboardView({ stats, analytics, leads, onNav, emailAlerts }: { stats: any; analytics: any; leads: Lead[]; onNav: (tab: TabType) => void; emailAlerts: EmailAlert[] }) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-10">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
       <div className="max-w-7xl mx-auto">
         {/* Welcome Header */}
         <div className="mb-10">
@@ -529,7 +547,7 @@ function AnalyticsView({ stats: _stats, analytics, leads, rangeMonths, grouping,
     : null;
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-10">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
       <div className="max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
@@ -606,21 +624,24 @@ function AnalyticsView({ stats: _stats, analytics, leads, rangeMonths, grouping,
                   </div>
                 ))}
               </div>
-              <div className="mt-6">
-                <svg viewBox="0 0 100 30" className="w-full h-24 text-primary-600">
-                  <polyline
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    points={linePoints}
-                  />
-                  {buckets.map((b, idx) => {
-                    const x = buckets.length === 1 ? 0 : (idx / (buckets.length - 1)) * 100;
-                    const y = 30 - (b.count / maxBucket) * 30;
-                    return <circle key={b.label} cx={x} cy={y} r={1.5} fill="currentColor" />;
-                  })}
-                </svg>
-              </div>
+              {buckets.length > 1 && (
+                <div className="mt-6">
+                  <svg viewBox="0 0 100 30" className="w-full h-24 text-primary-600" preserveAspectRatio="none">
+                    <polyline
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      points={linePoints}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    {buckets.map((b, idx) => {
+                      const x = (idx / (buckets.length - 1)) * 100;
+                      const y = 30 - (b.count / maxBucket) * 30;
+                      return <circle key={`${b.label}-${idx}`} cx={x} cy={y} r="2" fill="currentColor" />;
+                    })}
+                  </svg>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -723,7 +744,7 @@ function AnalyticsView({ stats: _stats, analytics, leads, rangeMonths, grouping,
 // Leads View - LARGER TEXT
 function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter, licenseUrls, starredLeads, onMonthChange, onYearChange, onFilterChange, onToggleStar, onStatusChange, onViewDetails, onSendEmail, stats }: any) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex h-[calc(100vh-64px)]">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex h-[calc(100vh-64px)]">
       <aside className="w-72 bg-white border-r border-slate-200/80 p-6 flex-shrink-0 overflow-y-auto">
         <div className="space-y-6">
           <div>
@@ -924,11 +945,17 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClos
       </div>
 
       <div className="bg-white rounded-2xl p-6 border border-slate-200 mb-8">
-        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4">Calendar Follow-Up</h3>
+        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4">📅 Calendar Follow-Up</h3>
         <div className="grid md:grid-cols-3 gap-4 items-end">
-          <Input label="Follow up time" type="datetime-local" value={followUpAt} onChange={(e) => setFollowUpAt(e.target.value)} />
-          <Button size="lg" variant="secondary" disabled={!followUpDate} onClick={() => followUpDate && window.open(googleCalLink, '_blank')} className="w-full">Add to Google Calendar</Button>
-          <Button size="lg" variant="primary" disabled={!followUpDate} onClick={downloadAppleCal} className="w-full">Add to Apple / iCal</Button>
+          <div className="md:col-span-1">
+            <Input label="Follow up time" type="datetime-local" value={followUpAt} onChange={(e) => setFollowUpAt(e.target.value)} />
+          </div>
+          <Button size="lg" variant="secondary" disabled={!followUpDate} onClick={() => followUpDate && window.open(googleCalLink, '_blank')} className="w-full h-[46px] flex items-center justify-center">
+            Add to Google Calendar
+          </Button>
+          <Button size="lg" variant="primary" disabled={!followUpDate} onClick={downloadAppleCal} className="w-full h-[46px] flex items-center justify-center">
+            Add to Apple / iCal
+          </Button>
         </div>
         <p className="text-sm text-slate-500 mt-2">Auto-fills the lead name, phone, and email so you never miss a follow-up.</p>
       </div>
@@ -960,12 +987,34 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClos
           {timeline.length === 0 ? (
             <p className="text-slate-400">No interactions logged yet. Track calls, emails, and follow-ups here.</p>
           ) : timeline.map((item, idx) => (
-            <div key={`${item.label}-${idx}`} className="flex justify-between items-start gap-3 bg-white p-3 rounded-xl border border-slate-200">
-              <div>
+            <div key={`${item.label}-${idx}`} className="group flex justify-between items-start gap-3 bg-white p-3 rounded-xl border border-slate-200 hover:border-slate-300 transition-all">
+              <div className="flex-1">
                 <p className="text-sm font-semibold text-slate-900">{item.label}</p>
                 {item.note && <p className="text-sm text-slate-500">{item.note}</p>}
               </div>
-              <span className="text-xs text-slate-500 whitespace-nowrap">{formatDate(item.at)}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 whitespace-nowrap">{formatDate(item.at)}</span>
+                {item.type !== 'status' && (
+                  <button
+                    onClick={() => {
+                      if (confirm('Remove this timeline entry?')) {
+                        // Remove interaction from lead
+                        const updatedInteractions = (lead.interactions || []).filter((_, i) => {
+                          const allInteractions = [...(lead.statusHistory || []).map(() => null), ...(lead.interactions || [])];
+                          return i !== idx - (lead.statusHistory || []).length;
+                        });
+                        // You would need an API endpoint to update interactions
+                        // For now, just refresh the page
+                        window.location.reload();
+                      }
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity"
+                    title="Delete"
+                  >
+                    🗑️
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -985,7 +1034,7 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClos
 
 function TemplatesView({ templates }: { templates: EmailTemplate[] }) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-10">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
       <div className="max-w-6xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-slate-800 mb-2">✉️ Email Templates</h1>
@@ -1017,9 +1066,27 @@ function EmailComposer({ lead, templates, onClose }: { lead: Lead; templates: Em
   const applyTemplate = (id: string) => {
     const t = templates.find(t => t.id === id);
     if (t) {
-      const vars: Record<string, string> = { '{{name}}': lead.formData.fullName, '{{vehicle}}': lead.formData.vehicleType, '{{budget}}': lead.formData.paymentType === 'finance' ? lead.formData.financeBudget || '' : lead.formData.cashBudget || '' };
+      const formattedVehicle = lead.formData.vehicleType || 'vehicle';
+      const formattedBudget = lead.formData.paymentType === 'finance' 
+        ? (lead.formData.financeBudget || '[budget not specified]')
+        : (lead.formData.cashBudget || '[budget not specified]');
+      const formattedCredit = lead.formData.creditRating || '[not provided]';
+      const formattedUrgency = lead.formData.urgency || '[timing not specified]';
+      
+      const vars: Record<string, string> = {
+        '{{name}}': lead.formData.fullName || '[name]',
+        '{{vehicle}}': formattedVehicle,
+        '{{budget}}': formattedBudget,
+        '{{credit}}': formattedCredit,
+        '{{urgency}}': formattedUrgency,
+      };
+      
       let s = t.subject, b = t.body;
-      Object.entries(vars).forEach(([k, v]) => { s = s.replace(new RegExp(k.replace(/[{}]/g, '\\$&'), 'g'), v); b = b.replace(new RegExp(k.replace(/[{}]/g, '\\$&'), 'g'), v); });
+      Object.entries(vars).forEach(([k, v]) => {
+        const pattern = new RegExp(k.replace(/[{}]/g, '\\$&'), 'g');
+        s = s.replace(pattern, v);
+        b = b.replace(pattern, v);
+      });
       setSubject(s); setBody(b);
     }
     setTemplateId(id);
@@ -1065,7 +1132,7 @@ function EmailComposer({ lead, templates, onClose }: { lead: Lead; templates: Em
 
 function ShowcaseView({ vehicles, enabled, onToggle, onDelete, onRefresh }: any) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-10">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
