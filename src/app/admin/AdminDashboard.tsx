@@ -1540,31 +1540,47 @@ function TemplatesView({ templates }: { templates: EmailTemplate[] }) {
 // Settings View with Export, Storage, and Auto-Offload
 function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefreshStorage }: {
   leads: Lead[];
-  storageInfo: { used: number; total: number; percent: number } | null;
+  storageInfo: { used: number; total: number; percent: number; objectCount?: number; error?: string } | null;
   selectedYear: number;
   selectedMonth: number;
   onRefreshStorage: () => void;
 }) {
   const [isExporting, setIsExporting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [exportYear, setExportYear] = useState(new Date().getFullYear() - 1);
+  const [exportYear, setExportYear] = useState(new Date().getFullYear());
+  const [deleteYear, setDeleteYear] = useState(new Date().getFullYear() - 1);
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [autoOffloadEnabled, setAutoOffloadEnabled] = useState(false);
   const [offloadThreshold, setOffloadThreshold] = useState(80);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
 
   // Export leads to CSV/Excel format
   const exportToExcel = async (year: number) => {
     setIsExporting(true);
+    setExportStatus('Fetching leads...');
     try {
       // Fetch all leads for the year
       const res = await fetch(`/api/admin/leads/export?year=${year}`);
-      if (!res.ok) throw new Error('Export failed');
+      
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Export failed');
+      }
       
       const data = await res.json();
       const leadsData = data.leads || [];
       
-      // Create CSV content
+      if (leadsData.length === 0) {
+        setExportStatus(null);
+        alert(`No leads found for ${year}`);
+        return;
+      }
+      
+      setExportStatus(`Processing ${leadsData.length} leads...`);
+      
+      // Create CSV content with BOM for Excel compatibility
+      const BOM = '\uFEFF';
       const headers = [
         'ID', 'Created At', 'Full Name', 'Email', 'Phone', 'City',
         'Vehicle Type', 'Payment Type', 'Budget', 'Credit Rating',
@@ -1584,17 +1600,17 @@ function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefre
         lead.formData.paymentType === 'finance' ? lead.formData.financeBudget : lead.formData.cashBudget,
         lead.formData.creditRating || 'N/A',
         lead.formData.hasTrade ? 'Yes' : 'No',
-        lead.formData.hasTrade ? `${lead.formData.tradeYear} ${lead.formData.tradeMake} ${lead.formData.tradeModel}` : 'N/A',
+        lead.formData.hasTrade ? `${lead.formData.tradeYear || ''} ${lead.formData.tradeMake || ''} ${lead.formData.tradeModel || ''}`.trim() : 'N/A',
         lead.formData.urgency,
         lead.status,
         lead.deadReason || '',
-        lead.notes || '',
+        (lead.notes || '').replace(/\n/g, ' '),
         lead.interactions?.length || 0
       ]);
       
-      const csvContent = [
+      const csvContent = BOM + [
         headers.join(','),
-        ...rows.map((row: string[]) => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        ...rows.map((row: (string | number)[]) => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
       ].join('\n');
       
       // Download file
@@ -1602,12 +1618,16 @@ function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefre
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `leads-${year}-export.csv`;
+      a.download = `mynextrideontario-leads-${year}.csv`;
       a.click();
       URL.revokeObjectURL(url);
+      
+      setExportStatus(`✓ Downloaded ${leadsData.length} leads`);
+      setTimeout(() => setExportStatus(null), 3000);
     } catch (e) {
       console.error('Export error:', e);
-      alert('Export failed. Please try again.');
+      setExportStatus(null);
+      alert(`Export failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
     } finally {
       setIsExporting(false);
     }
@@ -1618,17 +1638,19 @@ function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefre
     if (deleteConfirm !== 'DELETE') return;
     setIsDeleting(true);
     try {
-      const res = await fetch(`/api/admin/leads/delete?year=${exportYear}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/leads/delete?year=${deleteYear}`, { method: 'DELETE' });
       if (res.ok) {
-        alert(`Successfully deleted leads from ${exportYear}`);
+        const data = await res.json();
+        alert(`Successfully deleted ${data.deleted || 0} files from ${deleteYear}`);
         setShowDeleteModal(false);
         setDeleteConfirm('');
         onRefreshStorage();
       } else {
-        throw new Error('Delete failed');
+        const err = await res.json();
+        throw new Error(err.error || 'Delete failed');
       }
     } catch (e) {
-      alert('Delete failed. Please try again.');
+      alert(`Delete failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
     } finally {
       setIsDeleting(false);
     }
@@ -1674,16 +1696,26 @@ function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefre
           {storageInfo ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-2xl font-bold text-slate-900">
-                  {storageInfo.used.toFixed(1)} MB
-                  <span className="text-sm font-normal text-slate-500 ml-2">/ {storageInfo.total} MB</span>
-                </span>
+                <div>
+                  <span className="text-2xl font-bold text-slate-900">
+                    {storageInfo.used < 1 ? `${(storageInfo.used * 1024).toFixed(0)} KB` : `${storageInfo.used.toFixed(2)} MB`}
+                    <span className="text-sm font-normal text-slate-500 ml-2">/ {storageInfo.total >= 1024 ? `${(storageInfo.total / 1024).toFixed(0)} GB` : `${storageInfo.total} MB`}</span>
+                  </span>
+                  {storageInfo.objectCount !== undefined && (
+                    <p className="text-xs text-slate-400 mt-1">{storageInfo.objectCount} files stored</p>
+                  )}
+                </div>
                 <span className={`text-sm font-bold px-3 py-1 rounded-full ${
-                  storageInfo.percent >= 80 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                  storageInfo.percent >= 80 ? 'bg-red-100 text-red-700' : 
+                  storageInfo.percent >= 50 ? 'bg-amber-100 text-amber-700' : 
+                  'bg-green-100 text-green-700'
                 }`}>
-                  {storageInfo.percent.toFixed(0)}% used
+                  {storageInfo.percent.toFixed(1)}% used
                 </span>
               </div>
+              {storageInfo.error && (
+                <p className="text-xs text-red-500">{storageInfo.error}</p>
+              )}
               <div className="h-4 bg-slate-100 rounded-full overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
@@ -1751,6 +1783,11 @@ function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefre
               </button>
             </div>
           </div>
+          {exportStatus && (
+            <div className={`mt-4 text-sm ${exportStatus.startsWith('✓') ? 'text-green-600' : 'text-slate-500'}`}>
+              {exportStatus}
+            </div>
+          )}
         </div>
 
         {/* Auto-Offload Settings */}
@@ -1814,12 +1851,23 @@ function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefre
                 Permanently delete leads from a specific year. This action cannot be undone. 
                 Make sure to export data first.
               </p>
-              <button
-                onClick={() => setShowDeleteModal(true)}
-                className="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200 transition-colors"
-              >
-                Delete Data...
-              </button>
+              <div className="flex items-center gap-3">
+                <select
+                  value={deleteYear}
+                  onChange={(e) => setDeleteYear(parseInt(e.target.value))}
+                  className="px-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                >
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 1 - i).map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setShowDeleteModal(true)}
+                  className="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200 transition-colors"
+                >
+                  Delete {deleteYear} Data...
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1842,7 +1890,7 @@ function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefre
               </div>
               
               <p className="text-sm text-slate-600 mb-4">
-                You are about to permanently delete all leads from <strong>{exportYear}</strong>. 
+                You are about to permanently delete all leads from <strong>{deleteYear}</strong>. 
                 This action cannot be undone.
               </p>
               

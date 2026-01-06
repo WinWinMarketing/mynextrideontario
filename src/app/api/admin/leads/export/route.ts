@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
+import { config } from '@/lib/config';
 
-const s3 = new S3Client({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
-
-const BUCKET = process.env.S3_BUCKET_NAME || 'mynextrideontario-leads';
+// Use the same config as the main S3 library
+function getS3Client(): S3Client {
+  return new S3Client({
+    region: config.aws.region,
+    credentials: {
+      accessKeyId: config.aws.accessKeyId,
+      secretAccessKey: config.aws.secretAccessKey,
+    },
+  });
+}
 
 export async function GET(request: NextRequest) {
   // Check auth
@@ -23,6 +25,9 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const year = searchParams.get('year') || new Date().getFullYear().toString();
 
+  const s3 = getS3Client();
+  const bucket = config.aws.bucketName;
+
   try {
     const allLeads: any[] = [];
 
@@ -34,7 +39,7 @@ export async function GET(request: NextRequest) {
       
       do {
         const listCommand = new ListObjectsV2Command({
-          Bucket: BUCKET,
+          Bucket: bucket,
           Prefix: prefix,
           ContinuationToken: continuationToken,
         });
@@ -46,7 +51,7 @@ export async function GET(request: NextRequest) {
             if (obj.Key && obj.Key.endsWith('.json')) {
               try {
                 const getCommand = new GetObjectCommand({
-                  Bucket: BUCKET,
+                  Bucket: bucket,
                   Key: obj.Key,
                 });
                 const getResponse = await s3.send(getCommand);
@@ -76,7 +81,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('Export error:', error);
-    return NextResponse.json({ error: 'Export failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Export failed', details: String(error) }, { status: 500 });
   }
 }
 

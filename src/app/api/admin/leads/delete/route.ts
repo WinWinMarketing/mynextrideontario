@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { S3Client, ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import { config } from '@/lib/config';
 
-const s3 = new S3Client({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
-
-const BUCKET = process.env.S3_BUCKET_NAME || 'mynextrideontario-leads';
+// Use the same config as the main S3 library
+function getS3Client(): S3Client {
+  return new S3Client({
+    region: config.aws.region,
+    credentials: {
+      accessKeyId: config.aws.accessKeyId,
+      secretAccessKey: config.aws.secretAccessKey,
+    },
+  });
+}
 
 export async function DELETE(request: NextRequest) {
   // Check auth
@@ -35,6 +37,9 @@ export async function DELETE(request: NextRequest) {
     }, { status: 400 });
   }
 
+  const s3 = getS3Client();
+  const bucket = config.aws.bucketName;
+
   try {
     let totalDeleted = 0;
     const prefix = `leads/${year}/`;
@@ -44,7 +49,7 @@ export async function DELETE(request: NextRequest) {
     do {
       // List objects to delete
       const listCommand = new ListObjectsV2Command({
-        Bucket: BUCKET,
+        Bucket: bucket,
         Prefix: prefix,
         ContinuationToken: continuationToken,
       });
@@ -59,7 +64,7 @@ export async function DELETE(request: NextRequest) {
 
         if (objectsToDelete.length > 0) {
           const deleteCommand = new DeleteObjectsCommand({
-            Bucket: BUCKET,
+            Bucket: bucket,
             Delete: {
               Objects: objectsToDelete,
               Quiet: true,
@@ -82,7 +87,7 @@ export async function DELETE(request: NextRequest) {
     });
   } catch (error) {
     console.error('Delete error:', error);
-    return NextResponse.json({ error: 'Delete failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Delete failed', details: String(error) }, { status: 500 });
   }
 }
 
