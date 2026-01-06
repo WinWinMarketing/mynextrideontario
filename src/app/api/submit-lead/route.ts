@@ -2,9 +2,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import { leadApplicationSchema } from '@/lib/validation';
 import { saveLead } from '@/lib/s3';
 import { sendLeadNotificationEmail } from '@/lib/email';
+import { checkRateLimit, getClientIP, rateLimiters } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limiting
+    const clientIP = getClientIP(request);
+    const rateLimit = checkRateLimit(`lead:${clientIP}`, rateLimiters.leadSubmission);
+    
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { 
+          error: 'Too many requests', 
+          message: `Please wait ${rateLimit.retryAfter} seconds before submitting again.`
+        },
+        { 
+          status: 429,
+          headers: {
+            'Retry-After': String(rateLimit.retryAfter || 60),
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': String(rateLimit.resetTime),
+          }
+        }
+      );
+    }
+
     // Parse form data
     let formData: FormData;
     try {

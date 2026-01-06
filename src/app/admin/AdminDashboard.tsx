@@ -889,7 +889,7 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
 
         {/* Main Charts Grid */}
         <div className="grid lg:grid-cols-2 gap-6 mb-8">
-          {/* Lead Volume Chart - Enhanced */}
+          {/* Lead Volume Chart - Clean & Simple */}
           <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -898,27 +898,25 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
               </div>
               <div className="flex items-center gap-3">
                 {growthRate !== null && (
-                  <div className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold ${
+                  <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${
                     Number(growthRate) >= 0 
                       ? 'bg-green-100 text-green-700' 
                       : 'bg-red-100 text-red-700'
                   }`}>
-                    <svg className={`w-3 h-3 ${Number(growthRate) >= 0 ? '' : 'rotate-180'}`} fill="currentColor" viewBox="0 0 20 20">
+                    <svg className={`w-3.5 h-3.5 ${Number(growthRate) < 0 ? 'rotate-180' : ''}`} fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
                     </svg>
                     {Math.abs(Number(growthRate))}%
                   </div>
                 )}
-                {buckets.length > 0 && (
-                  <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded">
-                    Peak: {maxCount}
-                  </span>
-                )}
+                <span className="text-xs font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full">
+                  Peak: {maxCount}
+                </span>
               </div>
             </div>
             
             {buckets.length === 0 ? (
-              <div className="h-64 flex items-center justify-center text-slate-400">
+              <div className="h-56 flex items-center justify-center text-slate-400">
                 <div className="text-center">
                   <svg className="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -927,151 +925,78 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
                 </div>
               </div>
             ) : (
-              <>
-                {/* Enhanced Bar Chart with Grid */}
-                <div className="relative h-64">
-                  {/* Y-axis grid lines */}
-                  <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <div key={i} className="flex items-center w-full">
-                        <span className="text-[10px] text-slate-400 w-6 text-right pr-2">
-                          {Math.round(maxCount * (4 - i) / 4)}
-                        </span>
-                        <div className="flex-1 border-t border-slate-100" />
-                      </div>
-                    ))}
-                  </div>
-                  
-                  {/* Bars */}
-                  <div className="absolute left-8 right-0 bottom-0 top-4 flex items-end gap-1.5">
-                    {buckets.map((bucket, idx) => (
-                      <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative">
-                        <div className="relative w-full h-full flex items-end">
-                          {/* Stacked bar showing status breakdown */}
-                          <div className="w-full flex flex-col-reverse overflow-hidden rounded-t">
-                            {['new', 'working', 'circle-back', 'approval', 'dead'].map((status) => {
-                              const statusCount = bucket.statuses[status] || 0;
-                              const statusPercent = (statusCount / maxCount) * 100;
-                              const colors: Record<string, string> = {
-                                'new': 'bg-blue-500',
-                                'working': 'bg-yellow-500',
-                                'circle-back': 'bg-cyan-500',
-                                'approval': 'bg-green-500',
-                                'dead': 'bg-red-500',
-                              };
-                              if (statusCount === 0) return null;
-                              return (
-                                <motion.div
-                                  key={status}
-                                  initial={{ height: 0 }}
-                                  animate={{ height: `${statusPercent}%` }}
-                                  transition={{ duration: 0.5, delay: idx * 0.03 }}
-                                  className={`w-full ${colors[status]} transition-opacity group-hover:opacity-90`}
-                                  style={{ minHeight: statusCount > 0 ? '2px' : 0 }}
-                                />
-                              );
-                            })}
-                          </div>
+              <div className="space-y-4">
+                {/* Simple Bar Chart */}
+                <div className="flex items-end gap-2 h-48">
+                  {buckets.map((bucket, idx) => {
+                    const heightPercent = (bucket.count / maxCount) * 100;
+                    return (
+                      <div key={idx} className="flex-1 flex flex-col items-center group">
+                        <div className="relative w-full flex justify-center mb-2">
+                          <span className="text-xs font-bold text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {bucket.count}
+                          </span>
                         </div>
-                        
-                        {/* Tooltip */}
-                        <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-all z-20 whitespace-nowrap shadow-xl">
-                          <p className="font-bold mb-1">{bucket.label}: {bucket.count} leads</p>
-                          <div className="flex flex-wrap gap-1 max-w-[150px]">
-                            {Object.entries(bucket.statuses).map(([status, count]) => (
-                              <span key={status} className="text-[10px] opacity-80">
-                                {status}: {count as number}
-                              </span>
-                            ))}
-                          </div>
-                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full border-4 border-transparent border-t-slate-900" />
+                        <div className="w-full bg-slate-100 rounded-t-lg relative" style={{ height: '160px' }}>
+                          <motion.div
+                            initial={{ height: 0 }}
+                            animate={{ height: `${heightPercent}%` }}
+                            transition={{ duration: 0.5, delay: idx * 0.05 }}
+                            className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-primary-600 to-primary-400 rounded-t-lg group-hover:from-primary-500 group-hover:to-primary-300 transition-colors"
+                          />
                         </div>
+                        <span className="text-[10px] font-medium text-slate-500 mt-2 truncate max-w-full">{bucket.label}</span>
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
-                
-                {/* X-axis labels */}
-                <div className="flex pl-8 mt-2">
-                  {buckets.map((bucket, idx) => (
-                    <div key={idx} className="flex-1 text-center">
-                      <span className="text-[10px] font-medium text-slate-500">{bucket.label}</span>
+
+                {/* Simple Trend Line */}
+                {buckets.length > 1 && (
+                  <div className="pt-4 border-t border-slate-100">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-8 h-0.5 bg-gradient-to-r from-primary-500 to-purple-500 rounded" />
+                      <span className="text-xs text-slate-500">Trend</span>
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
-            
-            {/* Enhanced Trend Line with Area */}
-            {buckets.length > 1 && (
-              <div className="mt-6 pt-4 border-t border-slate-100">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-medium text-slate-600">Trend Analysis</p>
-                  <div className="flex items-center gap-4 text-[10px] text-slate-500">
-                    <span className="flex items-center gap-1">
-                      <span className="w-6 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded" /> Trend
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <span className="w-3 h-3 bg-blue-100 rounded" /> Volume
-                    </span>
+                    <svg viewBox="0 0 100 30" className="w-full h-16" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="lineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                          <stop offset="0%" stopColor="#3b82f6" />
+                          <stop offset="100%" stopColor="#8b5cf6" />
+                        </linearGradient>
+                        <linearGradient id="fillGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.2" />
+                          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      <polygon
+                        fill="url(#fillGrad)"
+                        points={`0,30 ${buckets.map((b, i) => {
+                          const x = (i / (buckets.length - 1)) * 100;
+                          const y = 30 - (b.count / maxCount) * 25;
+                          return `${x},${y}`;
+                        }).join(' ')} 100,30`}
+                      />
+                      <polyline
+                        fill="none"
+                        stroke="url(#lineGrad)"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        points={buckets.map((b, i) => {
+                          const x = (i / (buckets.length - 1)) * 100;
+                          const y = 30 - (b.count / maxCount) * 25;
+                          return `${x},${y}`;
+                        }).join(' ')}
+                      />
+                      {buckets.map((b, i) => {
+                        const x = (i / (buckets.length - 1)) * 100;
+                        const y = 30 - (b.count / maxCount) * 25;
+                        return <circle key={i} cx={x} cy={y} r="3" fill="#fff" stroke="#3b82f6" strokeWidth="2" />;
+                      })}
+                    </svg>
                   </div>
-                </div>
-                <div className="relative">
-                  <svg viewBox="0 0 100 40" className="w-full h-20" preserveAspectRatio="none">
-                    <defs>
-                      <linearGradient id="trendGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" style={{ stopColor: '#3b82f6', stopOpacity: 1 }} />
-                        <stop offset="50%" style={{ stopColor: '#8b5cf6', stopOpacity: 1 }} />
-                        <stop offset="100%" style={{ stopColor: '#ec4899', stopOpacity: 1 }} />
-                      </linearGradient>
-                      <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" style={{ stopColor: '#3b82f6', stopOpacity: 0.4 }} />
-                        <stop offset="100%" style={{ stopColor: '#3b82f6', stopOpacity: 0.05 }} />
-                      </linearGradient>
-                    </defs>
-                    
-                    {/* Grid lines */}
-                    {[10, 20, 30].map(y => (
-                      <line key={y} x1="0" y1={y} x2="100" y2={y} stroke="#e2e8f0" strokeWidth="0.5" strokeDasharray="2 2" />
-                    ))}
-                    
-                    {/* Area fill */}
-                    <polygon
-                      fill="url(#areaGradient)"
-                      points={`0,40 ${buckets.map((b, idx) => {
-                        const x = buckets.length === 1 ? 50 : (idx / (buckets.length - 1)) * 100;
-                        const y = 40 - (b.count / maxCount) * 35;
-                        return `${x},${y}`;
-                      }).join(' ')} 100,40`}
-                    />
-                    
-                    {/* Trend line */}
-                    <polyline
-                      fill="none"
-                      stroke="url(#trendGradient)"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      points={buckets.map((b, idx) => {
-                        const x = buckets.length === 1 ? 50 : (idx / (buckets.length - 1)) * 100;
-                        const y = 40 - (b.count / maxCount) * 35;
-                        return `${x},${y}`;
-                      }).join(' ')}
-                    />
-                    
-                    {/* Data points with glow */}
-                    {buckets.map((b, idx) => {
-                      const x = buckets.length === 1 ? 50 : (idx / (buckets.length - 1)) * 100;
-                      const y = 40 - (b.count / maxCount) * 35;
-                      return (
-                        <g key={idx}>
-                          <circle cx={x} cy={y} r="6" fill="#3b82f6" fillOpacity="0.2" />
-                          <circle cx={x} cy={y} r="4" fill="#fff" stroke="#3b82f6" strokeWidth="2" />
-                        </g>
-                      );
-                    })}
-                  </svg>
-                </div>
+                )}
               </div>
             )}
           </div>
@@ -1184,34 +1109,62 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
             </div>
           </div>
 
-          {/* Payment Type Distribution */}
+          {/* Payment Type Distribution - Clean Version */}
           <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
             <h3 className="text-lg font-bold text-slate-800 mb-4">Payment Type</h3>
-            <div className="flex items-center justify-center h-32">
-              {Object.keys(totals.paymentTypes).length > 0 ? (
-                <div className="flex gap-8 items-end">
-                  {Object.entries(totals.paymentTypes).map(([type, count]) => {
-                    const maxPayment = Math.max(...Object.values(totals.paymentTypes) as number[]);
-                    const height = maxPayment > 0 ? ((count as number) / maxPayment) * 100 : 0;
+            {Object.keys(totals.paymentTypes).length > 0 ? (
+              <div className="space-y-6">
+                {Object.entries(totals.paymentTypes)
+                  .sort(([, a], [, b]) => (b as number) - (a as number))
+                  .map(([type, count]) => {
+                    const total = Object.values(totals.paymentTypes).reduce((a, b) => (a as number) + (b as number), 0) as number;
+                    const percent = total > 0 ? ((count as number) / total) * 100 : 0;
+                    const isFinance = type === 'finance';
                     return (
-                      <div key={type} className="flex flex-col items-center gap-2">
-                        <span className="text-2xl font-bold text-slate-900">{count as number}</span>
-                        <motion.div
-                          initial={{ height: 0 }}
-                          animate={{ height: `${height}px` }}
-                          transition={{ duration: 0.5 }}
-                          className={`w-16 rounded-t ${type === 'finance' ? 'bg-gradient-to-t from-blue-600 to-blue-400' : 'bg-gradient-to-t from-emerald-600 to-emerald-400'}`}
-                          style={{ maxHeight: '80px' }}
-                        />
-                        <span className="text-sm font-medium text-slate-600 capitalize">{type}</span>
+                      <div key={type}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                              isFinance ? 'bg-blue-100' : 'bg-emerald-100'
+                            }`}>
+                              {isFinance ? (
+                                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                                </svg>
+                              ) : (
+                                <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-semibold text-slate-900 capitalize">{type}</p>
+                              <p className="text-xs text-slate-500">{percent.toFixed(0)}% of leads</p>
+                            </div>
+                          </div>
+                          <span className="text-3xl font-bold text-slate-900">{count as number}</span>
+                        </div>
+                        <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${percent}%` }}
+                            transition={{ duration: 0.6 }}
+                            className={`h-full rounded-full ${
+                              isFinance 
+                                ? 'bg-gradient-to-r from-blue-500 to-blue-600' 
+                                : 'bg-gradient-to-r from-emerald-500 to-emerald-600'
+                            }`}
+                          />
+                        </div>
                       </div>
                     );
                   })}
-                </div>
-              ) : (
-                <p className="text-slate-400">No data</p>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="h-32 flex items-center justify-center text-slate-400">
+                <p>No payment data</p>
+              </div>
+            )}
           </div>
 
           {/* Credit Rating Distribution */}
