@@ -4,11 +4,11 @@ A modern lead generation application for vehicle financing in Ontario. Built wit
 
 ## Features
 
-- **Public Landing Page**: Dark blue hero with animated loading screen, how-it-works section, credit profiles, and Google Maps service area
-- **Application Form**: 4-step form with dropdowns for all selections, validation, and driver's license upload
-- **Admin Dashboard**: Professional dashboard with 5 status types, notes, and prominent license viewing
+- **Public Landing Page**: Dark blue hero with animated loading screen, how-it-works section, credit profiles, and simple service area city list
+- **Application Form**: 3-step streamlined form with validation and driver's license upload
+- **Admin Dashboard**: Professional left-sidebar dashboard with real-time updates (15s polling), analytics graphs, and lead management
 - **AWS S3 Integration**: Secure storage for lead data and driver's license images
-- **Email Notifications**: Manual email system via AWS SES with failure tracking
+- **Email System**: 100% manual email control via AWS SES with failure tracking and activity logging
 
 ## Tech Stack
 
@@ -37,10 +37,11 @@ SES_TO_EMAIL=winwinmarketingcanada@gmail.com
 NEXT_PUBLIC_SITE_URL=https://winwinmarketingtesting2.com
 ```
 
-### Required (Client-side)
+### Optional (Client-side)
 
 ```
-NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_google_maps_api_key
+# Not required - maps have been replaced with simple city list
+# NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_google_maps_api_key
 ```
 
 ## Admin Credentials
@@ -60,12 +61,12 @@ The admin dashboard uses 5 statuses (matching your requirements):
 
 Dead lead reasons include: Declined, Negative Equity, No longer interested, Already Purchased, No Vehicle of Interest, Cannot Afford Payment, Too Far to Visit
 
-## Map Service Area
+## Service Area
 
-The map uses Google Places API to precisely locate and highlight cities:
-- **Green circles**: Included cities (Oshawa, Toronto, Markham, Vaughan, etc.)
-- **Red circle**: Excluded city (Brampton)
-- Click any marker to see if the city is served
+A clean, simple city list shows our coverage:
+- **Green checkmarks**: 16 cities we serve (Toronto, Mississauga, Vaughan, Markham, Richmond Hill, Aurora, Newmarket, Pickering, Ajax, Whitby, Oshawa, Oakville, Burlington, and more)
+- **Red X**: Cities we don't currently service (Brampton)
+- Simple grid layout - no complex maps needed
 
 ## Local Development
 
@@ -105,7 +106,7 @@ src/
 ├── components/
 │   ├── ui/                      # Reusable UI components
 │   ├── LoadingScreen.tsx        # Animated intro
-│   ├── GoogleMap.tsx            # Service area map
+│   ├── ServiceArea.tsx          # Simple service area city list
 │   └── ShowcaseSection.tsx      # Vehicle carousel
 └── lib/
     ├── auth.ts                  # JWT authentication
