@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { Button } from '@/components/ui';
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { ServiceArea } from '@/components/ServiceArea';
-import { ShowcaseSection } from '@/components/ShowcaseSection';
 import { Logo } from '@/components/Logo';
 
 const fadeInUp = {
@@ -212,9 +211,6 @@ export default function HomePage() {
             </div>
           </div>
         </section>
-
-        {/* Showcase Section - Will hide automatically if no vehicles */}
-        <ShowcaseSection />
 
         {/* Credit Profiles Section */}
         <section className="py-32 px-6 bg-gradient-to-b from-white to-slate-50 relative overflow-hidden">

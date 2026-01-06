@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button, Select, Modal, Input } from '@/components/ui';
-import { Lead, LeadStatus, deadReasonOptions, leadStatusOptions, ShowcaseVehicle, LeadInteractionType } from '@/lib/validation';
+import { Lead, LeadStatus, deadReasonOptions, leadStatusOptions, LeadInteractionType } from '@/lib/validation';
 import { formatDate } from '@/lib/utils';
 import { DEFAULT_TEMPLATES, EmailTemplate } from '@/lib/email';
 import { Logo } from '@/components/Logo';
@@ -12,7 +12,7 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type TabType = 'dashboard' | 'leads' | 'templates' | 'showcase' | 'analytics';
+type TabType = 'dashboard' | 'leads' | 'templates' | 'analytics';
 
 type EmailAlert = {
   id: string;
@@ -23,9 +23,7 @@ type EmailAlert = {
   type: 'admin-notification' | 'client';
 };
 
-// Industry-standard polling configuration
-const POLL_INTERVAL = 30000; // 30 seconds
-const STALE_TIME = 5000; // Consider data stale after 5 seconds
+// Data refresh timing
 
 export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -43,8 +41,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [emailModal, setEmailModal] = useState<{ lead: Lead } | null>(null);
   const [emailAlerts, setEmailAlerts] = useState<EmailAlert[]>([]);
   const [templates] = useState<EmailTemplate[]>(DEFAULT_TEMPLATES);
-  const [showcase, setShowcase] = useState<ShowcaseVehicle[]>([]);
-  const [showcaseEnabled, setShowcaseEnabled] = useState(true);
 
   const fetchLeads = useCallback(async () => {
     try {
@@ -81,17 +77,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     }
   }, [selectedYear, selectedMonth]);
 
-  const fetchShowcase = useCallback(async () => {
-    try {
-      const res = await fetch('/api/admin/showcase');
-      if (res.ok) {
-        const data = await res.json();
-        setShowcase(data.vehicles || []);
-        setShowcaseEnabled(data.settings?.enabled !== false);
-      }
-    } catch (e) { console.error('Error fetching showcase:', e); }
-  }, []);
-
   const fetchEmailAlerts = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/email-logs?limit=20');
@@ -125,9 +110,8 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const fetchWithAbort = useCallback(async (signal: AbortSignal) => {
     try {
       setIsRefreshing(true);
-      const [leadsRes, showcaseRes, alertsRes] = await Promise.all([
+      const [leadsRes, alertsRes] = await Promise.all([
         fetch(`/api/admin/leads?year=${selectedYear}&month=${selectedMonth}`, { signal, cache: 'no-store' }),
-        fetch('/api/admin/showcase', { signal }),
         fetch('/api/admin/email-logs?limit=20', { signal }),
       ]);
 
@@ -156,12 +140,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
         setLicenseUrls(urlMap);
       }
 
-      if (showcaseRes.ok) {
-        const data = await showcaseRes.json();
-        setShowcase(data.vehicles || []);
-        setShowcaseEnabled(data.settings?.enabled !== false);
-      }
-
       if (alertsRes.ok) {
         const data = await alertsRes.json();
         setEmailAlerts(data.failures || []);
@@ -178,22 +156,57 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     }
   }, [selectedYear, selectedMonth]);
 
-  // Initial fetch and polling setup
+  // Smart visibility-based refresh - industry standard approach
+  // Fetches when: tab becomes visible, initial load, or manual refresh
   useEffect(() => {
     abortControllerRef.current = new AbortController();
     fetchWithAbort(abortControllerRef.current.signal);
 
-    // Industry-standard polling interval
-    const pollInterval = setInterval(() => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+    // Visibility change handler - fetch when tab becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Only refetch if data is stale (more than 30 seconds old)
+        const timeSinceLastFetch = Date.now() - lastFetchTimeRef.current;
+        if (timeSinceLastFetch > 30000) {
+          if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+          }
+          abortControllerRef.current = new AbortController();
+          fetchWithAbort(abortControllerRef.current.signal);
+        }
       }
-      abortControllerRef.current = new AbortController();
-      fetchWithAbort(abortControllerRef.current.signal);
-    }, POLL_INTERVAL);
+    };
+
+    // Window focus handler - also triggers refresh on focus
+    const handleFocus = () => {
+      const timeSinceLastFetch = Date.now() - lastFetchTimeRef.current;
+      if (timeSinceLastFetch > 30000) {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+        fetchWithAbort(abortControllerRef.current.signal);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    // Background polling as fallback (every 60 seconds when tab is visible)
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+        fetchWithAbort(abortControllerRef.current.signal);
+      }
+    }, 60000);
 
     return () => {
       clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -283,25 +296,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     });
   };
 
-  const deleteShowcaseVehicle = async (id: string) => {
-    try {
-      const res = await fetch(`/api/admin/showcase?id=${id}`, { method: 'DELETE' });
-      if (res.ok) setShowcase(prev => prev.filter(v => v.id !== id));
-    } catch (e) { console.error('Error deleting vehicle:', e); }
-  };
-
-  const toggleShowcaseEnabled = async () => {
-    const newEnabled = !showcaseEnabled;
-    try {
-      const res = await fetch('/api/admin/showcase', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: newEnabled }),
-      });
-      if (res.ok) setShowcaseEnabled(newEnabled);
-    } catch (e) { console.error('Error toggling showcase:', e); }
-  };
-
   const filteredLeads = leads
     .filter(l => statusFilter === 'all' || l.status === statusFilter)
     .sort((a, b) => {
@@ -340,10 +334,12 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             <button 
               onClick={handleManualRefresh}
               className="flex items-center gap-1.5 hover:bg-slate-50 px-2 py-1 rounded transition-colors"
-              title={`Auto-refresh every ${POLL_INTERVAL / 1000}s • Click to refresh now`}
+              title="Auto-syncs when you return to this tab • Click to refresh now"
             >
-              <div className={`w-1.5 h-1.5 rounded-full ${isRefreshing ? 'bg-yellow-500 animate-spin' : 'bg-green-500 animate-pulse'}`}></div>
-              <span className="text-xs text-green-600 font-medium">{isRefreshing ? 'Syncing' : 'Live'}</span>
+              <div className={`w-1.5 h-1.5 rounded-full ${isRefreshing ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+              <span className={`text-xs font-medium ${isRefreshing ? 'text-yellow-600' : 'text-green-600'}`}>
+                {isRefreshing ? 'Syncing...' : 'Auto-sync'}
+              </span>
             </button>
           </div>
           {lastUpdated && (
@@ -359,7 +355,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             { id: 'leads', label: 'Leads', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
             { id: 'analytics', label: 'Analytics', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
             { id: 'templates', label: 'Email Templates', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg> },
-            { id: 'showcase', label: 'Vehicle Showcase', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
           ].map(tab => (
             <button
               key={tab.id}
@@ -423,15 +418,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             />
           )}
           {activeTab === 'templates' && <TemplatesView key="templates" templates={templates} />}
-          {activeTab === 'showcase' && (
-            <ShowcaseView
-              key="showcase"
-              vehicles={showcase}
-              enabled={showcaseEnabled}
-              onToggle={toggleShowcaseEnabled}
-              onDelete={deleteShowcaseVehicle}
-            />
-          )}
         </AnimatePresence>
       </main>
 
@@ -548,7 +534,10 @@ function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter
             <Select
               value={String(selectedYear)}
               onChange={(e) => onYearChange(parseInt(e.target.value))}
-              options={[{ value: String(new Date().getFullYear()), label: String(new Date().getFullYear()) }]}
+              options={Array.from({ length: new Date().getFullYear() - 2024 }, (_, i) => {
+                const year = new Date().getFullYear() - i;
+                return { value: String(year), label: String(year) };
+              })}
             />
             <Select
               value={statusFilter}
@@ -646,6 +635,7 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
   const conversionRate = stats.total > 0 ? ((stats.approval / stats.total) * 100).toFixed(1) : '0';
   const deadRate = stats.total > 0 ? ((stats.dead / stats.total) * 100).toFixed(1) : '0';
   const activeRate = stats.total > 0 ? (((stats.working + stats.circleBack) / stats.total) * 100).toFixed(1) : '0';
+  const newRate = stats.total > 0 ? ((stats.new / stats.total) * 100).toFixed(1) : '0';
 
   // Time-based bucketing
   const getWeekKey = (d: Date) => {
@@ -687,6 +677,16 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
 
   const buckets = buildBuckets(leads, grouping);
   const maxCount = Math.max(...buckets.map(b => b.count), 1);
+  
+  // Calculate growth rate
+  const calculateGrowth = () => {
+    if (buckets.length < 2) return null;
+    const latest = buckets[buckets.length - 1].count;
+    const previous = buckets[buckets.length - 2].count;
+    if (previous === 0) return latest > 0 ? 100 : 0;
+    return ((latest - previous) / previous * 100).toFixed(0);
+  };
+  const growthRate = calculateGrowth();
 
   // Calculate totals and metrics
   const totals = leads.reduce((acc: any, lead: Lead) => {
@@ -889,18 +889,32 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
 
         {/* Main Charts Grid */}
         <div className="grid lg:grid-cols-2 gap-6 mb-8">
-          {/* Lead Volume Chart */}
+          {/* Lead Volume Chart - Enhanced */}
           <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h3 className="text-lg font-bold text-slate-800">Lead Volume Over Time</h3>
                 <p className="text-xs text-slate-500 mt-1">{grouping === 'weekly' ? 'Weekly' : 'Monthly'} breakdown</p>
               </div>
-              {buckets.length > 0 && (
-                <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded">
-                  Peak: {maxCount}
-                </span>
-              )}
+              <div className="flex items-center gap-3">
+                {growthRate !== null && (
+                  <div className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold ${
+                    Number(growthRate) >= 0 
+                      ? 'bg-green-100 text-green-700' 
+                      : 'bg-red-100 text-red-700'
+                  }`}>
+                    <svg className={`w-3 h-3 ${Number(growthRate) >= 0 ? '' : 'rotate-180'}`} fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                    {Math.abs(Number(growthRate))}%
+                  </div>
+                )}
+                {buckets.length > 0 && (
+                  <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                    Peak: {maxCount}
+                  </span>
+                )}
+              </div>
             </div>
             
             {buckets.length === 0 ? (
@@ -913,68 +927,151 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
                 </div>
               </div>
             ) : (
-              <div className="h-64 flex items-end gap-1">
-                {buckets.map((bucket, idx) => (
-                  <div key={idx} className="flex-1 flex flex-col items-center gap-1 group">
-                    <div className="relative w-full bg-slate-50 rounded-t overflow-hidden h-52 flex items-end">
-                      <motion.div
-                        initial={{ height: 0 }}
-                        animate={{ height: `${(bucket.count / maxCount) * 100}%` }}
-                        transition={{ duration: 0.5, delay: idx * 0.05 }}
-                        className="w-full bg-gradient-to-t from-primary-600 to-primary-400 rounded-t relative group-hover:from-primary-500 group-hover:to-primary-300 transition-colors"
-                      >
-                        <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                          {bucket.count} leads
-                        </div>
-                      </motion.div>
-                    </div>
-                    <span className="text-[10px] font-medium text-slate-500 truncate w-full text-center">{bucket.label}</span>
+              <>
+                {/* Enhanced Bar Chart with Grid */}
+                <div className="relative h-64">
+                  {/* Y-axis grid lines */}
+                  <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <div key={i} className="flex items-center w-full">
+                        <span className="text-[10px] text-slate-400 w-6 text-right pr-2">
+                          {Math.round(maxCount * (4 - i) / 4)}
+                        </span>
+                        <div className="flex-1 border-t border-slate-100" />
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                  
+                  {/* Bars */}
+                  <div className="absolute left-8 right-0 bottom-0 top-4 flex items-end gap-1.5">
+                    {buckets.map((bucket, idx) => (
+                      <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative">
+                        <div className="relative w-full h-full flex items-end">
+                          {/* Stacked bar showing status breakdown */}
+                          <div className="w-full flex flex-col-reverse overflow-hidden rounded-t">
+                            {['new', 'working', 'circle-back', 'approval', 'dead'].map((status) => {
+                              const statusCount = bucket.statuses[status] || 0;
+                              const statusPercent = (statusCount / maxCount) * 100;
+                              const colors: Record<string, string> = {
+                                'new': 'bg-blue-500',
+                                'working': 'bg-yellow-500',
+                                'circle-back': 'bg-cyan-500',
+                                'approval': 'bg-green-500',
+                                'dead': 'bg-red-500',
+                              };
+                              if (statusCount === 0) return null;
+                              return (
+                                <motion.div
+                                  key={status}
+                                  initial={{ height: 0 }}
+                                  animate={{ height: `${statusPercent}%` }}
+                                  transition={{ duration: 0.5, delay: idx * 0.03 }}
+                                  className={`w-full ${colors[status]} transition-opacity group-hover:opacity-90`}
+                                  style={{ minHeight: statusCount > 0 ? '2px' : 0 }}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                        
+                        {/* Tooltip */}
+                        <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-all z-20 whitespace-nowrap shadow-xl">
+                          <p className="font-bold mb-1">{bucket.label}: {bucket.count} leads</p>
+                          <div className="flex flex-wrap gap-1 max-w-[150px]">
+                            {Object.entries(bucket.statuses).map(([status, count]) => (
+                              <span key={status} className="text-[10px] opacity-80">
+                                {status}: {count as number}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full border-4 border-transparent border-t-slate-900" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* X-axis labels */}
+                <div className="flex pl-8 mt-2">
+                  {buckets.map((bucket, idx) => (
+                    <div key={idx} className="flex-1 text-center">
+                      <span className="text-[10px] font-medium text-slate-500">{bucket.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
             
-            {/* Trend Line */}
+            {/* Enhanced Trend Line with Area */}
             {buckets.length > 1 && (
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <p className="text-xs text-slate-500 mb-2">Trend Line</p>
-                <svg viewBox="0 0 100 30" className="w-full h-12" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id="trendGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" style={{ stopColor: '#3b82f6', stopOpacity: 1 }} />
-                      <stop offset="100%" style={{ stopColor: '#8b5cf6', stopOpacity: 1 }} />
-                    </linearGradient>
-                    <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" style={{ stopColor: '#3b82f6', stopOpacity: 0.3 }} />
-                      <stop offset="100%" style={{ stopColor: '#3b82f6', stopOpacity: 0 }} />
-                    </linearGradient>
-                  </defs>
-                  <polygon
-                    fill="url(#areaGradient)"
-                    points={`0,30 ${buckets.map((b, idx) => {
-                      const x = (idx / (buckets.length - 1)) * 100;
-                      const y = 30 - (b.count / maxCount) * 25;
-                      return `${x},${y}`;
-                    }).join(' ')} 100,30`}
-                  />
-                  <polyline
-                    fill="none"
-                    stroke="url(#trendGradient)"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    points={buckets.map((b, idx) => {
-                      const x = (idx / (buckets.length - 1)) * 100;
-                      const y = 30 - (b.count / maxCount) * 25;
-                      return `${x},${y}`;
-                    }).join(' ')}
-                  />
-                  {buckets.map((b, idx) => {
-                    const x = (idx / (buckets.length - 1)) * 100;
-                    const y = 30 - (b.count / maxCount) * 25;
-                    return <circle key={idx} cx={x} cy={y} r="2.5" fill="#3b82f6" stroke="#fff" strokeWidth="1.5" />;
-                  })}
-                </svg>
+              <div className="mt-6 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-medium text-slate-600">Trend Analysis</p>
+                  <div className="flex items-center gap-4 text-[10px] text-slate-500">
+                    <span className="flex items-center gap-1">
+                      <span className="w-6 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded" /> Trend
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 bg-blue-100 rounded" /> Volume
+                    </span>
+                  </div>
+                </div>
+                <div className="relative">
+                  <svg viewBox="0 0 100 40" className="w-full h-20" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="trendGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style={{ stopColor: '#3b82f6', stopOpacity: 1 }} />
+                        <stop offset="50%" style={{ stopColor: '#8b5cf6', stopOpacity: 1 }} />
+                        <stop offset="100%" style={{ stopColor: '#ec4899', stopOpacity: 1 }} />
+                      </linearGradient>
+                      <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style={{ stopColor: '#3b82f6', stopOpacity: 0.4 }} />
+                        <stop offset="100%" style={{ stopColor: '#3b82f6', stopOpacity: 0.05 }} />
+                      </linearGradient>
+                    </defs>
+                    
+                    {/* Grid lines */}
+                    {[10, 20, 30].map(y => (
+                      <line key={y} x1="0" y1={y} x2="100" y2={y} stroke="#e2e8f0" strokeWidth="0.5" strokeDasharray="2 2" />
+                    ))}
+                    
+                    {/* Area fill */}
+                    <polygon
+                      fill="url(#areaGradient)"
+                      points={`0,40 ${buckets.map((b, idx) => {
+                        const x = buckets.length === 1 ? 50 : (idx / (buckets.length - 1)) * 100;
+                        const y = 40 - (b.count / maxCount) * 35;
+                        return `${x},${y}`;
+                      }).join(' ')} 100,40`}
+                    />
+                    
+                    {/* Trend line */}
+                    <polyline
+                      fill="none"
+                      stroke="url(#trendGradient)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      points={buckets.map((b, idx) => {
+                        const x = buckets.length === 1 ? 50 : (idx / (buckets.length - 1)) * 100;
+                        const y = 40 - (b.count / maxCount) * 35;
+                        return `${x},${y}`;
+                      }).join(' ')}
+                    />
+                    
+                    {/* Data points with glow */}
+                    {buckets.map((b, idx) => {
+                      const x = buckets.length === 1 ? 50 : (idx / (buckets.length - 1)) * 100;
+                      const y = 40 - (b.count / maxCount) * 35;
+                      return (
+                        <g key={idx}>
+                          <circle cx={x} cy={y} r="6" fill="#3b82f6" fillOpacity="0.2" />
+                          <circle cx={x} cy={y} r="4" fill="#fff" stroke="#3b82f6" strokeWidth="2" />
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
               </div>
             )}
           </div>
@@ -1323,64 +1420,6 @@ function TemplatesView({ templates }: { templates: EmailTemplate[] }) {
             )}
           </div>
         </div>
-      </div>
-    </motion.div>
-  );
-}
-
-function ShowcaseView({ vehicles, enabled, onToggle, onDelete }: any) {
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-10">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-800 mb-3">Vehicle Showcase</h1>
-            <p className="text-base text-slate-600">{vehicles.length} vehicles • Auto-updates every 30 seconds</p>
-          </div>
-          <div className="flex items-center gap-6">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <span className="text-sm font-medium text-slate-600">Visible on Homepage</span>
-              <button onClick={onToggle} className={`w-12 h-6 rounded-full transition-colors ${enabled ? 'bg-primary-600' : 'bg-slate-300'}`}>
-                <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-6' : 'translate-x-0.5'}`} />
-              </button>
-            </label>
-          </div>
-        </div>
-        
-        {!enabled && (
-          <div className="bg-amber-50 border-l-4 border-amber-500 rounded p-4 mb-8">
-            <p className="text-sm text-amber-800 font-medium">Showcase is currently hidden from the homepage</p>
-          </div>
-        )}
-        
-        {vehicles.length === 0 ? (
-          <div className="text-center py-20 text-slate-400">No vehicles in showcase</div>
-        ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {vehicles.map((v: ShowcaseVehicle) => (
-              <div key={v.id} className="bg-white rounded-xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-                <div className="aspect-video bg-slate-100">
-                  {v.imageUrl ? (
-                    <img src={v.imageUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-400">
-                      <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                  )}
-                </div>
-                <div className="p-5">
-                  <h3 className="text-lg font-semibold text-slate-900 mb-1">{v.year} {v.make} {v.model}</h3>
-                  {v.price && <p className="text-md font-semibold text-primary-600 mb-3">{v.price}</p>}
-                  <button onClick={() => onDelete(v.id)} className="text-sm text-red-600 hover:text-red-800 font-medium">
-                    Remove from showcase
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </motion.div>
   );
