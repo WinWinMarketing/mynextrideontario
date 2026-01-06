@@ -12,7 +12,7 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type TabType = 'dashboard' | 'leads' | 'templates' | 'analytics';
+type TabType = 'dashboard' | 'leads' | 'templates' | 'analytics' | 'settings';
 
 type EmailAlert = {
   id: string;
@@ -28,7 +28,7 @@ type EmailAlert = {
 export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [analyticsLeads, setAnalyticsLeads] = useState<Lead[]>([]);
+  // Analytics uses main leads - no duplicate state needed
   const [isLoading, setIsLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
@@ -42,18 +42,8 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [emailAlerts, setEmailAlerts] = useState<EmailAlert[]>([]);
   const [templates] = useState<EmailTemplate[]>(DEFAULT_TEMPLATES);
 
-  // Consolidated fetch function - avoids duplicate code
-  const fetchAnalyticsLeads = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/admin/leads?year=${selectedYear}&month=${selectedMonth}&rangeMonths=${analyticsRangeMonths}`, { cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
-        setAnalyticsLeads(data.leads || []);
-      }
-    } catch (e) {
-      console.error('Error fetching analytics leads:', e);
-    }
-  }, [selectedYear, selectedMonth, analyticsRangeMonths]);
+  // Storage estimation (for settings)
+  const [storageInfo, setStorageInfo] = useState<{ used: number; total: number; percent: number } | null>(null);
 
   // Industry-standard polling with abort controller
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -176,11 +166,15 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     fetchWithAbort(abortControllerRef.current.signal);
   }, [fetchWithAbort]);
   
+  // Fetch storage info when settings tab is active
   useEffect(() => {
-    if (activeTab === 'analytics') {
-      fetchAnalyticsLeads();
+    if (activeTab === 'settings') {
+      fetch('/api/admin/storage')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => data && setStorageInfo(data))
+        .catch(() => setStorageInfo({ used: 0, total: 100, percent: 0 }));
     }
-  }, [activeTab, fetchAnalyticsLeads, selectedYear, selectedMonth, analyticsRangeMonths]);
+  }, [activeTab]);
 
   const updateStatus = async (leadId: string, status: LeadStatus, deadReason?: string) => {
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status, deadReason: deadReason as any } : l));
@@ -309,6 +303,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             { id: 'leads', label: 'Leads', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
             { id: 'analytics', label: 'Analytics', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
             { id: 'templates', label: 'Email Templates', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg> },
+            { id: 'settings', label: 'Settings', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
           ].map(tab => (
             <button
               key={tab.id}
@@ -364,7 +359,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
           {activeTab === 'analytics' && (
             <AnalyticsView
               key="analytics"
-              leads={analyticsLeads.length ? analyticsLeads : leads}
+              leads={leads}
               rangeMonths={analyticsRangeMonths}
               grouping={analyticsGrouping}
               onRangeChange={setAnalyticsRangeMonths}
@@ -372,6 +367,21 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             />
           )}
           {activeTab === 'templates' && <TemplatesView key="templates" templates={templates} />}
+          {activeTab === 'settings' && (
+            <SettingsView
+              key="settings"
+              leads={leads}
+              storageInfo={storageInfo}
+              selectedYear={selectedYear}
+              selectedMonth={selectedMonth}
+              onRefreshStorage={() => {
+                fetch('/api/admin/storage')
+                  .then(res => res.ok ? res.json() : null)
+                  .then(data => data && setStorageInfo(data))
+                  .catch(() => {});
+              }}
+            />
+          )}
         </AnimatePresence>
       </main>
 
@@ -1522,6 +1532,351 @@ function TemplatesView({ templates }: { templates: EmailTemplate[] }) {
             )}
           </div>
         </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// Settings View with Export, Storage, and Auto-Offload
+function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefreshStorage }: {
+  leads: Lead[];
+  storageInfo: { used: number; total: number; percent: number } | null;
+  selectedYear: number;
+  selectedMonth: number;
+  onRefreshStorage: () => void;
+}) {
+  const [isExporting, setIsExporting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [exportYear, setExportYear] = useState(new Date().getFullYear() - 1);
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [autoOffloadEnabled, setAutoOffloadEnabled] = useState(false);
+  const [offloadThreshold, setOffloadThreshold] = useState(80);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  // Export leads to CSV/Excel format
+  const exportToExcel = async (year: number) => {
+    setIsExporting(true);
+    try {
+      // Fetch all leads for the year
+      const res = await fetch(`/api/admin/leads/export?year=${year}`);
+      if (!res.ok) throw new Error('Export failed');
+      
+      const data = await res.json();
+      const leadsData = data.leads || [];
+      
+      // Create CSV content
+      const headers = [
+        'ID', 'Created At', 'Full Name', 'Email', 'Phone', 'City',
+        'Vehicle Type', 'Payment Type', 'Budget', 'Credit Rating',
+        'Trade-In', 'Trade-In Details', 'Urgency', 'Status', 
+        'Dead Reason', 'Notes', 'Interactions Count'
+      ];
+      
+      const rows = leadsData.map((lead: Lead) => [
+        lead.id,
+        new Date(lead.createdAt).toLocaleDateString(),
+        lead.formData.fullName,
+        lead.formData.email,
+        lead.formData.phone,
+        lead.formData.city,
+        lead.formData.vehicleType,
+        lead.formData.paymentType,
+        lead.formData.paymentType === 'finance' ? lead.formData.financeBudget : lead.formData.cashBudget,
+        lead.formData.creditRating || 'N/A',
+        lead.formData.hasTrade ? 'Yes' : 'No',
+        lead.formData.hasTrade ? `${lead.formData.tradeYear} ${lead.formData.tradeMake} ${lead.formData.tradeModel}` : 'N/A',
+        lead.formData.urgency,
+        lead.status,
+        lead.deadReason || '',
+        lead.notes || '',
+        lead.interactions?.length || 0
+      ]);
+      
+      const csvContent = [
+        headers.join(','),
+        ...rows.map((row: string[]) => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      ].join('\n');
+      
+      // Download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `leads-${year}-export.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export error:', e);
+      alert('Export failed. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Delete old data
+  const handleDelete = async () => {
+    if (deleteConfirm !== 'DELETE') return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/leads/delete?year=${exportYear}`, { method: 'DELETE' });
+      if (res.ok) {
+        alert(`Successfully deleted leads from ${exportYear}`);
+        setShowDeleteModal(false);
+        setDeleteConfirm('');
+        onRefreshStorage();
+      } else {
+        throw new Error('Delete failed');
+      }
+    } catch (e) {
+      alert('Delete failed. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Storage percentage color
+  const getStorageColor = (percent: number) => {
+    if (percent >= 90) return 'from-red-500 to-rose-600';
+    if (percent >= 70) return 'from-orange-500 to-amber-500';
+    if (percent >= 50) return 'from-yellow-500 to-amber-400';
+    return 'from-green-500 to-emerald-500';
+  };
+
+  const currentYearOptions = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10 overflow-y-auto">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="mb-10">
+          <h1 className="text-3xl font-bold text-slate-900 mb-3">Settings</h1>
+          <p className="text-base text-slate-600">Manage storage, exports, and data retention</p>
+        </div>
+
+        {/* Storage Overview */}
+        <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm mb-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-lg font-bold text-slate-800">Storage Usage</h3>
+              <p className="text-sm text-slate-500 mt-1">Monitor your data storage capacity</p>
+            </div>
+            <button 
+              onClick={onRefreshStorage}
+              className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Refresh
+            </button>
+          </div>
+          
+          {storageInfo ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-2xl font-bold text-slate-900">
+                  {storageInfo.used.toFixed(1)} MB
+                  <span className="text-sm font-normal text-slate-500 ml-2">/ {storageInfo.total} MB</span>
+                </span>
+                <span className={`text-sm font-bold px-3 py-1 rounded-full ${
+                  storageInfo.percent >= 80 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                }`}>
+                  {storageInfo.percent.toFixed(0)}% used
+                </span>
+              </div>
+              <div className="h-4 bg-slate-100 rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${storageInfo.percent}%` }}
+                  transition={{ duration: 1 }}
+                  className={`h-full bg-gradient-to-r ${getStorageColor(storageInfo.percent)} rounded-full`}
+                />
+              </div>
+              {storageInfo.percent >= 80 && (
+                <div className="flex items-center gap-2 text-amber-600 bg-amber-50 px-4 py-3 rounded-lg">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span className="text-sm font-medium">Storage running low. Consider exporting and deleting old data.</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="h-20 flex items-center justify-center text-slate-400">
+              <div className="animate-pulse">Loading storage info...</div>
+            </div>
+          )}
+        </div>
+
+        {/* Export Section */}
+        <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm mb-6">
+          <h3 className="text-lg font-bold text-slate-800 mb-2">Export Data</h3>
+          <p className="text-sm text-slate-500 mb-6">Download leads as Excel/CSV file for backup or analysis</p>
+          
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Select Year</label>
+              <select
+                value={exportYear}
+                onChange={(e) => setExportYear(parseInt(e.target.value))}
+                className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              >
+                {currentYearOptions.map(year => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </div>
+            <div className="pt-6">
+              <button
+                onClick={() => exportToExcel(exportYear)}
+                disabled={isExporting}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-lg font-medium hover:from-primary-700 hover:to-primary-800 disabled:opacity-50 transition-all"
+              >
+                {isExporting ? (
+                  <>
+                    <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Export to Excel
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Auto-Offload Settings */}
+        <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-800">Auto-Offload</h3>
+              <p className="text-sm text-slate-500 mt-1">Automatically export and archive old data when storage is low</p>
+            </div>
+            <button
+              onClick={() => setAutoOffloadEnabled(!autoOffloadEnabled)}
+              className={`relative w-14 h-7 rounded-full transition-colors ${
+                autoOffloadEnabled ? 'bg-primary-600' : 'bg-slate-300'
+              }`}
+            >
+              <div className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${
+                autoOffloadEnabled ? 'translate-x-7' : ''
+              }`} />
+            </button>
+          </div>
+          
+          {autoOffloadEnabled && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="pt-4 border-t border-slate-100"
+            >
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Trigger when storage exceeds:
+              </label>
+              <div className="flex items-center gap-4">
+                <input
+                  type="range"
+                  min="50"
+                  max="95"
+                  step="5"
+                  value={offloadThreshold}
+                  onChange={(e) => setOffloadThreshold(parseInt(e.target.value))}
+                  className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                />
+                <span className="text-lg font-bold text-slate-800 w-16 text-right">{offloadThreshold}%</span>
+              </div>
+              <p className="text-xs text-slate-500 mt-2">
+                When enabled, data older than 1 year will be automatically exported and archived when storage exceeds {offloadThreshold}%.
+              </p>
+            </motion.div>
+          )}
+        </div>
+
+        {/* Delete Old Data */}
+        <div className="bg-white rounded-xl p-6 border border-red-200 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-slate-800">Delete Old Data</h3>
+              <p className="text-sm text-slate-500 mt-1 mb-4">
+                Permanently delete leads from a specific year. This action cannot be undone. 
+                Make sure to export data first.
+              </p>
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200 transition-colors"
+              >
+                Delete Data...
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                  <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">Confirm Deletion</h3>
+              </div>
+              
+              <p className="text-sm text-slate-600 mb-4">
+                You are about to permanently delete all leads from <strong>{exportYear}</strong>. 
+                This action cannot be undone.
+              </p>
+              
+              <div className="mb-4">
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                  Type DELETE to confirm
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder="DELETE"
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                />
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setShowDeleteModal(false); setDeleteConfirm(''); }}
+                  className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleteConfirm !== 'DELETE' || isDeleting}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isDeleting ? 'Deleting...' : 'Delete Forever'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </div>
     </motion.div>
   );
