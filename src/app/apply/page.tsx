@@ -161,10 +161,10 @@ export default function ApplyPage() {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-6 py-10">
+      <div className="max-w-3xl mx-auto px-6 py-12">
         <h1 className="sr-only">Vehicle financing application - My Next Ride Ontario</h1>
         {/* Step Progress */}
-        <div className="mb-10">
+        <div className="mb-12">
           <div className="flex justify-between items-center mb-4">
             {STEPS.map((s) => (
               <div key={s.step} className="flex items-center">
@@ -190,14 +190,14 @@ export default function ApplyPage() {
             ))}
           </div>
           <div className="text-center">
-            <h2 className="text-2xl font-bold text-slate-900">{STEPS[currentStep - 1].title}</h2>
-            <p className="text-slate-500 mt-1">{STEPS[currentStep - 1].desc}</p>
+            <h2 className="text-3xl font-bold text-slate-900 mb-2">{STEPS[currentStep - 1].title}</h2>
+            <p className="text-slate-600 text-base">{STEPS[currentStep - 1].desc}</p>
           </div>
         </div>
 
         {/* Form Card */}
         <form onSubmit={handleSubmit(onSubmit)}>
-          <div className="bg-white/80 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl shadow-slate-200/50 p-8 min-h-[420px]">
+          <div className="bg-white/80 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl shadow-slate-200/50 p-10 min-h-[480px]">
             <AnimatePresence mode="wait">
               
               {/* Step 1: Vehicle Preferences */}
@@ -488,7 +488,7 @@ export default function ApplyPage() {
           </div>
 
           {/* Navigation Buttons */}
-          <div className="flex items-center justify-between mt-6">
+          <div className="flex items-center justify-between mt-8">
             {currentStep > 1 ? (
               <Button type="button" variant="ghost" onClick={prevStep}>
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

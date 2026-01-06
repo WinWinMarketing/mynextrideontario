@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { Button } from '@/components/ui';
 import { LoadingScreen } from '@/components/LoadingScreen';
-import { GoogleMap } from '@/components/GoogleMap';
+import { ServiceArea } from '@/components/ServiceArea';
 import { ShowcaseSection } from '@/components/ShowcaseSection';
 import { Logo } from '@/components/Logo';
 
@@ -140,19 +140,19 @@ export default function HomePage() {
         </section>
 
         {/* How It Works Section */}
-        <section id="how-it-works" className="py-24 px-6 bg-gradient-to-b from-slate-50 to-white">
+        <section id="how-it-works" className="py-32 px-6 bg-gradient-to-b from-slate-50 to-white">
           <div className="container mx-auto max-w-6xl">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.6 }}
-              className="text-center mb-16"
+              className="text-center mb-20"
             >
-              <h2 className="text-3xl md:text-5xl font-bold mb-4 text-slate-900">
+              <h2 className="text-4xl md:text-5xl font-bold mb-6 text-slate-900">
                 How It <span className="text-primary-600">Works</span>
               </h2>
-              <p className="text-slate-600 text-lg max-w-2xl mx-auto">
+              <p className="text-slate-600 text-xl max-w-2xl mx-auto leading-relaxed">
                 Getting into your next vehicle is simple. We handle the hard work so you don&apos;t have to.
               </p>
             </motion.div>
@@ -216,22 +216,22 @@ export default function HomePage() {
         {/* Showcase Section - Will hide automatically if no vehicles */}
         <ShowcaseSection />
 
-        {/* Credit Profiles Section - Professional Design */}
-        <section className="py-24 px-6 bg-gradient-to-b from-white to-slate-50 relative overflow-hidden">
+        {/* Credit Profiles Section */}
+        <section className="py-32 px-6 bg-gradient-to-b from-white to-slate-50 relative overflow-hidden">
           <div className="container mx-auto max-w-6xl relative z-10">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.6 }}
-              className="text-center mb-16"
+              className="text-center mb-20"
             >
-              <h2 className="text-3xl md:text-5xl font-bold mb-4 text-slate-900">
+              <h2 className="text-4xl md:text-5xl font-bold mb-6 text-slate-900">
                 All <span className="text-primary-600">Credit Types</span> Welcome
               </h2>
-              <p className="text-slate-600 text-lg max-w-2xl mx-auto">
+              <p className="text-slate-600 text-xl max-w-2xl mx-auto leading-relaxed">
                 We work with{' '}
-                <span className="inline-block bg-accent/20 text-amber-800 font-bold px-3 py-1 rounded-lg border border-accent/30">
+                <span className="inline-block bg-accent/20 text-amber-800 font-bold px-4 py-2 rounded-lg border border-accent/30">
                   17 different lenders
                 </span>
                 {' '}including prime, near-prime, and non-prime, giving us high approval odds for a wide range of credit profiles.
@@ -336,22 +336,22 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* Service Area Map Section */}
-        <section className="py-24 px-6 bg-slate-50">
+        {/* Service Area Section */}
+        <section className="py-32 px-6 bg-slate-50">
           <div className="container mx-auto max-w-6xl">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.6 }}
-              className="text-center mb-12"
+              className="text-center mb-16"
             >
-              <h2 className="text-3xl md:text-5xl font-bold mb-4 text-slate-900">
+              <h2 className="text-4xl md:text-5xl font-bold mb-6 text-slate-900">
                 Our <span className="text-primary-600">Service Area</span>
               </h2>
-              <p className="text-slate-600 text-lg max-w-2xl mx-auto">
+              <p className="text-slate-600 text-xl max-w-3xl mx-auto leading-relaxed">
                 We proudly serve the Greater Toronto Area and surrounding regions.
-                <strong className="text-slate-800"> Contact us even if you&apos;re outside our main zone</strong>—we can often still help!
+                <strong className="text-slate-900 block mt-4">Contact us even if you're outside our main zone—we can often still help!</strong>
               </p>
             </motion.div>
 
@@ -361,15 +361,13 @@ export default function HomePage() {
               viewport={{ once: true }}
               transition={{ duration: 0.6 }}
             >
-              <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden">
-                <GoogleMap />
-              </div>
+              <ServiceArea />
             </motion.div>
           </div>
         </section>
 
         {/* Final CTA Section */}
-        <section className="py-24 px-6 bg-gradient-to-br from-primary-900 via-primary-800 to-slate-900">
+        <section className="py-32 px-6 bg-gradient-to-br from-primary-900 via-primary-800 to-slate-900">
           <div className="container mx-auto max-w-4xl">
             <motion.div
               initial={{ opacity: 0, y: 30 }}

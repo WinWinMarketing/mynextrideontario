@@ -8,21 +8,10 @@ export async function POST(request: NextRequest) {
     const dataString = formData.get('data');
     const licenseFile = formData.get('license') as File | null;
 
-    console.log('📋 Form submission received');
-    console.log('License file present:', !!licenseFile);
-    if (licenseFile) {
-      console.log('License file details:', {
-        name: licenseFile.name,
-        size: licenseFile.size,
-        type: licenseFile.type,
-      });
-    }
-
     if (!dataString || typeof dataString !== 'string') {
       return NextResponse.json({ error: 'Invalid form data' }, { status: 400 });
     }
 
-    // Parse and validate
     const rawData = JSON.parse(dataString);
     const validationResult = leadApplicationSchema.safeParse(rawData);
 
@@ -35,23 +24,17 @@ export async function POST(request: NextRequest) {
 
     const formDataValidated = validationResult.data;
 
-    // Prepare license file
     let licenseFileData: { buffer: Buffer; filename: string; contentType: string } | undefined;
     
     if (licenseFile && licenseFile.size > 0) {
-      console.log('✅ Processing license file upload...');
       const buffer = Buffer.from(await licenseFile.arrayBuffer());
       licenseFileData = {
         buffer,
         filename: licenseFile.name,
         contentType: licenseFile.type,
       };
-      console.log('✅ License file ready for S3 upload');
-    } else {
-      console.log('ℹ️ No license file provided with this submission');
     }
 
-    // Save lead to S3
     const lead = await saveLead(formDataValidated, licenseFileData);
 
     return NextResponse.json(
@@ -63,7 +46,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
-    console.error('❌ Error submitting lead:', error);
+    console.error('Error submitting lead:', error);
     return NextResponse.json(
       { error: 'Failed to submit application', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
