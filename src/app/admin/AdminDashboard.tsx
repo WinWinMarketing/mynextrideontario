@@ -117,16 +117,20 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     fetchShowcase();
     fetchEmailAlerts();
     
-    // Real-time polling - refresh leads every 15 seconds
+    // Industry-standard polling - 30 seconds to balance real-time with bandwidth
     const pollInterval = setInterval(() => {
       fetchLeads();
       fetchEmailAlerts();
-    }, 15000);
+    }, 30000);
     
     return () => clearInterval(pollInterval);
   }, [fetchLeads, fetchShowcase, fetchEmailAlerts]);
   
-  useEffect(() => { if (activeTab === 'analytics') fetchAnalyticsLeads(); }, [activeTab, fetchAnalyticsLeads]);
+  useEffect(() => {
+    if (activeTab === 'analytics') {
+      fetchAnalyticsLeads();
+    }
+  }, [activeTab, fetchAnalyticsLeads, selectedYear, selectedMonth, analyticsRangeMonths]);
 
   const updateStatus = async (leadId: string, status: LeadStatus, deadReason?: string) => {
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status, deadReason: deadReason as any } : l));
@@ -250,7 +254,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
           <Logo size="sm" />
           <div className="flex items-center justify-between mt-2">
             <p className="text-xs text-slate-500">Admin Dashboard</p>
-            <div className="flex items-center gap-1.5" title="Live updates every 15 seconds">
+            <div className="flex items-center gap-1.5" title="Auto-refresh every 30 seconds">
               <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
               <span className="text-xs text-green-600 font-medium">Live</span>
             </div>
@@ -334,7 +338,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
               enabled={showcaseEnabled}
               onToggle={toggleShowcaseEnabled}
               onDelete={deleteShowcaseVehicle}
-              onRefresh={fetchShowcase}
             />
           )}
         </AnimatePresence>
@@ -730,37 +733,89 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
 }
 
 function TemplatesView({ templates }: { templates: EmailTemplate[] }) {
+  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <div className="mb-10">
           <h1 className="text-3xl font-bold text-slate-800 mb-3">Email Templates</h1>
-          <p className="text-base text-slate-600">Pre-built templates for common scenarios</p>
+          <p className="text-base text-slate-600">{templates.length} pre-built templates available for quick responses</p>
         </div>
-        <div className="grid md:grid-cols-2 gap-5">
-          {templates.map(t => (
-            <div key={t.id} className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-              <h3 className="text-lg font-semibold text-slate-900 mb-2">{t.name}</h3>
-              <p className="text-sm text-slate-600 mb-4">{t.subject}</p>
-              <div className="bg-slate-50 rounded-lg p-4 max-h-40 overflow-y-auto">
-                <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans">{t.body}</pre>
+
+        <div className="grid lg:grid-cols-3 gap-8">
+          {/* Template List */}
+          <div className="lg:col-span-1 space-y-3">
+            {templates.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setSelectedTemplate(t)}
+                className={`w-full text-left p-5 rounded-xl border-2 transition-all ${
+                  selectedTemplate?.id === t.id
+                    ? 'bg-primary-50 border-primary-300 shadow-sm'
+                    : 'bg-white border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <h3 className="font-semibold text-slate-900 mb-1">{t.name}</h3>
+                <p className="text-xs text-slate-500">{t.category}</p>
+              </button>
+            ))}
+          </div>
+
+          {/* Template Preview */}
+          <div className="lg:col-span-2">
+            {selectedTemplate ? (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8">
+                <div className="mb-6">
+                  <h2 className="text-2xl font-bold text-slate-900 mb-2">{selectedTemplate.name}</h2>
+                  <p className="text-sm text-slate-500 uppercase tracking-wide">{selectedTemplate.category} Template</p>
+                </div>
+                
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Subject Line</label>
+                    <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                      <p className="text-sm font-medium text-slate-900">{selectedTemplate.subject}</p>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Message Body</label>
+                    <div className="bg-slate-50 rounded-lg p-6 border border-slate-200 max-h-96 overflow-y-auto">
+                      <pre className="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">{selectedTemplate.body}</pre>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-xs text-blue-800">
+                      <strong>Available variables:</strong> {'{'}name{'}'}, {'{'}vehicle{'}'}, {'{'}budget{'}'}, {'{'}credit{'}'}, {'{'}urgency{'}'}
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            ) : (
+              <div className="bg-slate-50 rounded-xl border-2 border-dashed border-slate-300 p-20 text-center">
+                <svg className="w-16 h-16 text-slate-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <p className="text-slate-500">Select a template to preview</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </motion.div>
   );
 }
 
-function ShowcaseView({ vehicles, enabled, onToggle, onDelete, onRefresh }: any) {
+function ShowcaseView({ vehicles, enabled, onToggle, onDelete }: any) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-10">
           <div>
             <h1 className="text-3xl font-bold text-slate-800 mb-3">Vehicle Showcase</h1>
-            <p className="text-base text-slate-600">{vehicles.length} vehicles in showcase</p>
+            <p className="text-base text-slate-600">{vehicles.length} vehicles • Auto-updates every 30 seconds</p>
           </div>
           <div className="flex items-center gap-6">
             <label className="flex items-center gap-3 cursor-pointer">
@@ -769,7 +824,6 @@ function ShowcaseView({ vehicles, enabled, onToggle, onDelete, onRefresh }: any)
                 <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-6' : 'translate-x-0.5'}`} />
               </button>
             </label>
-            <Button variant="secondary" size="sm" onClick={onRefresh}>Refresh</Button>
           </div>
         </div>
         
