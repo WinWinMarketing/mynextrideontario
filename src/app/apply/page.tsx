@@ -1,7 +1,7 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
@@ -41,60 +41,92 @@ export default function ApplyPage() {
     trigger,
     formState: { errors },
     getValues,
+    clearErrors,
   } = useForm<LeadApplicationData>({
     resolver: zodResolver(leadApplicationSchema),
-    mode: 'onChange',
+    mode: 'onBlur',
+    defaultValues: {
+      urgency: undefined,
+      vehicleType: undefined,
+      paymentType: undefined,
+      financeBudget: undefined,
+      cashBudget: undefined,
+      creditRating: undefined,
+      tradeIn: undefined,
+      tradeInYear: '',
+      tradeInMake: '',
+      tradeInModel: '',
+      tradeInMileage: '',
+      tradeInVin: '',
+      fullName: '',
+      phone: '',
+      email: '',
+      dateOfBirth: '',
+      bestTimeToReach: undefined,
+      licenseClass: undefined,
+      cosigner: undefined,
+      cosignerFullName: '',
+      cosignerPhone: '',
+      cosignerEmail: '',
+      cosignerDateOfBirth: '',
+    },
   });
 
   const paymentType = watch('paymentType');
   const tradeIn = watch('tradeIn');
   const cosigner = watch('cosigner');
 
-  const validateStep = async (): Promise<boolean> => {
-    let fields: (keyof LeadApplicationData)[] = [];
+  const getStepFields = useCallback((step: FormStep): (keyof LeadApplicationData)[] => {
+    const currentPaymentType = getValues('paymentType');
+    const currentTradeIn = getValues('tradeIn');
+    const currentCosigner = getValues('cosigner');
     
-    switch (currentStep) {
+    switch (step) {
       case 1:
-        fields = ['urgency', 'vehicleType', 'paymentType'];
-        if (paymentType === 'finance') fields.push('financeBudget', 'creditRating');
-        if (paymentType === 'cash') fields.push('cashBudget');
-        break;
+        const step1Fields: (keyof LeadApplicationData)[] = ['urgency', 'vehicleType', 'paymentType'];
+        if (currentPaymentType === 'finance') {
+          step1Fields.push('financeBudget', 'creditRating');
+        }
+        if (currentPaymentType === 'cash') {
+          step1Fields.push('cashBudget');
+        }
+        return step1Fields;
       case 2:
-        fields = ['fullName', 'phone', 'email', 'dateOfBirth', 'bestTimeToReach', 'licenseClass'];
-        break;
+        return ['fullName', 'phone', 'email', 'dateOfBirth', 'bestTimeToReach', 'licenseClass'];
       case 3:
-        fields = ['tradeIn', 'cosigner'];
-        if (tradeIn === 'yes' || tradeIn === 'unsure') {
-          fields.push('tradeInYear', 'tradeInMake', 'tradeInModel');
+        const step3Fields: (keyof LeadApplicationData)[] = ['tradeIn', 'cosigner'];
+        if (currentTradeIn === 'yes' || currentTradeIn === 'unsure') {
+          step3Fields.push('tradeInYear', 'tradeInMake', 'tradeInModel');
         }
-        if (cosigner === 'yes') {
-          fields.push('cosignerFullName', 'cosignerPhone', 'cosignerEmail');
+        if (currentCosigner === 'yes') {
+          step3Fields.push('cosignerFullName', 'cosignerPhone', 'cosignerEmail');
         }
-        break;
+        return step3Fields;
+      default:
+        return [];
     }
-    
-    return await trigger(fields);
+  }, [getValues]);
+
+  const validateStep = async (): Promise<boolean> => {
+    const fields = getStepFields(currentStep);
+    clearErrors();
+    const result = await trigger(fields);
+    return result;
   };
 
   const nextStep = async () => {
     const isValid = await validateStep();
     if (isValid && currentStep < 3) {
       setCurrentStep((currentStep + 1) as FormStep);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
   const prevStep = () => {
     if (currentStep > 1) {
       setCurrentStep((currentStep - 1) as FormStep);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-  };
-  
-  const handleFinalSubmit = async () => {
-    const isValid = await validateStep();
-    if (!isValid) return;
-    
-    const data = getValues();
-    await onSubmit(data);
   };
 
   const onSubmit = async (data: LeadApplicationData) => {
@@ -104,16 +136,59 @@ export default function ApplyPage() {
     try {
       const formData = new FormData();
       formData.append('data', JSON.stringify(data));
-      if (licenseFile) formData.append('license', licenseFile);
+      if (licenseFile) {
+        formData.append('license', licenseFile);
+      }
 
-      const response = await fetch('/api/submit-lead', { method: 'POST', body: formData });
-      if (!response.ok) throw new Error('Submission failed');
+      const response = await fetch('/api/submit-lead', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        const errorMessage = result.details?.formErrors?.join(', ') || 
+                            result.details?.fieldErrors ? Object.values(result.details.fieldErrors).flat().join(', ') :
+                            result.error || 'Submission failed. Please try again.';
+        throw new Error(errorMessage);
+      }
+
       setIsSuccess(true);
-    } catch {
-      setSubmitError('Something went wrong. Please try again.');
+    } catch (err) {
+      console.error('Form submission error:', err);
+      setSubmitError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleFinalSubmit = async () => {
+    setSubmitError(null);
+    
+    // Validate current step first
+    const stepValid = await validateStep();
+    if (!stepValid) {
+      setSubmitError('Please fill in all required fields correctly.');
+      return;
+    }
+    
+    // Trigger full form validation then submit
+    const allValid = await trigger();
+    if (!allValid) {
+      // Find which fields have errors
+      const errorFields = Object.keys(errors);
+      if (errorFields.length > 0) {
+        setSubmitError(`Please check the following fields: ${errorFields.join(', ')}`);
+      } else {
+        setSubmitError('Please fill in all required fields.');
+      }
+      return;
+    }
+    
+    // Get form data and submit
+    const data = getValues();
+    await onSubmit(data);
   };
 
   // Success Screen
@@ -166,7 +241,7 @@ export default function ApplyPage() {
         {/* Step Progress */}
         <div className="mb-12">
           <div className="flex justify-between items-center mb-4">
-            {STEPS.map((s) => (
+            {STEPS.map((s, index) => (
               <div key={s.step} className="flex items-center">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
                   currentStep > s.step 
@@ -181,10 +256,10 @@ export default function ApplyPage() {
                     </svg>
                   ) : s.step}
                 </div>
-                {s.step < 4 && (
-                  <div className={`w-full h-1 mx-2 rounded-full transition-all ${
+                {index < STEPS.length - 1 && (
+                  <div className={`w-16 md:w-24 h-1 mx-2 rounded-full transition-all ${
                     currentStep > s.step ? 'bg-gradient-to-r from-primary-500 to-primary-600' : 'bg-slate-200'
-                  }`} style={{ width: '60px' }} />
+                  }`} />
                 )}
               </div>
             ))}
@@ -195,8 +270,24 @@ export default function ApplyPage() {
           </div>
         </div>
 
+        {/* Error Display */}
+        {submitError && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm"
+          >
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>{submitError}</span>
+            </div>
+          </motion.div>
+        )}
+
         {/* Form Card */}
-        <form onSubmit={handleSubmit(onSubmit)}>
+        <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <div className="bg-white/80 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl shadow-slate-200/50 p-10 min-h-[480px]">
             <AnimatePresence mode="wait">
               
@@ -213,10 +304,10 @@ export default function ApplyPage() {
                   {/* Urgency */}
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-3">
-                      When do you want to get into your next vehicle?
+                      When do you want to get into your next vehicle? <span className="text-red-500">*</span>
                     </label>
                     <Select
-                      options={urgencyOptions}
+                      options={[...urgencyOptions]}
                       error={errors.urgency?.message}
                       placeholder="Select timing..."
                       {...register('urgency')}
@@ -226,10 +317,10 @@ export default function ApplyPage() {
                   {/* Vehicle Type */}
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-3">
-                      What type of vehicle are you seeking?
+                      What type of vehicle are you seeking? <span className="text-red-500">*</span>
                     </label>
                     <Select
-                      options={vehicleTypeOptions}
+                      options={[...vehicleTypeOptions]}
                       error={errors.vehicleType?.message}
                       placeholder="Select vehicle type..."
                       {...register('vehicleType')}
@@ -239,7 +330,7 @@ export default function ApplyPage() {
                   {/* Payment Type */}
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-3">
-                      Payment type
+                      Payment type <span className="text-red-500">*</span>
                     </label>
                     <div className="grid grid-cols-2 gap-4">
                       {[
@@ -281,25 +372,28 @@ export default function ApplyPage() {
                         <>
                           <Select
                             label="What is your monthly payment budget?"
-                            options={financeBudgetOptions}
+                            options={[...financeBudgetOptions]}
                             error={errors.financeBudget?.message}
                             placeholder="Select budget..."
+                            required
                             {...register('financeBudget')}
                           />
                           <Select
                             label="What is your credit rating?"
-                            options={creditRatingOptions}
+                            options={[...creditRatingOptions]}
                             error={errors.creditRating?.message}
                             placeholder="Select credit rating..."
+                            required
                             {...register('creditRating')}
                           />
                         </>
                       ) : (
                         <Select
                           label="What is your budget?"
-                          options={cashBudgetOptions}
+                          options={[...cashBudgetOptions]}
                           error={errors.cashBudget?.message}
                           placeholder="Select budget..."
+                          required
                           {...register('cashBudget')}
                         />
                       )}
@@ -353,16 +447,18 @@ export default function ApplyPage() {
                   <div className="grid md:grid-cols-2 gap-5">
                     <Select
                       label="Best time to reach you"
-                      options={bestTimeOptions}
+                      options={[...bestTimeOptions]}
                       error={errors.bestTimeToReach?.message}
                       placeholder="Select..."
+                      required
                       {...register('bestTimeToReach')}
                     />
                     <Select
                       label="What class of license do you hold?"
-                      options={licenseClassOptions}
+                      options={[...licenseClassOptions]}
                       error={errors.licenseClass?.message}
                       placeholder="Select..."
+                      required
                       {...register('licenseClass')}
                     />
                   </div>
@@ -382,7 +478,7 @@ export default function ApplyPage() {
                   {/* Trade-in */}
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-3">
-                      Do you have a trade-in?
+                      Do you have a trade-in? <span className="text-red-500">*</span>
                     </label>
                     <div className="grid grid-cols-3 gap-3">
                       {[
@@ -415,12 +511,12 @@ export default function ApplyPage() {
                     >
                       <p className="text-sm font-medium text-slate-600">Trade-in vehicle details</p>
                       <div className="grid grid-cols-3 gap-4">
-                        <Input label="Year" placeholder="2020" error={errors.tradeInYear?.message} {...register('tradeInYear')} />
-                        <Input label="Make" placeholder="Toyota" error={errors.tradeInMake?.message} {...register('tradeInMake')} />
-                        <Input label="Model" placeholder="Camry" error={errors.tradeInModel?.message} {...register('tradeInModel')} />
+                        <Input label="Year" placeholder="2020" error={errors.tradeInYear?.message} required {...register('tradeInYear')} />
+                        <Input label="Make" placeholder="Toyota" error={errors.tradeInMake?.message} required {...register('tradeInMake')} />
+                        <Input label="Model" placeholder="Camry" error={errors.tradeInModel?.message} required {...register('tradeInModel')} />
                       </div>
                       <div className="grid grid-cols-2 gap-4">
-                        <Input label="Mileage" placeholder="50,000 km" {...register('tradeInMileage')} />
+                        <Input label="Mileage (optional)" placeholder="50,000 km" {...register('tradeInMileage')} />
                         <Input label="VIN (optional)" placeholder="Vehicle ID" {...register('tradeInVin')} />
                       </div>
                     </motion.div>
@@ -443,7 +539,7 @@ export default function ApplyPage() {
                   {/* Cosigner */}
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-3">
-                      Will you have a cosigner?
+                      Will you have a cosigner? <span className="text-red-500">*</span>
                     </label>
                     <div className="grid grid-cols-2 gap-3 max-w-xs">
                       {[
@@ -479,7 +575,7 @@ export default function ApplyPage() {
                         <Input label="Phone" type="tel" placeholder="(416) 555-0124" error={errors.cosignerPhone?.message} required {...register('cosignerPhone')} />
                         <Input label="Email" type="email" placeholder="jane@example.com" error={errors.cosignerEmail?.message} required {...register('cosignerEmail')} />
                       </div>
-                      <Input label="Date of Birth" type="date" {...register('cosignerDateOfBirth')} />
+                      <Input label="Date of Birth (optional)" type="date" {...register('cosignerDateOfBirth')} />
                     </motion.div>
                   )}
                 </motion.div>
@@ -506,8 +602,15 @@ export default function ApplyPage() {
                 </svg>
               </Button>
             ) : (
-              <Button type="button" variant="primary" size="lg" isLoading={isSubmitting} onClick={handleFinalSubmit}>
-                Submit Application
+              <Button 
+                type="button" 
+                variant="primary" 
+                size="lg" 
+                isLoading={isSubmitting} 
+                onClick={handleFinalSubmit}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Submitting...' : 'Submit Application'}
               </Button>
             )}
           </div>

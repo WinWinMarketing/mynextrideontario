@@ -1,10 +1,10 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button, Select, Modal, Input } from '@/components/ui';
 import { Lead, LeadStatus, deadReasonOptions, leadStatusOptions, ShowcaseVehicle, LeadInteractionType } from '@/lib/validation';
-import { formatDate, formatMonthYear } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
 import { DEFAULT_TEMPLATES, EmailTemplate } from '@/lib/email';
 import { Logo } from '@/components/Logo';
 
@@ -22,6 +22,10 @@ type EmailAlert = {
   error?: string;
   type: 'admin-notification' | 'client';
 };
+
+// Industry-standard polling configuration
+const POLL_INTERVAL = 30000; // 30 seconds
+const STALE_TIME = 5000; // Consider data stale after 5 seconds
 
 export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -112,19 +116,98 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
     }
   }, [selectedYear, selectedMonth, analyticsRangeMonths]);
 
+  // Industry-standard polling with abort controller
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const fetchWithAbort = useCallback(async (signal: AbortSignal) => {
+    try {
+      setIsRefreshing(true);
+      const [leadsRes, showcaseRes, alertsRes] = await Promise.all([
+        fetch(`/api/admin/leads?year=${selectedYear}&month=${selectedMonth}`, { signal, cache: 'no-store' }),
+        fetch('/api/admin/showcase', { signal }),
+        fetch('/api/admin/email-logs?limit=20', { signal }),
+      ]);
+
+      if (leadsRes.ok) {
+        const data = await leadsRes.json();
+        const fetchedLeads = data.leads || [];
+        setLeads(fetchedLeads);
+        setLastUpdated(new Date());
+        
+        // Fetch license URLs in parallel
+        const urlPromises = fetchedLeads
+          .filter((l: Lead) => l.driversLicenseKey)
+          .map(async (l: Lead) => {
+            try {
+              const res = await fetch(`/api/admin/leads/${l.id}/license-url?key=${encodeURIComponent(l.driversLicenseKey!)}`, { signal });
+              if (res.ok) {
+                const { url } = await res.json();
+                return { id: l.id, url };
+              }
+            } catch { /* ignore */ }
+            return null;
+          });
+        const results = await Promise.all(urlPromises);
+        const urlMap: Record<string, string> = {};
+        results.forEach(r => r && (urlMap[r.id] = r.url));
+        setLicenseUrls(urlMap);
+      }
+
+      if (showcaseRes.ok) {
+        const data = await showcaseRes.json();
+        setShowcase(data.vehicles || []);
+        setShowcaseEnabled(data.settings?.enabled !== false);
+      }
+
+      if (alertsRes.ok) {
+        const data = await alertsRes.json();
+        setEmailAlerts(data.failures || []);
+      }
+      
+      lastFetchTimeRef.current = Date.now();
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        console.error('Fetch error:', err);
+      }
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [selectedYear, selectedMonth]);
+
+  // Initial fetch and polling setup
   useEffect(() => {
-    fetchLeads();
-    fetchShowcase();
-    fetchEmailAlerts();
-    
-    // Industry-standard polling - 30 seconds to balance real-time with bandwidth
+    abortControllerRef.current = new AbortController();
+    fetchWithAbort(abortControllerRef.current.signal);
+
+    // Industry-standard polling interval
     const pollInterval = setInterval(() => {
-      fetchLeads();
-      fetchEmailAlerts();
-    }, 30000);
-    
-    return () => clearInterval(pollInterval);
-  }, [fetchLeads, fetchShowcase, fetchEmailAlerts]);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
+      fetchWithAbort(abortControllerRef.current.signal);
+    }, POLL_INTERVAL);
+
+    return () => {
+      clearInterval(pollInterval);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [fetchWithAbort]);
+
+  // Manual refresh function
+  const handleManualRefresh = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+    fetchWithAbort(abortControllerRef.current.signal);
+  }, [fetchWithAbort]);
   
   useEffect(() => {
     if (activeTab === 'analytics') {
@@ -254,11 +337,20 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
           <Logo size="sm" />
           <div className="flex items-center justify-between mt-2">
             <p className="text-xs text-slate-500">Admin Dashboard</p>
-            <div className="flex items-center gap-1.5" title="Auto-refresh every 30 seconds">
-              <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-xs text-green-600 font-medium">Live</span>
-            </div>
+            <button 
+              onClick={handleManualRefresh}
+              className="flex items-center gap-1.5 hover:bg-slate-50 px-2 py-1 rounded transition-colors"
+              title={`Auto-refresh every ${POLL_INTERVAL / 1000}s • Click to refresh now`}
+            >
+              <div className={`w-1.5 h-1.5 rounded-full ${isRefreshing ? 'bg-yellow-500 animate-spin' : 'bg-green-500 animate-pulse'}`}></div>
+              <span className="text-xs text-green-600 font-medium">{isRefreshing ? 'Syncing' : 'Live'}</span>
+            </button>
           </div>
+          {lastUpdated && (
+            <p className="text-[10px] text-slate-400 mt-1">
+              Updated {lastUpdated.toLocaleTimeString()}
+            </p>
+          )}
         </div>
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
@@ -540,6 +632,7 @@ function LeadCard({ lead, hasLicense, isStarred, onToggleStar, onViewDetails, on
 }
 
 function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGroupingChange }: any) {
+  // Core statistics
   const stats = {
     total: leads.length,
     new: leads.filter((l: Lead) => l.status === 'new').length,
@@ -549,6 +642,12 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
     dead: leads.filter((l: Lead) => l.status === 'dead').length,
   };
 
+  // Conversion and performance rates
+  const conversionRate = stats.total > 0 ? ((stats.approval / stats.total) * 100).toFixed(1) : '0';
+  const deadRate = stats.total > 0 ? ((stats.dead / stats.total) * 100).toFixed(1) : '0';
+  const activeRate = stats.total > 0 ? (((stats.working + stats.circleBack) / stats.total) * 100).toFixed(1) : '0';
+
+  // Time-based bucketing
   const getWeekKey = (d: Date) => {
     const oneJan = new Date(d.getFullYear(), 0, 1);
     const dayOfYear = ((d.getTime() - oneJan.getTime()) / 86400000) + oneJan.getDay() + 1;
@@ -556,21 +655,31 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
     return `W${String(week).padStart(2, '0')}`;
   };
 
-  const buildBuckets = (list: Lead[], mode: 'weekly' | 'monthly') => {
-    const map = new Map<string, { count: number; label: string; date: Date }>();
+  const getDayKey = (d: Date) => {
+    return d.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
+  const buildBuckets = (list: Lead[], mode: 'weekly' | 'monthly' | 'daily') => {
+    const map = new Map<string, { count: number; label: string; date: Date; statuses: Record<string, number> }>();
     list.forEach((lead) => {
       const d = new Date(lead.createdAt);
-      const key = mode === 'monthly'
-        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-        : getWeekKey(d);
-      const label = mode === 'monthly'
-        ? d.toLocaleDateString('en', { month: 'short' })
-        : key;
+      let key: string, label: string;
+      if (mode === 'monthly') {
+        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        label = d.toLocaleDateString('en', { month: 'short', year: '2-digit' });
+      } else if (mode === 'daily') {
+        key = d.toISOString().split('T')[0];
+        label = getDayKey(d);
+      } else {
+        key = `${d.getFullYear()}-${getWeekKey(d)}`;
+        label = getWeekKey(d);
+      }
       const existing = map.get(key);
       if (existing) {
         existing.count += 1;
+        existing.statuses[lead.status] = (existing.statuses[lead.status] || 0) + 1;
       } else {
-        map.set(key, { count: 1, label, date: d });
+        map.set(key, { count: 1, label, date: d, statuses: { [lead.status]: 1 } });
       }
     });
     return Array.from(map.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -579,6 +688,7 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
   const buckets = buildBuckets(leads, grouping);
   const maxCount = Math.max(...buckets.map(b => b.count), 1);
 
+  // Calculate totals and metrics
   const totals = leads.reduce((acc: any, lead: Lead) => {
     const interactions = lead.interactions || [];
     acc.totalInteractions += interactions.length;
@@ -587,6 +697,7 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
       if (i.type === 'message') acc.messages += 1;
       if (i.type === 'email') acc.emails += 1;
       if (i.type === 'follow-up') acc.followUps += 1;
+      if (i.type === 'note') acc.notes += 1;
     });
     if (lead.closedAt) {
       const days = (new Date(lead.closedAt).getTime() - new Date(lead.createdAt).getTime()) / (1000 * 60 * 60 * 24);
@@ -597,20 +708,73 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
       const hours = (new Date(firstInt.createdAt).getTime() - new Date(lead.createdAt).getTime()) / (1000 * 60 * 60);
       acc.firstResponse.push(hours);
     }
+    // Vehicle type distribution
+    acc.vehicleTypes[lead.formData.vehicleType] = (acc.vehicleTypes[lead.formData.vehicleType] || 0) + 1;
+    // Payment type distribution
+    acc.paymentTypes[lead.formData.paymentType] = (acc.paymentTypes[lead.formData.paymentType] || 0) + 1;
+    // Credit rating distribution (for finance)
+    if (lead.formData.creditRating) {
+      acc.creditRatings[lead.formData.creditRating] = (acc.creditRatings[lead.formData.creditRating] || 0) + 1;
+    }
+    // Dead reasons
+    if (lead.status === 'dead' && lead.deadReason) {
+      acc.deadReasons[lead.deadReason] = (acc.deadReasons[lead.deadReason] || 0) + 1;
+    }
     return acc;
-  }, { calls: 0, messages: 0, emails: 0, followUps: 0, totalInteractions: 0, closures: [], firstResponse: [] });
+  }, { 
+    calls: 0, messages: 0, emails: 0, followUps: 0, notes: 0, totalInteractions: 0, 
+    closures: [] as number[], firstResponse: [] as number[],
+    vehicleTypes: {} as Record<string, number>,
+    paymentTypes: {} as Record<string, number>,
+    creditRatings: {} as Record<string, number>,
+    deadReasons: {} as Record<string, number>,
+  });
 
   const avgInteractions = leads.length ? (totals.totalInteractions / leads.length).toFixed(1) : '0';
   const avgDaysToClose = totals.closures.length ? Math.round(totals.closures.reduce((a: number, b: number) => a + b, 0) / totals.closures.length) : 0;
   const avgResponseHours = totals.firstResponse.length ? (totals.firstResponse.reduce((a: number, b: number) => a + b, 0) / totals.firstResponse.length).toFixed(1) : null;
 
+  // Status colors for charts
+  const statusColors: Record<string, string> = {
+    'new': '#3b82f6',
+    'working': '#eab308',
+    'circle-back': '#06b6d4',
+    'approval': '#22c55e',
+    'dead': '#ef4444',
+  };
+
+  // Vehicle type labels
+  const vehicleLabels: Record<string, string> = {
+    sedan: 'Sedan', suv: 'SUV', hatchback: 'Hatchback',
+    'coupe-convertible': 'Coupe/Conv', truck: 'Truck', minivan: 'Minivan',
+  };
+
+  // Credit labels
+  const creditLabels: Record<string, string> = {
+    poor: 'Poor', fair: 'Fair', good: 'Good', excellent: 'Excellent',
+  };
+
+  // Dead reason labels
+  const deadReasonLabels: Record<string, string> = {
+    'declined': 'Declined',
+    'negative-equity': 'Negative Equity',
+    'no-longer-interested': 'No Interest',
+    'already-purchased': 'Already Purchased',
+    'no-vehicle-of-interest': 'No Vehicle',
+    'cannot-afford-payment': "Can't Afford",
+    'too-far-to-visit': 'Too Far',
+  };
+
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10 overflow-y-auto">
       <div className="max-w-7xl mx-auto">
+        {/* Header */}
         <div className="flex items-center justify-between mb-10">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 mb-3">Analytics & Insights</h1>
-            <p className="text-base text-slate-600">Performance metrics and lead trends</p>
+            <p className="text-base text-slate-600">
+              {leads.length} leads • {rangeMonths === 1 ? 'Current month' : `Last ${rangeMonths} months`}
+            </p>
           </div>
           <div className="flex gap-3">
             <Select
@@ -634,98 +798,454 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
           </div>
         </div>
 
-        <div className="grid md:grid-cols-4 gap-6 mb-10">
-          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-7 text-white shadow-sm">
-            <p className="text-blue-100 text-sm mb-3">Total Leads</p>
-            <p className="text-5xl font-bold">{stats.total}</p>
+        {/* KPI Cards Row 1 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
+          <div className="bg-gradient-to-br from-slate-700 to-slate-800 rounded-xl p-5 text-white">
+            <p className="text-slate-300 text-xs font-medium mb-2">Total Leads</p>
+            <p className="text-3xl font-bold">{stats.total}</p>
           </div>
-          <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-7 text-white shadow-sm">
-            <p className="text-emerald-100 text-sm mb-3">Avg Interactions</p>
-            <p className="text-5xl font-bold">{avgInteractions}</p>
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-5 text-white">
+            <p className="text-blue-100 text-xs font-medium mb-2">New</p>
+            <p className="text-3xl font-bold">{stats.new}</p>
           </div>
-          <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-7 text-white shadow-sm">
-            <p className="text-indigo-100 text-sm mb-3">Avg Days to Close</p>
-            <p className="text-5xl font-bold">{avgDaysToClose}</p>
+          <div className="bg-gradient-to-br from-yellow-500 to-amber-500 rounded-xl p-5 text-white">
+            <p className="text-yellow-100 text-xs font-medium mb-2">Working</p>
+            <p className="text-3xl font-bold">{stats.working}</p>
           </div>
-          <div className="bg-gradient-to-br from-orange-500 to-amber-600 rounded-xl p-7 text-white shadow-sm">
-            <p className="text-orange-100 text-sm mb-3">First Response</p>
-            <p className="text-5xl font-bold">{avgResponseHours !== null ? `${avgResponseHours}h` : '—'}</p>
+          <div className="bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl p-5 text-white">
+            <p className="text-cyan-100 text-xs font-medium mb-2">Circle Back</p>
+            <p className="text-3xl font-bold">{stats.circleBack}</p>
+          </div>
+          <div className="bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl p-5 text-white">
+            <p className="text-emerald-100 text-xs font-medium mb-2">Approved</p>
+            <p className="text-3xl font-bold">{stats.approval}</p>
+          </div>
+          <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-xl p-5 text-white">
+            <p className="text-red-100 text-xs font-medium mb-2">Dead</p>
+            <p className="text-3xl font-bold">{stats.dead}</p>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl p-10 border border-slate-200 shadow-sm mb-10">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h3 className="text-2xl font-bold text-slate-800 mb-2">Lead Volume</h3>
-              <p className="text-sm text-slate-500">{grouping === 'weekly' ? 'Weekly' : 'Monthly'} breakdown</p>
+        {/* KPI Cards Row 2 - Performance Metrics */}
+        <div className="grid md:grid-cols-4 gap-4 mb-8">
+          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-medium text-slate-500">Conversion Rate</p>
+              <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded font-medium">{conversionRate}%</span>
             </div>
-            <span className="text-sm font-medium text-slate-600 bg-slate-100 px-3 py-1 rounded">Peak: {maxCount}</span>
+            <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: 0 }} 
+                animate={{ width: `${conversionRate}%` }} 
+                transition={{ duration: 1, delay: 0.2 }}
+                className="h-full bg-gradient-to-r from-green-400 to-emerald-500 rounded-full" 
+              />
+            </div>
+            <p className="text-xs text-slate-400 mt-2">{stats.approval} of {stats.total} approved</p>
           </div>
-          
-          {buckets.length === 0 ? (
-            <p className="text-center text-slate-400 py-12">No data available for selected range</p>
-          ) : (
-            <div className="space-y-6">
-              <div className="flex items-end gap-2 h-64">
-                {buckets.map((bucket) => (
-                  <div key={bucket.label} className="flex-1 flex flex-col items-center gap-2">
-                    <div className="w-full bg-slate-100 rounded-t-lg overflow-hidden h-full flex items-end">
-                      <div 
-                        className="w-full bg-gradient-to-t from-primary-600 to-primary-500 rounded-t-lg transition-all duration-500"
-                        style={{ height: `${(bucket.count / maxCount) * 100}%` }}
-                      />
+          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-medium text-slate-500">Active Pipeline</p>
+              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-medium">{activeRate}%</span>
+            </div>
+            <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: 0 }} 
+                animate={{ width: `${activeRate}%` }} 
+                transition={{ duration: 1, delay: 0.3 }}
+                className="h-full bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full" 
+              />
+            </div>
+            <p className="text-xs text-slate-400 mt-2">{stats.working + stats.circleBack} leads in progress</p>
+          </div>
+          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-medium text-slate-500">Dead Rate</p>
+              <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-medium">{deadRate}%</span>
+            </div>
+            <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: 0 }} 
+                animate={{ width: `${deadRate}%` }} 
+                transition={{ duration: 1, delay: 0.4 }}
+                className="h-full bg-gradient-to-r from-red-400 to-rose-500 rounded-full" 
+              />
+            </div>
+            <p className="text-xs text-slate-400 mt-2">{stats.dead} leads closed</p>
+          </div>
+          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-medium text-slate-500">Avg Response Time</p>
+              <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded font-medium">
+                {avgResponseHours ? `${avgResponseHours}h` : 'N/A'}
+              </span>
+            </div>
+            <div className="text-2xl font-bold text-slate-900 mt-2">
+              {avgResponseHours ? `${avgResponseHours} hrs` : '—'}
+            </div>
+            <p className="text-xs text-slate-400 mt-1">First contact time</p>
+          </div>
+        </div>
+
+        {/* Main Charts Grid */}
+        <div className="grid lg:grid-cols-2 gap-6 mb-8">
+          {/* Lead Volume Chart */}
+          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">Lead Volume Over Time</h3>
+                <p className="text-xs text-slate-500 mt-1">{grouping === 'weekly' ? 'Weekly' : 'Monthly'} breakdown</p>
+              </div>
+              {buckets.length > 0 && (
+                <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                  Peak: {maxCount}
+                </span>
+              )}
+            </div>
+            
+            {buckets.length === 0 ? (
+              <div className="h-64 flex items-center justify-center text-slate-400">
+                <div className="text-center">
+                  <svg className="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  <p>No data for selected period</p>
+                </div>
+              </div>
+            ) : (
+              <div className="h-64 flex items-end gap-1">
+                {buckets.map((bucket, idx) => (
+                  <div key={idx} className="flex-1 flex flex-col items-center gap-1 group">
+                    <div className="relative w-full bg-slate-50 rounded-t overflow-hidden h-52 flex items-end">
+                      <motion.div
+                        initial={{ height: 0 }}
+                        animate={{ height: `${(bucket.count / maxCount) * 100}%` }}
+                        transition={{ duration: 0.5, delay: idx * 0.05 }}
+                        className="w-full bg-gradient-to-t from-primary-600 to-primary-400 rounded-t relative group-hover:from-primary-500 group-hover:to-primary-300 transition-colors"
+                      >
+                        <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                          {bucket.count} leads
+                        </div>
+                      </motion.div>
                     </div>
-                    <span className="text-xs font-medium text-slate-600">{bucket.label}</span>
-                    <span className="text-sm font-bold text-slate-900">{bucket.count}</span>
+                    <span className="text-[10px] font-medium text-slate-500 truncate w-full text-center">{bucket.label}</span>
                   </div>
                 ))}
               </div>
-              
-              {buckets.length > 1 && (
-                <div className="pt-4 border-t border-slate-200">
-                  <svg viewBox="0 0 100 40" className="w-full h-20" preserveAspectRatio="none">
-                    <defs>
-                      <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" style={{ stopColor: '#3b82f6', stopOpacity: 1 }} />
-                        <stop offset="100%" style={{ stopColor: '#8b5cf6', stopOpacity: 1 }} />
-                      </linearGradient>
-                    </defs>
-                    <polyline
-                      fill="none"
-                      stroke="url(#lineGradient)"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      points={buckets.map((b, idx) => {
-                        const x = (idx / (buckets.length - 1)) * 100;
-                        const y = 40 - (b.count / maxCount) * 35;
-                        return `${x},${y}`;
-                      }).join(' ')}
-                    />
-                    {buckets.map((b, idx) => {
+            )}
+            
+            {/* Trend Line */}
+            {buckets.length > 1 && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <p className="text-xs text-slate-500 mb-2">Trend Line</p>
+                <svg viewBox="0 0 100 30" className="w-full h-12" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="trendGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" style={{ stopColor: '#3b82f6', stopOpacity: 1 }} />
+                      <stop offset="100%" style={{ stopColor: '#8b5cf6', stopOpacity: 1 }} />
+                    </linearGradient>
+                    <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" style={{ stopColor: '#3b82f6', stopOpacity: 0.3 }} />
+                      <stop offset="100%" style={{ stopColor: '#3b82f6', stopOpacity: 0 }} />
+                    </linearGradient>
+                  </defs>
+                  <polygon
+                    fill="url(#areaGradient)"
+                    points={`0,30 ${buckets.map((b, idx) => {
                       const x = (idx / (buckets.length - 1)) * 100;
-                      const y = 40 - (b.count / maxCount) * 35;
-                      return <circle key={idx} cx={x} cy={y} r="3" fill="#3b82f6" stroke="#fff" strokeWidth="2" />;
-                    })}
-                  </svg>
+                      const y = 30 - (b.count / maxCount) * 25;
+                      return `${x},${y}`;
+                    }).join(' ')} 100,30`}
+                  />
+                  <polyline
+                    fill="none"
+                    stroke="url(#trendGradient)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points={buckets.map((b, idx) => {
+                      const x = (idx / (buckets.length - 1)) * 100;
+                      const y = 30 - (b.count / maxCount) * 25;
+                      return `${x},${y}`;
+                    }).join(' ')}
+                  />
+                  {buckets.map((b, idx) => {
+                    const x = (idx / (buckets.length - 1)) * 100;
+                    const y = 30 - (b.count / maxCount) * 25;
+                    return <circle key={idx} cx={x} cy={y} r="2.5" fill="#3b82f6" stroke="#fff" strokeWidth="1.5" />;
+                  })}
+                </svg>
+              </div>
+            )}
+          </div>
+
+          {/* Status Distribution Pie Chart */}
+          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-800 mb-6">Status Distribution</h3>
+            <div className="flex items-center gap-8">
+              {/* Donut Chart */}
+              <div className="relative w-48 h-48 flex-shrink-0">
+                <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                  {(() => {
+                    const total = stats.total || 1;
+                    const data = [
+                      { status: 'new', count: stats.new },
+                      { status: 'working', count: stats.working },
+                      { status: 'circle-back', count: stats.circleBack },
+                      { status: 'approval', count: stats.approval },
+                      { status: 'dead', count: stats.dead },
+                    ];
+                    let cumulativePercent = 0;
+                    return data.map((item, idx) => {
+                      const percent = (item.count / total) * 100;
+                      const offset = cumulativePercent;
+                      cumulativePercent += percent;
+                      const circumference = 2 * Math.PI * 35;
+                      const strokeDasharray = `${(percent / 100) * circumference} ${circumference}`;
+                      const strokeDashoffset = -(offset / 100) * circumference;
+                      return (
+                        <circle
+                          key={item.status}
+                          cx="50"
+                          cy="50"
+                          r="35"
+                          fill="none"
+                          stroke={statusColors[item.status]}
+                          strokeWidth="20"
+                          strokeDasharray={strokeDasharray}
+                          strokeDashoffset={strokeDashoffset}
+                          className="transition-all duration-500"
+                        />
+                      );
+                    });
+                  })()}
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <p className="text-3xl font-bold text-slate-900">{stats.total}</p>
+                    <p className="text-xs text-slate-500">Total</p>
+                  </div>
                 </div>
-              )}
+              </div>
+              {/* Legend */}
+              <div className="flex-1 space-y-3">
+                {[
+                  { label: 'New', value: stats.new, color: statusColors['new'] },
+                  { label: 'Working', value: stats.working, color: statusColors['working'] },
+                  { label: 'Circle Back', value: stats.circleBack, color: statusColors['circle-back'] },
+                  { label: 'Approved', value: stats.approval, color: statusColors['approval'] },
+                  { label: 'Dead', value: stats.dead, color: statusColors['dead'] },
+                ].map(item => (
+                  <div key={item.label} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                      <span className="text-sm text-slate-600">{item.label}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-900">{item.value}</span>
+                      <span className="text-xs text-slate-400">
+                        ({stats.total > 0 ? ((item.value / stats.total) * 100).toFixed(0) : 0}%)
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-          )}
+          </div>
         </div>
 
-        <div className="grid md:grid-cols-4 gap-6">
-          {[
-            { label: 'Calls Logged', value: totals.calls },
-            { label: 'Messages Sent', value: totals.messages },
-            { label: 'Emails Sent', value: totals.emails },
-            { label: 'Follow Ups', value: totals.followUps },
-          ].map(metric => (
-            <div key={metric.label} className="bg-white rounded-xl p-7 border border-slate-200 shadow-sm">
-              <p className="text-sm text-slate-500 mb-3 font-medium">{metric.label}</p>
-              <p className="text-4xl font-bold text-slate-900">{metric.value}</p>
+        {/* Secondary Charts Row */}
+        <div className="grid lg:grid-cols-3 gap-6 mb-8">
+          {/* Vehicle Type Distribution */}
+          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-800 mb-4">Vehicle Types</h3>
+            <div className="space-y-3">
+              {Object.entries(totals.vehicleTypes)
+                .sort(([, a], [, b]) => (b as number) - (a as number))
+                .map(([type, count]) => {
+                  const percent = stats.total > 0 ? ((count as number) / stats.total) * 100 : 0;
+                  return (
+                    <div key={type}>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-slate-600">{vehicleLabels[type] || type}</span>
+                        <span className="font-medium text-slate-900">{count as number}</span>
+                      </div>
+                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${percent}%` }}
+                          transition={{ duration: 0.5 }}
+                          className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              {Object.keys(totals.vehicleTypes).length === 0 && (
+                <p className="text-center text-slate-400 py-4">No data</p>
+              )}
             </div>
-          ))}
+          </div>
+
+          {/* Payment Type Distribution */}
+          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-800 mb-4">Payment Type</h3>
+            <div className="flex items-center justify-center h-32">
+              {Object.keys(totals.paymentTypes).length > 0 ? (
+                <div className="flex gap-8 items-end">
+                  {Object.entries(totals.paymentTypes).map(([type, count]) => {
+                    const maxPayment = Math.max(...Object.values(totals.paymentTypes) as number[]);
+                    const height = maxPayment > 0 ? ((count as number) / maxPayment) * 100 : 0;
+                    return (
+                      <div key={type} className="flex flex-col items-center gap-2">
+                        <span className="text-2xl font-bold text-slate-900">{count as number}</span>
+                        <motion.div
+                          initial={{ height: 0 }}
+                          animate={{ height: `${height}px` }}
+                          transition={{ duration: 0.5 }}
+                          className={`w-16 rounded-t ${type === 'finance' ? 'bg-gradient-to-t from-blue-600 to-blue-400' : 'bg-gradient-to-t from-emerald-600 to-emerald-400'}`}
+                          style={{ maxHeight: '80px' }}
+                        />
+                        <span className="text-sm font-medium text-slate-600 capitalize">{type}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-slate-400">No data</p>
+              )}
+            </div>
+          </div>
+
+          {/* Credit Rating Distribution */}
+          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-800 mb-4">Credit Profiles</h3>
+            <div className="space-y-3">
+              {['poor', 'fair', 'good', 'excellent'].map((rating) => {
+                const count = (totals.creditRatings[rating] as number) || 0;
+                const financeTotal = totals.paymentTypes['finance'] as number || 1;
+                const percent = (count / financeTotal) * 100;
+                const colors: Record<string, string> = {
+                  poor: 'from-red-500 to-orange-500',
+                  fair: 'from-orange-500 to-yellow-500',
+                  good: 'from-yellow-500 to-green-500',
+                  excellent: 'from-green-500 to-emerald-500',
+                };
+                return (
+                  <div key={rating}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-slate-600">{creditLabels[rating]}</span>
+                      <span className="font-medium text-slate-900">{count}</span>
+                    </div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${percent}%` }}
+                        transition={{ duration: 0.5 }}
+                        className={`h-full bg-gradient-to-r ${colors[rating]} rounded-full`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Activity & Performance Row */}
+        <div className="grid lg:grid-cols-2 gap-6 mb-8">
+          {/* Interaction Activity */}
+          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-800 mb-6">Activity Breakdown</h3>
+            <div className="grid grid-cols-2 gap-4">
+              {[
+                { label: 'Calls', value: totals.calls, icon: '📞', color: 'from-blue-500 to-blue-600' },
+                { label: 'Messages', value: totals.messages, icon: '💬', color: 'from-green-500 to-emerald-600' },
+                { label: 'Emails', value: totals.emails, icon: '📧', color: 'from-purple-500 to-violet-600' },
+                { label: 'Follow-ups', value: totals.followUps, icon: '🔄', color: 'from-orange-500 to-amber-600' },
+              ].map(item => (
+                <div key={item.label} className={`bg-gradient-to-br ${item.color} rounded-xl p-4 text-white`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">{item.icon}</span>
+                    <span className="text-sm font-medium opacity-90">{item.label}</span>
+                  </div>
+                  <p className="text-3xl font-bold">{item.value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-slate-500">Avg interactions per lead</span>
+                <span className="text-lg font-bold text-slate-900">{avgInteractions}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Dead Lead Reasons */}
+          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-800 mb-6">Dead Lead Reasons</h3>
+            {stats.dead === 0 ? (
+              <div className="h-48 flex items-center justify-center text-slate-400">
+                <div className="text-center">
+                  <span className="text-4xl mb-2 block">🎉</span>
+                  <p>No dead leads!</p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {Object.entries(totals.deadReasons)
+                  .sort(([, a], [, b]) => (b as number) - (a as number))
+                  .slice(0, 6)
+                  .map(([reason, count]) => {
+                    const percent = stats.dead > 0 ? ((count as number) / stats.dead) * 100 : 0;
+                    return (
+                      <div key={reason}>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-slate-600">{deadReasonLabels[reason] || reason}</span>
+                          <span className="font-medium text-slate-900">{count as number} ({percent.toFixed(0)}%)</span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${percent}%` }}
+                            transition={{ duration: 0.5 }}
+                            className="h-full bg-gradient-to-r from-red-400 to-rose-500 rounded-full"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                {Object.keys(totals.deadReasons).length === 0 && stats.dead > 0 && (
+                  <p className="text-center text-slate-400 py-4">No reasons recorded</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Performance Summary */}
+        <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-8 text-white">
+          <h3 className="text-xl font-bold mb-6">Performance Summary</h3>
+          <div className="grid md:grid-cols-4 gap-6">
+            <div className="bg-white/10 rounded-lg p-4">
+              <p className="text-slate-300 text-sm mb-1">Total Interactions</p>
+              <p className="text-4xl font-bold">{totals.totalInteractions}</p>
+            </div>
+            <div className="bg-white/10 rounded-lg p-4">
+              <p className="text-slate-300 text-sm mb-1">Avg Days to Close</p>
+              <p className="text-4xl font-bold">{avgDaysToClose}</p>
+            </div>
+            <div className="bg-white/10 rounded-lg p-4">
+              <p className="text-slate-300 text-sm mb-1">Conversion Rate</p>
+              <p className="text-4xl font-bold">{conversionRate}%</p>
+            </div>
+            <div className="bg-white/10 rounded-lg p-4">
+              <p className="text-slate-300 text-sm mb-1">Success Ratio</p>
+              <p className="text-4xl font-bold">
+                {stats.total > 0 ? `${stats.approval}:${stats.dead}` : '0:0'}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </motion.div>
