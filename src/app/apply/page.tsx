@@ -19,13 +19,12 @@ import {
   licenseClassOptions,
 } from '@/lib/validation';
 
-type FormStep = 1 | 2 | 3 | 4;
+type FormStep = 1 | 2 | 3;
 
 const STEPS = [
   { step: 1, title: 'Vehicle Preferences', desc: 'Tell us about your ideal vehicle' },
   { step: 2, title: 'Your Information', desc: 'Contact details' },
   { step: 3, title: 'Additional Details', desc: 'Trade-in & license info' },
-  { step: 4, title: 'Review & Submit', desc: 'Confirm your application' },
 ];
 
 export default function ApplyPage() {
@@ -79,7 +78,7 @@ export default function ApplyPage() {
 
   const nextStep = async () => {
     const isValid = await validateStep();
-    if (isValid && currentStep < 4) {
+    if (isValid && currentStep < 3) {
       setCurrentStep((currentStep + 1) as FormStep);
     }
   };
@@ -88,6 +87,14 @@ export default function ApplyPage() {
     if (currentStep > 1) {
       setCurrentStep((currentStep - 1) as FormStep);
     }
+  };
+  
+  const handleFinalSubmit = async () => {
+    const isValid = await validateStep();
+    if (!isValid) return;
+    
+    const data = getValues();
+    await onSubmit(data);
   };
 
   const onSubmit = async (data: LeadApplicationData) => {
@@ -477,68 +484,6 @@ export default function ApplyPage() {
                   )}
                 </motion.div>
               )}
-
-              {/* Step 4: Review */}
-              {currentStep === 4 && (
-                <motion.div
-                  key="step4"
-                  initial={{ opacity: 0, x: 30 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -30 }}
-                  transition={{ duration: 0.3 }}
-                  className="space-y-6"
-                >
-                  <div className="text-center mb-6">
-                    <p className="text-slate-600">Please review your information before submitting.</p>
-                  </div>
-
-                  <ReviewCard title="Vehicle Preferences">
-                    <ReviewItem label="Timing" value={getValues('urgency')} />
-                    <ReviewItem label="Vehicle Type" value={getValues('vehicleType')} />
-                    <ReviewItem label="Payment" value={getValues('paymentType')} />
-                    {paymentType === 'finance' && (
-                      <>
-                        <ReviewItem label="Monthly Budget" value={getValues('financeBudget')} />
-                        <ReviewItem label="Credit Rating" value={getValues('creditRating')} />
-                      </>
-                    )}
-                    {paymentType === 'cash' && <ReviewItem label="Cash Budget" value={getValues('cashBudget')} />}
-                  </ReviewCard>
-
-                  <ReviewCard title="Contact Information">
-                    <ReviewItem label="Name" value={getValues('fullName')} />
-                    <ReviewItem label="Phone" value={getValues('phone')} />
-                    <ReviewItem label="Email" value={getValues('email')} />
-                    <ReviewItem label="DOB" value={getValues('dateOfBirth')} />
-                    <ReviewItem label="Best Time" value={getValues('bestTimeToReach')} />
-                    <ReviewItem label="License Class" value={getValues('licenseClass')} />
-                  </ReviewCard>
-
-                  <ReviewCard title="Additional Details">
-                    <ReviewItem label="Trade-in" value={getValues('tradeIn')} />
-                    {(tradeIn === 'yes' || tradeIn === 'unsure') && (
-                      <ReviewItem label="Trade-in Vehicle" value={`${getValues('tradeInYear')} ${getValues('tradeInMake')} ${getValues('tradeInModel')}`} />
-                    )}
-                    <ReviewItem label="Cosigner" value={getValues('cosigner')} />
-                    {cosigner === 'yes' && (
-                      <ReviewItem label="Cosigner Name" value={getValues('cosignerFullName')} />
-                    )}
-                    {licenseFile && <ReviewItem label="License Uploaded" value={licenseFile.name} />}
-                  </ReviewCard>
-
-                  {submitError && (
-                    <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-                      {submitError}
-                    </div>
-                  )}
-
-                  <div className="p-4 bg-primary-50/50 rounded-xl border border-primary-100 text-center">
-                    <p className="text-sm text-primary-700">
-                      You will receive a response within <strong>24 hours</strong> of submitting your application.
-                    </p>
-                  </div>
-                </motion.div>
-              )}
             </AnimatePresence>
           </div>
 
@@ -553,7 +498,7 @@ export default function ApplyPage() {
               </Button>
             ) : <div />}
 
-            {currentStep < 4 ? (
+            {currentStep < 3 ? (
               <Button type="button" variant="primary" onClick={nextStep}>
                 Continue
                 <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -561,31 +506,13 @@ export default function ApplyPage() {
                 </svg>
               </Button>
             ) : (
-              <Button type="submit" variant="primary" size="lg" isLoading={isSubmitting}>
+              <Button type="button" variant="primary" size="lg" isLoading={isSubmitting} onClick={handleFinalSubmit}>
                 Submit Application
               </Button>
             )}
           </div>
         </form>
       </div>
-    </div>
-  );
-}
-
-function ReviewCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="p-5 bg-slate-50/80 rounded-2xl border border-slate-100">
-      <h3 className="font-semibold text-slate-900 mb-3">{title}</h3>
-      <div className="grid grid-cols-2 gap-3 text-sm">{children}</div>
-    </div>
-  );
-}
-
-function ReviewItem({ label, value }: { label: string; value?: string }) {
-  return (
-    <div>
-      <span className="text-slate-500">{label}:</span>{' '}
-      <span className="text-slate-900 font-medium">{value || '-'}</span>
     </div>
   );
 }

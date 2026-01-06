@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { leadApplicationSchema } from '@/lib/validation';
 import { saveLead } from '@/lib/s3';
-import { sendLeadNotificationEmail } from '@/lib/email';
 
 export async function POST(request: NextRequest) {
   try {
@@ -53,23 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Save lead to S3
-    console.log('💾 Saving lead to S3...');
     const lead = await saveLead(formDataValidated, licenseFileData);
-    console.log('✅ Lead saved successfully:', {
-      id: lead.id,
-      hasLicense: !!lead.driversLicenseKey,
-      licenseKey: lead.driversLicenseKey,
-    });
-
-    // Auto-email disabled - admin will manually send emails from dashboard
-    // Uncomment below if you want auto-notifications on new leads
-    // try {
-    //   console.log('📧 Attempting to send email notification...');
-    //   const emailSent = await sendLeadNotificationEmail(lead);
-    //   console.log(emailSent ? '✅ Email sent' : '⚠️ Email not sent');
-    // } catch (emailError) {
-    //   console.error('❌ Email notification failed:', emailError);
-    // }
 
     return NextResponse.json(
       { 
