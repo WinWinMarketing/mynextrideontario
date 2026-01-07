@@ -14,15 +14,6 @@ interface AdminDashboardProps {
 
 type TabType = 'dashboard' | 'leads' | 'templates' | 'analytics' | 'settings';
 
-type EmailAlert = {
-  id: string;
-  to: string;
-  subject: string;
-  timestamp: string;
-  error?: string;
-  type: 'admin-notification' | 'client';
-};
-
 // Data refresh timing
 
 export function AdminDashboard({ onLogout }: AdminDashboardProps) {
@@ -38,8 +29,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [starredLeads, setStarredLeads] = useState<Set<string>>(new Set());
   const [licenseUrls, setLicenseUrls] = useState<Record<string, string>>({});
   const [detailModal, setDetailModal] = useState<Lead | null>(null);
-  const [emailModal, setEmailModal] = useState<{ lead: Lead } | null>(null);
-  const [emailAlerts, setEmailAlerts] = useState<EmailAlert[]>([]);
   const [templates] = useState<EmailTemplate[]>(DEFAULT_TEMPLATES);
 
   // Storage estimation (for settings)
@@ -54,10 +43,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const fetchWithAbort = useCallback(async (signal: AbortSignal) => {
     try {
       setIsRefreshing(true);
-      const [leadsRes, alertsRes] = await Promise.all([
-        fetch(`/api/admin/leads?year=${selectedYear}&month=${selectedMonth}`, { signal, cache: 'no-store' }),
-        fetch('/api/admin/email-logs?limit=20', { signal }),
-      ]);
+      const leadsRes = await fetch(`/api/admin/leads?year=${selectedYear}&month=${selectedMonth}`, { signal, cache: 'no-store' });
 
       if (leadsRes.ok) {
         const data = await leadsRes.json();
@@ -82,11 +68,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
         const urlMap: Record<string, string> = {};
         results.forEach(r => r && (urlMap[r.id] = r.url));
         setLicenseUrls(urlMap);
-      }
-
-      if (alertsRes.ok) {
-        const data = await alertsRes.json();
-        setEmailAlerts(data.failures || []);
       }
       
       lastFetchTimeRef.current = Date.now();
@@ -336,7 +317,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
       {/* Main Content */}
       <main className="ml-64 flex-1 min-h-screen">
         <AnimatePresence mode="wait">
-          {activeTab === 'dashboard' && <DashboardView key="dash" stats={stats} analytics={analytics} emailAlerts={emailAlerts} onNav={setActiveTab} />}
+          {activeTab === 'dashboard' && <DashboardView key="dash" stats={stats} analytics={analytics} />}
           {activeTab === 'leads' && (
             <LeadsView
               key="leads"
@@ -353,7 +334,6 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
               onToggleStar={toggleStar}
               onStatusChange={updateStatus}
               onViewDetails={setDetailModal}
-              onSendEmail={(lead: Lead) => setEmailModal({ lead })}
             />
           )}
           {activeTab === 'analytics' && (
@@ -366,7 +346,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
               onGroupingChange={setAnalyticsGrouping}
             />
           )}
-          {activeTab === 'templates' && <TemplatesView key="templates" templates={templates} />}
+          {activeTab === 'templates' && <TemplatesView key="templates" templates={templates} leads={leads} />}
           {activeTab === 'settings' && (
             <SettingsView
               key="settings"
@@ -393,22 +373,15 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
             onStatusChange={updateStatus}
             onSaveNotes={saveNotes}
             onClose={() => setDetailModal(null)}
-            onSendEmail={() => { setDetailModal(null); setEmailModal({ lead: detailModal }); }}
             onLogInteraction={(type: LeadInteractionType, note?: string) => logInteraction(detailModal.id, type, note)}
           />
-        )}
-      </Modal>
-
-      <Modal isOpen={!!emailModal} onClose={() => setEmailModal(null)} title="Send Email" size="lg">
-        {emailModal && (
-          <EmailComposer lead={emailModal.lead} templates={templates} onClose={() => setEmailModal(null)} />
         )}
       </Modal>
     </div>
   );
 }
 
-function DashboardView({ stats, analytics, emailAlerts, onNav }: { stats: any; analytics: any; emailAlerts: EmailAlert[]; onNav: (tab: TabType) => void }) {
+function DashboardView({ stats, analytics }: { stats: any; analytics: any }) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
       <div className="max-w-7xl mx-auto">
@@ -416,21 +389,6 @@ function DashboardView({ stats, analytics, emailAlerts, onNav }: { stats: any; a
           <h1 className="text-3xl font-bold text-slate-900 mb-3">Dashboard Overview</h1>
           <p className="text-base text-slate-600">Current month lead statistics and performance metrics</p>
         </div>
-
-        {emailAlerts.length > 0 && (
-          <div className="mb-10 bg-red-50 border-l-4 border-red-500 rounded-lg p-6">
-            <div className="flex items-start gap-4">
-              <svg className="w-6 h-6 text-red-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <div className="flex-1">
-                <h3 className="font-semibold text-red-900 mb-2">Email Delivery Issues</h3>
-                <p className="text-sm text-red-700 mb-4">{emailAlerts.length} email{emailAlerts.length > 1 ? 's' : ''} failed to send. Check AWS SES permissions.</p>
-                <Button size="sm" variant="secondary" onClick={() => onNav('analytics')}>View Details</Button>
-              </div>
-            </div>
-          </div>
-        )}
 
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-5 mb-10">
           {[
@@ -480,7 +438,7 @@ function DashboardView({ stats, analytics, emailAlerts, onNav }: { stats: any; a
   );
 }
 
-function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter, licenseUrls, starredLeads, onMonthChange, onYearChange, onFilterChange, onToggleStar, onStatusChange, onViewDetails, onSendEmail }: any) {
+function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter, licenseUrls, starredLeads, onMonthChange, onYearChange, onFilterChange, onToggleStar, onViewDetails }: any) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
       <div className="max-w-7xl mx-auto">
@@ -527,7 +485,6 @@ function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter
                 isStarred={starredLeads.has(lead.id)}
                 onToggleStar={() => onToggleStar(lead.id)}
                 onViewDetails={() => onViewDetails(lead)}
-                onSendEmail={() => onSendEmail(lead)}
               />
             ))}
           </div>
@@ -537,7 +494,7 @@ function LeadsView({ leads, isLoading, selectedMonth, selectedYear, statusFilter
   );
 }
 
-function LeadCard({ lead, hasLicense, isStarred, onToggleStar, onViewDetails, onSendEmail }: any) {
+function LeadCard({ lead, hasLicense, isStarred, onToggleStar, onViewDetails }: any) {
   const { formData } = lead;
   const statusColors: Record<string, string> = {
     'new': 'bg-blue-100 text-blue-700 border-blue-200',
@@ -572,14 +529,9 @@ function LeadCard({ lead, hasLicense, isStarred, onToggleStar, onViewDetails, on
         <p className="text-xs text-slate-500 mt-2">{formData.vehicleType} • {formData.paymentType}</p>
       </div>
       
-      <div className="flex gap-2">
-        <Button size="sm" variant="primary" onClick={onViewDetails} className="flex-1">
-          View Details
-        </Button>
-        <Button size="sm" variant="secondary" onClick={onSendEmail}>
-          Email
-        </Button>
-      </div>
+      <Button size="sm" variant="primary" onClick={onViewDetails} className="w-full">
+        View Details
+      </Button>
     </div>
   );
 }
@@ -1461,73 +1413,264 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
   );
 }
 
-function TemplatesView({ templates }: { templates: EmailTemplate[] }) {
+function TemplatesView({ templates, leads }: { templates: EmailTemplate[]; leads: Lead[] }) {
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Get the processed template content with variables replaced
+  const getProcessedContent = (content: string) => {
+    if (!selectedLead) return content;
+    
+    const formattedVehicle = selectedLead.formData.vehicleType || 'vehicle';
+    const formattedBudget = selectedLead.formData.paymentType === 'finance'
+      ? (selectedLead.formData.financeBudget || '[budget not specified]')
+      : (selectedLead.formData.cashBudget || '[budget not specified]');
+    const formattedCredit = selectedLead.formData.creditRating || '[not provided]';
+    const formattedUrgency = selectedLead.formData.urgency?.replace(/-/g, ' ') || '[timing not specified]';
+    
+    const vars: Record<string, string> = {
+      '{{name}}': selectedLead.formData.fullName || '[name]',
+      '{{vehicle}}': formattedVehicle,
+      '{{budget}}': formattedBudget,
+      '{{credit}}': formattedCredit,
+      '{{urgency}}': formattedUrgency,
+    };
+    
+    let result = content;
+    Object.entries(vars).forEach(([k, v]) => {
+      const pattern = new RegExp(k.replace(/[{}]/g, '\\$&'), 'g');
+      result = result.replace(pattern, v);
+    });
+    return result;
+  };
+
+  const copyToClipboard = async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  // Sort leads by date (most recent first)
+  const recentLeads = [...leads].sort((a, b) => 
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  ).slice(0, 20);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
       <div className="max-w-7xl mx-auto">
         <div className="mb-10">
           <h1 className="text-3xl font-bold text-slate-800 mb-3">Email Templates</h1>
-          <p className="text-base text-slate-600">{templates.length} pre-built templates available for quick responses</p>
+          <p className="text-base text-slate-600">Select a lead and template to generate copy-ready email content</p>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* Template List */}
-          <div className="lg:col-span-1 space-y-3">
-            {templates.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setSelectedTemplate(t)}
-                className={`w-full text-left p-5 rounded-xl border-2 transition-all ${
-                  selectedTemplate?.id === t.id
-                    ? 'bg-primary-50 border-primary-300 shadow-sm'
-                    : 'bg-white border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <h3 className="font-semibold text-slate-900 mb-1">{t.name}</h3>
-                <p className="text-xs text-slate-500">{t.category}</p>
-              </button>
-            ))}
+        <div className="grid lg:grid-cols-12 gap-6">
+          {/* Left Column - Recent Leads */}
+          <div className="lg:col-span-3">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+              <h3 className="text-sm font-semibold text-slate-700 mb-4">Recent Leads</h3>
+              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                {recentLeads.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-4">No leads yet</p>
+                ) : (
+                  recentLeads.map(lead => (
+                    <button
+                      key={lead.id}
+                      onClick={() => setSelectedLead(lead)}
+                      className={`w-full text-left p-3 rounded-lg transition-all ${
+                        selectedLead?.id === lead.id
+                          ? 'bg-primary-50 border-2 border-primary-300'
+                          : 'bg-slate-50 border-2 border-transparent hover:border-slate-200'
+                      }`}
+                    >
+                      <p className="font-medium text-slate-900 text-sm truncate">{lead.formData.fullName}</p>
+                      <p className="text-xs text-slate-500 truncate">{lead.formData.email}</p>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Template Preview */}
-          <div className="lg:col-span-2">
+          {/* Middle Column - Templates List */}
+          <div className="lg:col-span-3">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+              <h3 className="text-sm font-semibold text-slate-700 mb-4">Email Templates</h3>
+              <div className="space-y-2">
+                {templates.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setSelectedTemplate(t)}
+                    className={`w-full text-left p-4 rounded-lg transition-all ${
+                      selectedTemplate?.id === t.id
+                        ? 'bg-primary-50 border-2 border-primary-300'
+                        : 'bg-slate-50 border-2 border-transparent hover:border-slate-200'
+                    }`}
+                  >
+                    <h4 className="font-medium text-slate-900 text-sm">{t.name}</h4>
+                    <p className="text-xs text-slate-500 mt-1">{t.category}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column - Template Preview with Copy Buttons */}
+          <div className="lg:col-span-6">
             {selectedTemplate ? (
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8">
-                <div className="mb-6">
-                  <h2 className="text-2xl font-bold text-slate-900 mb-2">{selectedTemplate.name}</h2>
-                  <p className="text-sm text-slate-500 uppercase tracking-wide">{selectedTemplate.category} Template</p>
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">{selectedTemplate.name}</h2>
+                    <p className="text-sm text-slate-500">{selectedTemplate.category} Template</p>
+                  </div>
+                  {selectedLead && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
+                      <p className="text-xs text-green-700">
+                        <span className="font-semibold">For:</span> {selectedLead.formData.fullName}
+                      </p>
+                    </div>
+                  )}
                 </div>
                 
-                <div className="space-y-6">
+                {!selectedLead && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+                    <p className="text-sm text-amber-800">
+                      <strong>Tip:</strong> Select a lead from the left to auto-fill template variables
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-5">
+                  {/* Email To */}
+                  {selectedLead && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Recipient Email</label>
+                        <button
+                          onClick={() => copyToClipboard(selectedLead.formData.email, 'email')}
+                          className="flex items-center gap-1.5 text-xs font-medium text-primary-600 hover:text-primary-700"
+                        >
+                          {copiedField === 'email' ? (
+                            <>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              Copied!
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                              </svg>
+                              Copy
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                        <p className="text-sm text-slate-900">{selectedLead.formData.email}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Subject Line */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Subject Line</label>
-                    <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
-                      <p className="text-sm font-medium text-slate-900">{selectedTemplate.subject}</p>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Subject Line</label>
+                      <button
+                        onClick={() => copyToClipboard(getProcessedContent(selectedTemplate.subject), 'subject')}
+                        className="flex items-center gap-1.5 text-xs font-medium text-primary-600 hover:text-primary-700"
+                      >
+                        {copiedField === 'subject' ? (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            Copy
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                      <p className="text-sm font-medium text-slate-900">{getProcessedContent(selectedTemplate.subject)}</p>
                     </div>
                   </div>
                   
+                  {/* Message Body */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Message Body</label>
-                    <div className="bg-slate-50 rounded-lg p-6 border border-slate-200 max-h-96 overflow-y-auto">
-                      <pre className="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">{selectedTemplate.body}</pre>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Message Body</label>
+                      <button
+                        onClick={() => copyToClipboard(getProcessedContent(selectedTemplate.body), 'body')}
+                        className="flex items-center gap-1.5 text-xs font-medium text-primary-600 hover:text-primary-700"
+                      >
+                        {copiedField === 'body' ? (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            Copy
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 max-h-80 overflow-y-auto">
+                      <pre className="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">{getProcessedContent(selectedTemplate.body)}</pre>
                     </div>
                   </div>
 
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <p className="text-xs text-blue-800">
-                      <strong>Available variables:</strong> {'{'}name{'}'}, {'{'}vehicle{'}'}, {'{'}budget{'}'}, {'{'}credit{'}'}, {'{'}urgency{'}'}
-                    </p>
-                  </div>
+                  {/* Copy All Button */}
+                  <button
+                    onClick={() => {
+                      const fullContent = `To: ${selectedLead?.formData.email || '[select a lead]'}\nSubject: ${getProcessedContent(selectedTemplate.subject)}\n\n${getProcessedContent(selectedTemplate.body)}`;
+                      copyToClipboard(fullContent, 'all');
+                    }}
+                    className="w-full py-3 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 transition-colors flex items-center justify-center gap-2"
+                  >
+                    {copiedField === 'all' ? (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Copied Everything!
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Copy All (Email + Subject + Body)
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
             ) : (
-              <div className="bg-slate-50 rounded-xl border-2 border-dashed border-slate-300 p-20 text-center">
-                <svg className="w-16 h-16 text-slate-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="bg-slate-50 rounded-xl border-2 border-dashed border-slate-300 p-16 text-center h-full flex flex-col items-center justify-center">
+                <svg className="w-16 h-16 text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
-                <p className="text-slate-500">Select a template to preview</p>
+                <p className="text-slate-500 mb-2">Select a template to preview</p>
+                <p className="text-xs text-slate-400">Then copy content to use in your email client</p>
               </div>
             )}
           </div>
@@ -1930,7 +2073,7 @@ function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefre
   );
 }
 
-function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClose, onSendEmail, onLogInteraction }: any) {
+function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClose, onLogInteraction }: any) {
   const { formData } = lead;
   const [notes, setNotes] = useState(lead.notes || '');
   const [deadReason, setDeadReason] = useState(lead.deadReason || '');
@@ -2001,7 +2144,6 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClos
           <a href={`tel:${formData.phone}`}>
             <Button size="md">Call</Button>
           </a>
-          <Button size="md" variant="secondary" onClick={onSendEmail}>Email</Button>
           <Button size="md" variant="ghost" onClick={onClose}>Close</Button>
         </div>
       </div>
@@ -2018,6 +2160,22 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClos
               <span className="text-slate-500">Email</span>
               <span className="font-semibold text-slate-900 truncate ml-4">{formData.email}</span>
             </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Date of Birth</span>
+              <span className="font-semibold text-slate-900">{formData.dateOfBirth || 'Not provided'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Credit Rating</span>
+              <span className="font-semibold text-slate-900 capitalize">{formData.creditRating || 'N/A'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Best Time to Reach</span>
+              <span className="font-semibold text-slate-900 capitalize">{formData.bestTimeToReach || 'Not specified'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">License Class</span>
+              <span className="font-semibold text-slate-900 uppercase">{formData.licenseClass || 'Not specified'}</span>
+            </div>
           </div>
         </div>
         <div className="bg-slate-50 rounded-lg p-6">
@@ -2028,11 +2186,85 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClos
               <span className="font-semibold text-slate-900 capitalize">{formData.vehicleType}</span>
             </div>
             <div className="flex justify-between">
+              <span className="text-slate-500">Payment Type</span>
+              <span className="font-semibold text-slate-900 capitalize">{formData.paymentType}</span>
+            </div>
+            <div className="flex justify-between">
               <span className="text-slate-500">Budget</span>
               <span className="font-semibold text-slate-900">{formData.paymentType === 'finance' ? formData.financeBudget : formData.cashBudget}</span>
             </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">How Soon</span>
+              <span className="font-semibold text-slate-900 capitalize">{formData.urgency?.replace(/-/g, ' ') || 'Not specified'}</span>
+            </div>
           </div>
         </div>
+      </div>
+
+      {/* Cosigner Information */}
+      <div className="bg-slate-50 rounded-lg p-6 mb-8">
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-4">Cosigner Information</h3>
+        {formData.cosigner === 'yes' ? (
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Has Cosigner</span>
+              <span className="font-semibold text-green-600">Yes</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Full Name</span>
+              <span className="font-semibold text-slate-900">{formData.cosignerFullName || 'Not provided'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Phone</span>
+              <span className="font-semibold text-slate-900">{formData.cosignerPhone || 'Not provided'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Email</span>
+              <span className="font-semibold text-slate-900">{formData.cosignerEmail || 'Not provided'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Date of Birth</span>
+              <span className="font-semibold text-slate-900">{formData.cosignerDateOfBirth || 'Not provided'}</span>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">No cosigner</p>
+        )}
+      </div>
+
+      {/* Trade In Information */}
+      <div className="bg-slate-50 rounded-lg p-6 mb-8">
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-4">Trade In Information</h3>
+        {formData.tradeIn === 'yes' || formData.tradeIn === 'unsure' ? (
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Has Trade-In</span>
+              <span className="font-semibold text-slate-900 capitalize">{formData.tradeIn}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Year</span>
+              <span className="font-semibold text-slate-900">{formData.tradeInYear || 'Not provided'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Make</span>
+              <span className="font-semibold text-slate-900">{formData.tradeInMake || 'Not provided'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Model</span>
+              <span className="font-semibold text-slate-900">{formData.tradeInModel || 'Not provided'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Mileage</span>
+              <span className="font-semibold text-slate-900">{formData.tradeInMileage || 'Not provided'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">VIN</span>
+              <span className="font-semibold text-slate-900">{formData.tradeInVin || 'Not provided'}</span>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">No trade-in</p>
+        )}
       </div>
 
       {licenseUrl && (
@@ -2177,100 +2409,4 @@ function LeadDetailPopup({ lead, licenseUrl, onStatusChange, onSaveNotes, onClos
   );
 }
 
-function EmailComposer({ lead, templates, onClose }: { lead: Lead; templates: EmailTemplate[]; onClose: () => void }) {
-  const [templateId, setTemplateId] = useState('');
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
-
-  const applyTemplate = (id: string) => {
-    const t = templates.find(t => t.id === id);
-    if (t) {
-      const formattedVehicle = lead.formData.vehicleType || 'vehicle';
-      const formattedBudget = lead.formData.paymentType === 'finance'
-        ? (lead.formData.financeBudget || '[budget not specified]')
-        : (lead.formData.cashBudget || '[budget not specified]');
-      const formattedCredit = lead.formData.creditRating || '[not provided]';
-      const formattedUrgency = lead.formData.urgency || '[timing not specified]';
-      
-      const vars: Record<string, string> = {
-        '{{name}}': lead.formData.fullName || '[name]',
-        '{{vehicle}}': formattedVehicle,
-        '{{budget}}': formattedBudget,
-        '{{credit}}': formattedCredit,
-        '{{urgency}}': formattedUrgency,
-      };
-      
-      let s = t.subject, b = t.body;
-      Object.entries(vars).forEach(([k, v]) => {
-        const pattern = new RegExp(k.replace(/[{}]/g, '\\$&'), 'g');
-        s = s.replace(pattern, v);
-        b = b.replace(pattern, v);
-      });
-      setSubject(s);
-      setBody(b);
-    }
-    setTemplateId(id);
-  };
-
-  const send = async () => {
-    if (!subject || !body) return;
-    setSending(true);
-    try {
-      const res = await fetch('/api/admin/send-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ toEmail: lead.formData.email, toName: lead.formData.fullName, subject, body, leadId: lead.id }),
-      });
-      if (res.ok) setSent(true);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  if (sent) return (
-    <div className="text-center py-16">
-      <svg className="w-20 h-20 text-green-500 mx-auto mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-      <h3 className="text-2xl font-bold text-slate-900 mb-3">Email Sent Successfully</h3>
-      <p className="text-base text-slate-600 mb-8">Your message has been delivered to the lead.</p>
-      <Button size="md" onClick={onClose}>Close</Button>
-    </div>
-  );
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-slate-50 rounded-lg p-5">
-        <p className="text-sm">
-          <span className="text-slate-500">To:</span> <strong className="text-slate-900">{lead.formData.fullName}</strong> <span className="text-slate-400">({lead.formData.email})</span>
-        </p>
-      </div>
-      <Select
-        label="Email Template"
-        options={[{ value: '', label: 'Choose a template...' }, ...templates.map((t: EmailTemplate) => ({ value: t.id, label: t.name }))]}
-        value={templateId}
-        onChange={(e) => applyTemplate(e.target.value)}
-      />
-      <Input label="Subject Line" value={subject} onChange={(e) => setSubject(e.target.value)} />
-      <div>
-        <label className="block text-sm font-semibold text-slate-700 mb-3">Message Body</label>
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={12}
-          className="w-full p-4 rounded-lg border border-slate-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-100 outline-none resize-none text-sm"
-          placeholder="Type your message here..."
-        />
-      </div>
-      <div className="flex gap-3 justify-end pt-2">
-        <Button size="md" variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button size="md" onClick={send} isLoading={sending} disabled={!subject || !body}>Send Email</Button>
-      </div>
-    </div>
-  );
-}
 

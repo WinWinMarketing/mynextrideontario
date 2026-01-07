@@ -48,6 +48,7 @@ export const tradeInOptions = [
 ] as const;
 
 export const bestTimeOptions = [
+  { value: 'anytime', label: 'Anytime' },
   { value: 'morning', label: 'Morning' },
   { value: 'noon', label: 'Noon' },
   { value: 'afternoon', label: 'Afternoon' },
@@ -107,7 +108,7 @@ export const leadApplicationSchema = z.object({
   dateOfBirth: z.string().min(1, 'Date of birth is required'),
   
   // Contact preference
-  bestTimeToReach: z.enum(['morning', 'noon', 'afternoon', 'evening'], {
+  bestTimeToReach: z.enum(['anytime', 'morning', 'noon', 'afternoon', 'evening'], {
     required_error: 'Please select the best time to reach you',
   }),
   

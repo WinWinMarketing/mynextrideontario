@@ -1,10 +1,14 @@
 // Configuration - uses environment variables for sensitive credentials
 
 export const config = {
-  // Admin credentials (server-side only)
+  // Admin credentials (server-side only - use env vars for security)
   admin: {
-    password: 'WINWIN04',
-    sessionSecret: 'mynextrideontario-session-secret-2024-secure-key',
+    get password() { 
+      return process.env.ADMIN_PASSWORD || 'WINWIN04'; 
+    },
+    get sessionSecret() { 
+      return process.env.SESSION_SECRET || 'mynextrideontario-session-secret-2024-secure-key-' + (process.env.VERCEL_ENV || 'dev'); 
+    },
   },
   
   // Default email settings
