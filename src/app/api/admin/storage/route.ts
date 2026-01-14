@@ -14,8 +14,9 @@ function getS3Client(): S3Client {
   });
 }
 
-// Storage limit - 2GB for a whole year of leads (generous for a small business)
-const STORAGE_LIMIT_MB = 2048; // 2GB
+// Storage limit - 5GB for 2+ years of leads (generous for a small business)
+// Average lead with license image ~500KB, 5GB = ~10,000 leads capacity
+const STORAGE_LIMIT_MB = 5120; // 5GB
 
 export async function GET() {
   // Check auth

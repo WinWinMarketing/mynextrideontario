@@ -15,7 +15,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://winwinmarketingtesting2.com'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://mynextrideontario.ca'),
   title: {
     default: 'My Next Ride Ontario | Find Your Perfect Vehicle',
     template: '%s | My Next Ride Ontario',

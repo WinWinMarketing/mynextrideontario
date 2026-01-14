@@ -1413,10 +1413,24 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
   );
 }
 
-function TemplatesView({ templates, leads }: { templates: EmailTemplate[]; leads: Lead[] }) {
+function TemplatesView({ templates: initialTemplates, leads }: { templates: EmailTemplate[]; leads: Lead[] }) {
+  const [templates, setTemplates] = useState<EmailTemplate[]>(initialTemplates);
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
+  const [newTemplate, setNewTemplate] = useState({ name: '', subject: '', body: '', category: 'custom' as const });
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Fetch templates on mount
+  useEffect(() => {
+    fetch('/api/admin/templates')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => data?.templates && setTemplates(data.templates))
+      .catch(() => {});
+  }, []);
 
   // Get the processed template content with variables replaced
   const getProcessedContent = (content: string) => {
@@ -1455,6 +1469,69 @@ function TemplatesView({ templates, leads }: { templates: EmailTemplate[]; leads
     }
   };
 
+  const handleCreateTemplate = async () => {
+    if (!newTemplate.name || !newTemplate.subject || !newTemplate.body) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch('/api/admin/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newTemplate),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(prev => [...prev, data.template]);
+        setShowCreateModal(false);
+        setNewTemplate({ name: '', subject: '', body: '', category: 'custom' });
+      }
+    } catch (e) {
+      console.error('Error creating template:', e);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUpdateTemplate = async () => {
+    if (!editingTemplate) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch('/api/admin/templates', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingTemplate.id,
+          name: editingTemplate.name,
+          subject: editingTemplate.subject,
+          body: editingTemplate.body,
+          category: editingTemplate.category,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(prev => prev.map(t => t.id === data.template.id ? data.template : t));
+        setShowEditModal(false);
+        setEditingTemplate(null);
+      }
+    } catch (e) {
+      console.error('Error updating template:', e);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this template?')) return;
+    try {
+      const res = await fetch(`/api/admin/templates?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setTemplates(prev => prev.filter(t => t.id !== id));
+        if (selectedTemplate?.id === id) setSelectedTemplate(null);
+      }
+    } catch (e) {
+      console.error('Error deleting template:', e);
+    }
+  };
+
   // Sort leads by date (most recent first)
   const recentLeads = [...leads].sort((a, b) => 
     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -1463,9 +1540,20 @@ function TemplatesView({ templates, leads }: { templates: EmailTemplate[]; leads
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="p-10">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-10">
-          <h1 className="text-3xl font-bold text-slate-800 mb-3">Email Templates</h1>
-          <p className="text-base text-slate-600">Select a lead and template to generate copy-ready email content</p>
+        <div className="flex items-center justify-between mb-10">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-800 mb-3">Email Templates</h1>
+            <p className="text-base text-slate-600">Select a lead and template to generate copy-ready email content</p>
+          </div>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Template
+          </button>
         </div>
 
         <div className="grid lg:grid-cols-12 gap-6">
@@ -1500,20 +1588,53 @@ function TemplatesView({ templates, leads }: { templates: EmailTemplate[]; leads
           <div className="lg:col-span-3">
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
               <h3 className="text-sm font-semibold text-slate-700 mb-4">Email Templates</h3>
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-[600px] overflow-y-auto">
                 {templates.map(t => (
-                  <button
+                  <div
                     key={t.id}
-                    onClick={() => setSelectedTemplate(t)}
-                    className={`w-full text-left p-4 rounded-lg transition-all ${
+                    className={`relative group rounded-lg transition-all ${
                       selectedTemplate?.id === t.id
                         ? 'bg-primary-50 border-2 border-primary-300'
                         : 'bg-slate-50 border-2 border-transparent hover:border-slate-200'
                     }`}
                   >
-                    <h4 className="font-medium text-slate-900 text-sm">{t.name}</h4>
-                    <p className="text-xs text-slate-500 mt-1">{t.category}</p>
-                  </button>
+                    <button
+                      onClick={() => setSelectedTemplate(t)}
+                      className="w-full text-left p-4"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-medium text-slate-900 text-sm truncate">{t.name}</h4>
+                          <p className="text-xs text-slate-500 mt-1">{t.category}</p>
+                        </div>
+                        {t.isDefault && (
+                          <span className="ml-2 text-[10px] font-medium bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">Default</span>
+                        )}
+                      </div>
+                    </button>
+                    {!t.isDefault && (
+                      <div className="absolute top-2 right-2 hidden group-hover:flex gap-1">
+                        <button
+                          onClick={() => { setEditingTemplate(t); setShowEditModal(true); }}
+                          className="p-1 bg-white rounded shadow hover:bg-slate-50"
+                          title="Edit"
+                        >
+                          <svg className="w-3.5 h-3.5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTemplate(t.id)}
+                          className="p-1 bg-white rounded shadow hover:bg-red-50"
+                          title="Delete"
+                        >
+                          <svg className="w-3.5 h-3.5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -1638,27 +1759,24 @@ function TemplatesView({ templates, leads }: { templates: EmailTemplate[]; leads
                     </div>
                   </div>
 
-                  {/* Copy All Button */}
+                  {/* Copy Body Only Button (for pasting into Gmail/Outlook) */}
                   <button
-                    onClick={() => {
-                      const fullContent = `To: ${selectedLead?.formData.email || '[select a lead]'}\nSubject: ${getProcessedContent(selectedTemplate.subject)}\n\n${getProcessedContent(selectedTemplate.body)}`;
-                      copyToClipboard(fullContent, 'all');
-                    }}
+                    onClick={() => copyToClipboard(getProcessedContent(selectedTemplate.body), 'bodyOnly')}
                     className="w-full py-3 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 transition-colors flex items-center justify-center gap-2"
                   >
-                    {copiedField === 'all' ? (
+                    {copiedField === 'bodyOnly' ? (
                       <>
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                        Copied Everything!
+                        Copied Body!
                       </>
                     ) : (
                       <>
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
-                        Copy All (Email + Subject + Body)
+                        Copy Body (Paste into Email)
                       </>
                     )}
                   </button>
@@ -1676,6 +1794,137 @@ function TemplatesView({ templates, leads }: { templates: EmailTemplate[]; leads
           </div>
         </div>
       </div>
+
+      {/* Create Template Modal */}
+      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create New Template" size="lg">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Template Name</label>
+            <input
+              type="text"
+              value={newTemplate.name}
+              onChange={(e) => setNewTemplate(prev => ({ ...prev, name: e.target.value }))}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              placeholder="e.g., Custom Follow Up"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
+            <select
+              value={newTemplate.category}
+              onChange={(e) => setNewTemplate(prev => ({ ...prev, category: e.target.value as any }))}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="follow-up">Follow Up</option>
+              <option value="approval">Approval</option>
+              <option value="reminder">Reminder</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Subject Line</label>
+            <input
+              type="text"
+              value={newTemplate.subject}
+              onChange={(e) => setNewTemplate(prev => ({ ...prev, subject: e.target.value }))}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              placeholder="Use {{name}}, {{vehicle}}, {{budget}}, {{credit}}, {{urgency}} for variables"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Message Body</label>
+            <textarea
+              value={newTemplate.body}
+              onChange={(e) => setNewTemplate(prev => ({ ...prev, body: e.target.value }))}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 min-h-[200px]"
+              placeholder="Write your email template here..."
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Variables: {`{{name}}`}, {`{{vehicle}}`}, {`{{budget}}`}, {`{{credit}}`}, {`{{urgency}}`}
+            </p>
+          </div>
+          <div className="flex gap-3 pt-4">
+            <button
+              onClick={() => setShowCreateModal(false)}
+              className="flex-1 py-2 border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreateTemplate}
+              disabled={isSaving || !newTemplate.name || !newTemplate.subject || !newTemplate.body}
+              className="flex-1 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSaving ? 'Creating...' : 'Create Template'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Template Modal */}
+      <Modal isOpen={showEditModal} onClose={() => { setShowEditModal(false); setEditingTemplate(null); }} title="Edit Template" size="lg">
+        {editingTemplate && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Template Name</label>
+              <input
+                type="text"
+                value={editingTemplate.name}
+                onChange={(e) => setEditingTemplate(prev => prev ? { ...prev, name: e.target.value } : null)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
+              <select
+                value={editingTemplate.category}
+                onChange={(e) => setEditingTemplate(prev => prev ? { ...prev, category: e.target.value as any } : null)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="follow-up">Follow Up</option>
+                <option value="approval">Approval</option>
+                <option value="reminder">Reminder</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Subject Line</label>
+              <input
+                type="text"
+                value={editingTemplate.subject}
+                onChange={(e) => setEditingTemplate(prev => prev ? { ...prev, subject: e.target.value } : null)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Message Body</label>
+              <textarea
+                value={editingTemplate.body}
+                onChange={(e) => setEditingTemplate(prev => prev ? { ...prev, body: e.target.value } : null)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 min-h-[200px]"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Variables: {`{{name}}`}, {`{{vehicle}}`}, {`{{budget}}`}, {`{{credit}}`}, {`{{urgency}}`}
+              </p>
+            </div>
+            <div className="flex gap-3 pt-4">
+              <button
+                onClick={() => { setShowEditModal(false); setEditingTemplate(null); }}
+                className="flex-1 py-2 border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateTemplate}
+                disabled={isSaving}
+                className="flex-1 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50"
+              >
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </motion.div>
   );
 }
@@ -1725,7 +1974,7 @@ function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefre
       // Create CSV content with BOM for Excel compatibility
       const BOM = '\uFEFF';
       const headers = [
-        'ID', 'Created At', 'Full Name', 'Email', 'Phone', 'City',
+        'ID', 'Created At', 'Full Name', 'Email', 'Phone',
         'Vehicle Type', 'Payment Type', 'Budget', 'Credit Rating',
         'Trade-In', 'Trade-In Details', 'Urgency', 'Status', 
         'Dead Reason', 'Notes', 'Interactions Count'
@@ -1737,13 +1986,12 @@ function SettingsView({ leads, storageInfo, selectedYear, selectedMonth, onRefre
         lead.formData.fullName,
         lead.formData.email,
         lead.formData.phone,
-        lead.formData.city,
         lead.formData.vehicleType,
         lead.formData.paymentType,
         lead.formData.paymentType === 'finance' ? lead.formData.financeBudget : lead.formData.cashBudget,
         lead.formData.creditRating || 'N/A',
-        lead.formData.hasTrade ? 'Yes' : 'No',
-        lead.formData.hasTrade ? `${lead.formData.tradeYear || ''} ${lead.formData.tradeMake || ''} ${lead.formData.tradeModel || ''}`.trim() : 'N/A',
+        lead.formData.tradeIn === 'yes' ? 'Yes' : lead.formData.tradeIn === 'unsure' ? 'Unsure' : 'No',
+        (lead.formData.tradeIn === 'yes' || lead.formData.tradeIn === 'unsure') ? `${lead.formData.tradeInYear || ''} ${lead.formData.tradeInMake || ''} ${lead.formData.tradeInModel || ''}`.trim() : 'N/A',
         lead.formData.urgency,
         lead.status,
         lead.deadReason || '',

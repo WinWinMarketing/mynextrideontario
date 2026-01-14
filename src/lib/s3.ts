@@ -9,6 +9,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Lead, LeadStatus, DeadReason, ShowcaseVehicle, MAX_SHOWCASE_VEHICLES, LeadInteractionType, LeadInteraction, LeadStatusChange } from './validation';
 import { generateId, getMonthYearKey } from './utils';
 import { config, SETTINGS_KEY, SHOWCASE_SETTINGS_KEY, EmailSettings, ShowcaseSettings, defaultEmailSettings, defaultShowcaseSettings } from './config';
+import { EmailTemplate, DEFAULT_TEMPLATES } from './email';
 
 // Initialize S3 client with environment variables
 function getS3Client(): S3Client {
@@ -552,4 +553,102 @@ export async function saveShowcaseSettings(settings: ShowcaseSettings): Promise<
     Body: JSON.stringify(settings, null, 2),
     ContentType: 'application/json',
   }));
+}
+
+// ============ EMAIL TEMPLATES ============
+
+const EMAIL_TEMPLATES_KEY = 'settings/email-templates.json';
+
+// Get custom email templates from S3 (combined with defaults)
+export async function getEmailTemplates(): Promise<EmailTemplate[]> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  
+  try {
+    const result = await s3.send(new GetObjectCommand({
+      Bucket: bucket,
+      Key: EMAIL_TEMPLATES_KEY,
+    }));
+    
+    const body = await result.Body?.transformToString();
+    if (body) {
+      const customTemplates = JSON.parse(body) as EmailTemplate[];
+      // Merge defaults with custom templates (custom templates can override defaults)
+      const defaultIds = DEFAULT_TEMPLATES.map(t => t.id);
+      const customOnly = customTemplates.filter(t => !defaultIds.includes(t.id) || !t.isDefault);
+      return [...DEFAULT_TEMPLATES, ...customOnly];
+    }
+  } catch {
+    console.log('No custom email templates found, using defaults');
+  }
+  
+  return DEFAULT_TEMPLATES;
+}
+
+// Save custom email templates to S3
+export async function saveEmailTemplates(templates: EmailTemplate[]): Promise<void> {
+  const s3 = getS3Client();
+  const bucket = getBucketName();
+  
+  // Only save non-default templates
+  const customTemplates = templates.filter(t => !t.isDefault);
+  
+  await s3.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: EMAIL_TEMPLATES_KEY,
+    Body: JSON.stringify(customTemplates, null, 2),
+    ContentType: 'application/json',
+  }));
+}
+
+// Add a new custom email template
+export async function addEmailTemplate(template: Omit<EmailTemplate, 'id' | 'createdAt' | 'isDefault'>): Promise<EmailTemplate> {
+  const templates = await getEmailTemplates();
+  
+  const newTemplate: EmailTemplate = {
+    ...template,
+    id: generateId(),
+    createdAt: new Date().toISOString(),
+    isDefault: false,
+  };
+  
+  // Only save non-default templates
+  const customTemplates = templates.filter(t => !t.isDefault);
+  customTemplates.push(newTemplate);
+  await saveEmailTemplates(customTemplates);
+  
+  return newTemplate;
+}
+
+// Update an email template
+export async function updateEmailTemplate(id: string, updates: Partial<EmailTemplate>): Promise<EmailTemplate | null> {
+  const templates = await getEmailTemplates();
+  const index = templates.findIndex(t => t.id === id);
+  
+  if (index === -1) return null;
+  
+  const template = templates[index];
+  if (template.isDefault) {
+    // Can't edit default templates, but we can create a custom override
+    return null;
+  }
+  
+  const updatedTemplate = { ...template, ...updates };
+  templates[index] = updatedTemplate;
+  
+  await saveEmailTemplates(templates);
+  return updatedTemplate;
+}
+
+// Delete a custom email template
+export async function deleteEmailTemplate(id: string): Promise<boolean> {
+  const templates = await getEmailTemplates();
+  const template = templates.find(t => t.id === id);
+  
+  if (!template || template.isDefault) return false;
+  
+  const customTemplates = templates.filter(t => !t.isDefault && t.id !== id);
+  await saveEmailTemplates(customTemplates);
+  
+  return true;
 }
