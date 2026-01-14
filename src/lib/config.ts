@@ -7,7 +7,7 @@ export const config = {
       return process.env.ADMIN_PASSWORD || 'WINWIN04'; 
     },
     get sessionSecret() { 
-      return process.env.SESSION_SECRET || 'mynextrideontario-session-secret-2024-secure-key-' + (process.env.VERCEL_ENV || 'dev'); 
+      return process.env.SESSION_SECRET || 'mynextrideontario-session-secret-2024-secure-key-dev'; 
     },
   },
   
