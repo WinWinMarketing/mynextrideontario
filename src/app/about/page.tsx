@@ -66,7 +66,7 @@ export default function AboutPage() {
                   through our extensive network of dealers and lenders to find options that actually work for you.
                 </p>
                 <p>
-                  With access to 17 different lenders—from prime to non-prime—we can help almost anyone 
+                  With access to 17 different lenders, from prime to non-prime, we can help almost anyone 
                   get into the vehicle they need. It&apos;s not about pushing inventory; it&apos;s about finding your perfect match.
                 </p>
               </div>
@@ -172,7 +172,7 @@ export default function AboutPage() {
               Ready to Find Your Next Ride?
             </h2>
             <p className="text-primary-100/80 text-lg mb-8">
-              Let us help you get into the vehicle you need. No pressure, no obligation—just honest help.
+              Let us help you get into the vehicle you need. No pressure, no obligation, just honest help.
             </p>
             <Link href="/apply">
               <Button size="lg" variant="accent" className="px-10 py-5 text-lg">

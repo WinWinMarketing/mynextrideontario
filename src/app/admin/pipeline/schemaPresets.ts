@@ -949,7 +949,7 @@ const coldOutboundCompliance = (() => {
     icon: '💬',
     color: 'yellow',
     statusId: 'working',
-    guidance: guidance('Engaged', 'They replied or clicked — route to qualification.'),
+    guidance: guidance('Engaged', 'They replied or clicked, route to qualification.'),
   });
 
   const actionQualify = actionNode({

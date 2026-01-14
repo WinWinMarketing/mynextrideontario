@@ -141,7 +141,7 @@ export function ServiceArea() {
             <div>
               <h4 className="font-bold text-slate-900 mb-1">Outside Our Service Area?</h4>
               <p className="text-sm text-slate-600 leading-relaxed">
-                Don't worry! Contact us anyway—we can often still help connect you with the right vehicle and financing options.
+                Do not worry! Contact us anyway, we can often still help connect you with the right vehicle and financing options.
               </p>
             </div>
           </div>

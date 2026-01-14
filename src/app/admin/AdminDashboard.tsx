@@ -1094,7 +1094,7 @@ function AnalyticsView({ leads, rangeMonths, grouping, onRangeChange, onGrouping
               </span>
             </div>
             <div className="text-2xl font-bold text-slate-900 mt-2">
-              {avgResponseHours ? `${avgResponseHours} hrs` : '—'}
+              {avgResponseHours ? `${avgResponseHours} hrs` : 'N/A'}
             </div>
             <p className="text-xs text-slate-400 mt-1">First contact time</p>
           </div>

@@ -140,7 +140,7 @@ export default function ContactPage() {
               },
               {
                 q: 'What credit score do I need?',
-                a: 'We work with all credit types—excellent, good, fair, and poor. With 17 different lenders in our network, we can find options for almost anyone.',
+                a: 'We work with all credit types: excellent, good, fair, and poor. With 17 different lenders in our network, we can find options for almost anyone.',
               },
               {
                 q: 'Is there a fee for your service?',

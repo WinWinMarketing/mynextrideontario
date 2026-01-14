@@ -76,7 +76,7 @@ export default function HomePage() {
                 variants={fadeInUp}
                 className="text-lg md:text-xl text-primary-100/80 mb-10 max-w-2xl mx-auto leading-relaxed"
               >
-                We don&apos;t show inventory—we find <strong className="text-white">your perfect match</strong>. 
+                We do not show inventory, we find <strong className="text-white">your perfect match</strong>. 
                 Fill out our quick application and we&apos;ll connect you with the right 
                 vehicle and financing from our network of dealers and lenders.
               </motion.p>
@@ -343,7 +343,7 @@ export default function HomePage() {
               </h2>
               <p className="text-slate-600 text-xl max-w-3xl mx-auto leading-relaxed">
                 We proudly serve the Greater Toronto Area and surrounding regions.
-                <strong className="text-slate-900 block mt-4">Contact us even if you're outside our main zone—we can often still help!</strong>
+                <strong className="text-slate-900 block mt-4">Contact us even if you are outside our main zone, we can often still help!</strong>
               </p>
             </motion.div>
 
