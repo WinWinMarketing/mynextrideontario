@@ -286,9 +286,9 @@ export const DEFAULT_TEMPLATES: EmailTemplate[] = [
     body: `Thank you for reaching out about your vehicle needs! I wanted to personally follow up on your application.
 
 Based on your preferences:
-- Vehicle: {{vehicle}}
-- Budget: {{budget}}
-- Timeline: {{urgency}}
+• Vehicle: {{vehicle}}
+• Budget: {{budget}}
+• Timeline: {{urgency}}
 
 I have several options that might be perfect for you. When would be a good time to chat?
 
@@ -304,9 +304,9 @@ Looking forward to connecting with you!`,
     body: `Great news! After reviewing your application, I am pleased to let you know that we have financing options available for you.
 
 Your Application Details:
-- Desired Vehicle: {{vehicle}}
-- Budget: {{budget}}
-- Credit Profile: {{credit}}
+• Desired Vehicle: {{vehicle}}
+• Budget: {{budget}}
+• Credit Profile: {{credit}}
 
 Let us schedule a time to discuss the next steps and get you into your new ride!
 
@@ -316,7 +316,7 @@ What time works best for a quick call?`,
   {
     id: 'reminder-24h',
     name: 'Gentle Reminder (24 Hours)',
-    subject: 'Quick follow up - {{name}}',
+    subject: 'Quick follow up, {{name}}',
     category: 'reminder',
     isDefault: true,
     body: `Hi {{name}},
@@ -330,7 +330,7 @@ Just reply to this email or give me a call whenever you are ready!`,
   },
   {
     id: 'reminder-week',
-    name: 'Weekly Check-In',
+    name: 'Weekly Check In',
     subject: 'Still thinking about your next vehicle, {{name}}?',
     category: 'reminder',
     isDefault: true,
@@ -346,7 +346,7 @@ Feel free to reach out anytime.`,
   {
     id: 'circle-back',
     name: 'Circle Back',
-    subject: 'Checking in - {{name}}',
+    subject: 'Checking in, {{name}}',
     category: 'reminder',
     isDefault: true,
     body: `Hi {{name}},
@@ -355,12 +355,12 @@ I am circling back on your vehicle application. I understand life gets busy and 
 
 If your situation has changed or you have any questions, I am just an email or phone call away.
 
-No pressure - just want to make sure you have all the support you need when you are ready!`,
+No pressure, just want to make sure you have all the support you need when you are ready!`,
     createdAt: new Date().toISOString(),
   },
   {
     id: 'thank-you',
-    name: 'Thank You (Post-Purchase)',
+    name: 'Thank You (Post Purchase)',
     subject: 'Thank you for choosing us, {{name}}!',
     category: 'custom',
     isDefault: true,
