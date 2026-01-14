@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { leadApplicationSchema } from '@/lib/validation';
 import { saveLead } from '@/lib/s3';
-import { sendLeadNotificationEmail } from '@/lib/email';
 import { checkRateLimit, getClientIP, rateLimiters } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
@@ -89,11 +88,6 @@ export async function POST(request: NextRequest) {
 
     // Save lead to S3
     const lead = await saveLead(formDataValidated, licenseFileData);
-
-    // Send admin notification email (non-blocking)
-    sendLeadNotificationEmail(lead).catch(err => {
-      console.error('Failed to send notification email:', err);
-    });
 
     return NextResponse.json(
       { 

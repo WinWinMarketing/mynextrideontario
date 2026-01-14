@@ -5,8 +5,8 @@
 # ===========================================
 # AWS CREDENTIALS (Required)
 # ===========================================
-AWS_ACCESS_KEY_ID=your_aws_access_key_here
-AWS_SECRET_ACCESS_KEY=your_aws_secret_key_here
+AWS_ACCESS_KEY_ID=your_access_key_here
+AWS_SECRET_ACCESS_KEY=your_secret_key_here
 AWS_REGION=us-east-1
 
 # ===========================================
@@ -16,15 +16,9 @@ LEADS_BUCKET_NAME=martin-leads
 AWS_S3_BUCKET=martin-leads
 
 # ===========================================
-# EMAIL / AWS SES (Required)
-# ===========================================
-SES_FROM_EMAIL=info@mynextrideontario.ca
-SES_TO_EMAIL=winwinmarketingcanada@gmail.com
-
-# ===========================================
 # ADMIN AUTH (Required - CHANGE IN PRODUCTION!)
 # ===========================================
-ADMIN_PASSWORD=WINWIN04
+ADMIN_PASSWORD=your_admin_password
 SESSION_SECRET=change-this-to-a-random-32-character-string
 
 # ===========================================
@@ -33,9 +27,3 @@ SESSION_SECRET=change-this-to-a-random-32-character-string
 NEXT_PUBLIC_SITE_URL=https://mynextrideontario.ca
 NEXT_PUBLIC_BASE_URL=https://mynextrideontario.ca
 NODE_ENV=production
-
-# ===========================================
-# OPTIONAL
-# ===========================================
-# NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_google_maps_api_key
-

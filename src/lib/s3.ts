@@ -8,7 +8,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Lead, LeadStatus, DeadReason, ShowcaseVehicle, MAX_SHOWCASE_VEHICLES, LeadInteractionType, LeadInteraction, LeadStatusChange } from './validation';
 import { generateId, getMonthYearKey } from './utils';
-import { config, SETTINGS_KEY, SHOWCASE_SETTINGS_KEY, EmailSettings, ShowcaseSettings, defaultEmailSettings, defaultShowcaseSettings } from './config';
+import { config, SHOWCASE_SETTINGS_KEY, ShowcaseSettings, defaultShowcaseSettings } from './config';
 import { EmailTemplate, DEFAULT_TEMPLATES } from './email';
 
 // Initialize S3 client with environment variables
@@ -26,9 +26,6 @@ function getBucketName(): string {
   return config.aws.bucketName;
 }
 
-const EMAIL_LOG_KEY = 'email-logs/events.json';
-const MAX_EMAIL_LOGS = 200;
-
 function normalizeLead(raw: Lead): Lead {
   return {
     ...raw,
@@ -37,42 +34,6 @@ function normalizeLead(raw: Lead): Lead {
     statusHistory: raw.statusHistory || [{ status: raw.status, changedAt: raw.createdAt } as LeadStatusChange],
     lastInteractionAt: raw.lastInteractionAt || raw.createdAt,
   };
-}
-
-// Get email settings from S3
-export async function getEmailSettings(): Promise<EmailSettings> {
-  const s3 = getS3Client();
-  const bucket = getBucketName();
-  
-  try {
-    const result = await s3.send(new GetObjectCommand({
-      Bucket: bucket,
-      Key: SETTINGS_KEY,
-    }));
-    
-    const body = await result.Body?.transformToString();
-    if (body) {
-      return JSON.parse(body) as EmailSettings;
-    }
-  } catch {
-    // Settings don't exist yet, return defaults
-    console.log('No email settings found, using defaults');
-  }
-  
-  return defaultEmailSettings;
-}
-
-// Save email settings to S3
-export async function saveEmailSettings(settings: EmailSettings): Promise<void> {
-  const s3 = getS3Client();
-  const bucket = getBucketName();
-  
-  await s3.send(new PutObjectCommand({
-    Bucket: bucket,
-    Key: SETTINGS_KEY,
-    Body: JSON.stringify(settings, null, 2),
-    ContentType: 'application/json',
-  }));
 }
 
 // Save a new lead
@@ -296,62 +257,6 @@ export async function updateLead(
     console.error('Error updating lead:', err);
     return null;
   }
-}
-
-export interface EmailLogEvent {
-  id: string;
-  to: string;
-  subject: string;
-  type: 'admin-notification' | 'client';
-  leadId?: string;
-  status: 'sent' | 'failed';
-  error?: string;
-  timestamp: string;
-}
-
-async function getEmailLogEvents(): Promise<EmailLogEvent[]> {
-  const s3 = getS3Client();
-  const bucket = getBucketName();
-
-  try {
-    const result = await s3.send(new GetObjectCommand({
-      Bucket: bucket,
-      Key: EMAIL_LOG_KEY,
-    }));
-
-    const body = await result.Body?.transformToString();
-    if (body) {
-      return JSON.parse(body) as EmailLogEvent[];
-    }
-  } catch {
-    // No log file yet
-  }
-
-  return [];
-}
-
-export async function addEmailLog(event: EmailLogEvent): Promise<void> {
-  const s3 = getS3Client();
-  const bucket = getBucketName();
-  const existing = await getEmailLogEvents();
-  const merged = [event, ...existing]
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, MAX_EMAIL_LOGS);
-
-  await s3.send(new PutObjectCommand({
-    Bucket: bucket,
-    Key: EMAIL_LOG_KEY,
-    Body: JSON.stringify(merged, null, 2),
-    ContentType: 'application/json',
-  }));
-}
-
-export async function getRecentEmailFailures(limit = 10): Promise<EmailLogEvent[]> {
-  const events = await getEmailLogEvents();
-  return events
-    .filter(e => e.status === 'failed')
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, limit);
 }
 
 // Generate a signed URL for viewing a driver's license

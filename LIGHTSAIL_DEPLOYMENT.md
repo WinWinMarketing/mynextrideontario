@@ -7,7 +7,6 @@ Deploy My Next Ride Ontario on AWS Lightsail with Node.js.
 - AWS Account with Lightsail access
 - Domain: mynextrideontario.ca (GoDaddy)
 - S3 bucket already configured (martin-leads)
-- AWS SES verified for email sending
 
 ## Step 1: Create Lightsail Instance
 
@@ -67,17 +66,13 @@ Paste these contents (replace with your actual values):
 
 ```
 # AWS CREDENTIALS
-AWS_ACCESS_KEY_ID=AKIAXXXXXXXXXXXXXXXXX
-AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
 AWS_REGION=us-east-1
 
 # S3 BUCKET
 LEADS_BUCKET_NAME=martin-leads
 AWS_S3_BUCKET=martin-leads
-
-# EMAIL / AWS SES
-SES_FROM_EMAIL=info@mynextrideontario.ca
-SES_TO_EMAIL=winwinmarketingcanada@gmail.com
 
 # ADMIN AUTH (CHANGE THESE!)
 ADMIN_PASSWORD=YourSecurePassword123!
@@ -252,7 +247,5 @@ curl http://localhost:3000
 - Lightsail Instance ($5-10/month)
 - Static IP (Free when attached)
 - S3 Storage (~$0.50/month for your usage)
-- SES Emails (~$0.10 per 1000 emails)
 
 **Total: ~$6-11/month**
-
